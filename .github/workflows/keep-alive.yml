@@ -1,0 +1,18 @@
+name: Keep-Alive DB Scheduled Ping
+
+on:
+  schedule:
+    # Run at 00:00 UTC every day
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual triggering from GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Production URL to Keep Database Alive
+        run: |
+          echo "Sending keep-alive ping request..."
+          curl -s -f -I "https://dtx-sangkha.pages.dev/" || echo "Warning: Primary page ping failed, trying API..."
+          curl -s -f "https://dtx-sangkha.pages.dev/api/health" || echo "Warning: API health check failed."
+          echo "Ping completed successfully!"
