@@ -473,7 +473,6 @@ export default function LandingPage({
             <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm" id="supply-form-container">
               <div className="border-b border-slate-100 pb-4 mb-5">
                 <h2 className="text-lg md:text-xl font-bold text-slate-800">ส่งคำขอเบิกอุปกรณ์และวัสดุ DTX</h2>
-                <p className="text-xs md:text-sm text-slate-400">สำหรับขอเบิกตัวเครื่องสำรอง แถบวัดน้ำตาล เข็มเจาะ น้ำยาควบคุม หรืออะไหล่ถ่านไปใช้งานในตึก</p>
               </div>
 
               <form onSubmit={handleSupplySubmit} className="space-y-4" id="supply-landing-form">

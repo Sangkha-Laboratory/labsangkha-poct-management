@@ -260,34 +260,34 @@ export default function App() {
               <div className="flex items-center space-x-4 mr-2 h-16">
                 <button
                   onClick={() => setActiveUserTab('repair')}
-                  className={`px-1 h-16 text-xs md:text-sm font-extrabold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                  className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                   id="header-tab-repair"
                 >
-                  <Wrench size={14} className="shrink-0" />
+                  <Wrench size={13} className="shrink-0" />
                   <span>แจ้งซ่อม (Repair)</span>
                 </button>
                 <button
                   onClick={() => setActiveUserTab('supply')}
-                  className={`px-1 h-16 text-xs md:text-sm font-extrabold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'supply' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                  className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'supply' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                   id="header-tab-supply"
                 >
-                  <Package size={14} className="shrink-0" />
+                  <Package size={13} className="shrink-0" />
                   <span>ขอเบิก (Request Supply)</span>
                 </button>
                 <button
                   onClick={() => setActiveUserTab('track')}
-                  className={`px-1 h-16 text-xs md:text-sm font-extrabold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'track' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                  className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'track' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                   id="header-tab-track"
                 >
-                  <Search size={14} className="shrink-0" />
+                  <Search size={13} className="shrink-0" />
                   <span>ติดตามสถานะ</span>
                 </button>
                 <button
                   onClick={() => setActiveUserTab('guide')}
-                  className={`px-1 h-16 text-xs md:text-sm font-extrabold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'guide' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                  className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'guide' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                   id="header-tab-guide"
                 >
-                  <BookOpen size={14} className="shrink-0" />
+                  <BookOpen size={13} className="shrink-0" />
                   <span>คู่มือ & เอกสาร</span>
                 </button>
               </div>

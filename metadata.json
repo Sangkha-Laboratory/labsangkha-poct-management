@@ -1,6 +1,0 @@
-{
-  "name": "Sangkha Hospital DTX Management",
-  "description": "ระบบบริหารจัดการเครื่องตรวจวัดน้ำตาลปลายนิ้ว (DTX) งานชันสูตรสาธารณสุข กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

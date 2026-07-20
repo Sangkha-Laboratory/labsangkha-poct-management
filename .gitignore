@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# AI Studio Configuration
+metadata.json
+firebase-applet-config.json
+firebase_applet_config.xml
+firebase-blueprint.json
+firestore.rules
