@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import CustomSelect from "./CustomSelect";
 import { RepairRequest } from '../types';
-import { INITIAL_WARDS } from '../mockData';
 import PrintForm from './PrintForm';
 import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck } from 'lucide-react';
+import { formatToThaiDate } from '../lib/dateUtils';
 
 interface RepairManagementProps {
   repairs: RepairRequest[];
@@ -19,6 +20,15 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterWard, setFilterWard] = useState('');
+  
+  const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/wards')
+      .then(res => res.json())
+      .then(setWards)
+      .catch(err => console.error('Failed to fetch wards:', err));
+  }, []);
 
   // Selected repair for editing or printing
   const [editingRepair, setEditingRepair] = useState<RepairRequest | null>(null);
@@ -27,7 +37,9 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
   // Edit form states
   const [editStatus, setEditStatus] = useState<RepairRequest['status']>('pending');
   const [editDiagnosed, setEditDiagnosed] = useState('');
+  const [editInspection, setEditInspection] = useState('');
   const [editAction, setEditAction] = useState<RepairRequest['actionTaken']>('none');
+  const [editActionDetails, setEditActionDetails] = useState('');
   const [editOperator, setEditOperator] = useState('');
   const [editReceiver, setEditReceiver] = useState('');
   
@@ -50,7 +62,9 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
     setEditingRepair(rep);
     setEditStatus(rep.status);
     setEditDiagnosed(rep.diagnosedProblem || '');
+    setEditInspection(rep.inspectionResult || '');
     setEditAction(rep.actionTaken || 'none');
+    setEditActionDetails(rep.actionDetails || '');
     setEditOperator(rep.operatorName || 'ทนพ. สมชาย ดีเลิศ');
     setEditReceiver(rep.receiverName || rep.reporterName);
 
@@ -75,8 +89,11 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
     const updated: RepairRequest = {
       ...editingRepair,
       status: editStatus,
+      requestDate: new Date().toISOString(),
       diagnosedProblem: editDiagnosed.trim(),
+      inspectionResult: editInspection.trim(),
       actionTaken: editAction,
+      actionDetails: editActionDetails.trim(),
       operatorName: editOperator.trim(),
       receiverName: editReceiver.trim(),
       completionDate: editStatus === 'completed' ? new Date().toISOString().split('T')[0] : undefined,
@@ -103,7 +120,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
     if (editStatus === 'completed') lineStatusText = 'ซ่อมบำรุงเสร็จสิ้น และทำ QC ผ่านเรียบร้อย พร้อมส่งคืนหน่วยงานแล้ว [เสร็จสิ้น]';
     
     if (lineStatusText) {
-      setSimLineMsg(`🔔 [อัปเดตสถานะแจ้งซ่อม] รหัสงาน: ${updated.id}\nเครื่อง: ${updated.serialNumber} (${updated.ward})\nสถานะ: ${lineStatusText}\nผู้ดำเนินการ: ${editOperator}`);
+      setSimLineMsg(`[อัปเดตสถานะแจ้งซ่อม] รหัสงาน: ${updated.id}\nเครื่อง: ${updated.serialNumber} (${updated.ward})\nสถานะ: ${lineStatusText}\nผู้ดำเนินการ: ${editOperator}`);
       setTimeout(() => setSimLineMsg(null), 8000);
     }
 
@@ -175,7 +192,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
         </div>
 
         <div>
-          <select
+          <CustomSelect
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
@@ -186,20 +203,20 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
             <option value="waiting_claim">รอส่งเคลมบริษัท</option>
             <option value="claimed">ส่งเคลมแล้ว</option>
             <option value="completed">เสร็จสิ้น/ส่งคืนวอร์ด (Completed)</option>
-          </select>
+          </CustomSelect>
         </div>
 
         <div>
-          <select
+          <CustomSelect
             value={filterWard}
             onChange={(e) => setFilterWard(e.target.value)}
             className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
           >
             <option value="">-- แผนกส่งซ่อมทั้งหมด --</option>
-            {INITIAL_WARDS.map((w, idx) => (
-              <option key={idx} value={w}>{w}</option>
+            {wards.map((w, idx) => (
+              <option key={idx} value={w.thai_name}>{w.thai_name}</option>
             ))}
-          </select>
+          </CustomSelect>
         </div>
       </div>
 
@@ -212,7 +229,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
               <th className="p-4">รหัสเครื่อง DTX</th>
               <th className="p-4">หน่วยงานที่ส่ง</th>
               <th className="p-4">อาการเสียตามแจ้ง</th>
-              <th className="p-4">วันที่แจ้ง</th>
+              <th className="p-4">วันที่อัปเดตล่าสุด</th>
               <th className="p-4">สถานะการดำเนินงาน</th>
               <th className="p-4 text-center">พิมพ์รายงาน/ดำเนินการ</th>
             </tr>
@@ -221,7 +238,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
             {filteredRepairs.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center p-8 text-slate-400">
-                  ไม่มีประวัติแจ้งซ่อมบำรุงที่ตรงเงื่อนไขการกรอง
+                  ยังไม่มีข้อมูลประวัติการแจ้งซ่อมบำรุง
                 </td>
               </tr>
             ) : (
@@ -240,7 +257,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                   <td className="p-4 text-slate-600 font-medium max-w-xs truncate" title={rep.reportedProblem}>
                     {rep.reportedProblem}
                   </td>
-                  <td className="p-4 text-slate-500">{rep.requestDate}</td>
+                  <td className="p-4 text-slate-500">{formatToThaiDate(rep.requestDate)}</td>
                   <td className="p-4">{getStatusBadge(rep.status)}</td>
                   <td className="p-4">
                     <div className="flex items-center justify-center space-x-2">
@@ -292,7 +309,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                 </div>
                 {editingRepair.needsBackup && (
                   <div className="bg-amber-600 text-white font-extrabold text-[10px] px-2 py-1 rounded-md animate-pulse shrink-0">
-                    ⚠️ ต้องการเครื่องสำรองด่วน
+                    ต้องการเครื่องสำรองด่วน
                   </div>
                 )}
               </div>
@@ -431,6 +448,30 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                   <p className="text-[9px] text-slate-400">* เพื่อรวบรวมสถิติข้อผิดพลาดหลักของกลุ่มงาน</p>
                 </div>
 
+                {/* Inspection Result */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">ผลการตรวจสอบ (Inspection Result)</label>
+                  <input
+                    type="text"
+                    placeholder="เช่น ค่าความคลาดเคลื่อนเกินเกณฑ์, เซนเซอร์ตอบสนองช้า"
+                    value={editInspection}
+                    onChange={(e) => setEditInspection(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500"
+                  />
+                </div>
+                
+                {/* Action Details */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">รายละเอียดการดำเนินการ (Action Details)</label>
+                  <input
+                    type="text"
+                    placeholder="ระบุรายละเอียดเพิ่มเติมของการซ่อม"
+                    value={editActionDetails}
+                    onChange={(e) => setEditActionDetails(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500"
+                  />
+                </div>
+
                 {/* Checklist Remarks */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-700">7. อื่น ๆ / หมายเหตุประกอบการบำรุงรักษา</label>
@@ -448,7 +489,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                 {/* Action Taken */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-700">สรุปการดำเนินการ *</label>
-                  <select
+                  <CustomSelect
                     value={editAction}
                     onChange={(e) => setEditAction(e.target.value as any)}
                     className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
@@ -458,13 +499,13 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                     <option value="change_battery">เปลี่ยนถ่าน (Change Battery)</option>
                     <option value="return_original">คืนเครื่องเดิม (Return Device)</option>
                     <option value="provide_new">จ่ายเครื่องใหม่ทดแทน (Provide New)</option>
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 {/* Repair Status */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-700">อัปเดตสถานะงานแจ้งซ่อม *</label>
-                  <select
+                  <CustomSelect
                     value={editStatus}
                     onChange={(e) => setEditStatus(e.target.value as any)}
                     className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold"
@@ -475,7 +516,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                     <option value="waiting_claim">รอส่งเคลมบริษัท</option>
                     <option value="claimed">ส่งเคลมบริษัทภายนอกเรียบร้อย</option>
                     <option value="completed">เสร็จสิ้น/ส่งคืนวอร์ด (Completed)</option>
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 {/* Operator Staff */}

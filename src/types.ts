@@ -41,7 +41,9 @@ export interface RepairRequest {
   requestDate: string;
   status: 'pending' | 'repairing' | 'waiting_claim' | 'claimed' | 'completed';
   diagnosedProblem?: string; // ปัญหาที่พบหลังตรวจสอบ
+  inspectionResult?: string; // ผลการตรวจสอบ
   actionTaken?: 'change_battery' | 'return_original' | 'provide_new' | 'none'; // การดำเนินการ
+  actionDetails?: string; // รายละเอียดการดำเนินการ
   operatorName?: string;
   receiverName?: string;
   completionDate?: string;
@@ -93,19 +95,44 @@ export interface QcLotConfig {
   level3SD: number;
 }
 
+export interface EqaAttachment {
+  name: string;
+  type: 'image' | 'pdf' | 'other';
+  dataUrl?: string; // Base64 or Object URL for immediate web preview
+}
+
 export interface EqaRecord {
   id: string;
-  round: string;
-  testDate: string;
-  level1Value: number;
-  level1Target: number;
-  level2Value: number;
-  level2Target: number;
-  level3Value: number;
-  level3Target: number;
-  score: number;
-  status: 'excellent' | 'pass' | 'warning' | 'fail';
-  feedback: string;
+  organizer?: string; // หน่วยงานที่จัดโครงการ (เช่น ศูนย์ประเมินคุณภาพฯ รามาธิบดี, สภาเทคนิคการแพทย์)
+  round: string; // รอบการประเมิน (เช่น รอบที่ 1/2569)
+  actionStatus?: 'pending' | 'in_progress' | 'submitted' | 'completed'; // สถานะการดำเนินการ
+  actionDate?: string; // วันที่ดำเนินการ
+  testDate: string; // วันที่ส่งตรวจวิเคราะห์/ทดสอบ
+  level1Value?: number;
+  level1Target?: number;
+  level2Value?: number;
+  level2Target?: number;
+  level3Value?: number;
+  level3Target?: number;
+  score?: number;
+  status?: 'excellent' | 'pass' | 'warning' | 'fail' | 'pending';
+  feedback?: string;
+  documentUrl?: string; // ลิงก์เอกสารบน OneDrive / Cloud Storage
+  attachmentFile?: EqaAttachment; // ไฟล์แนบสำหรับพรีวิวบนหน้าเว็บ (รูปภาพ/PDF)
+  machineCount?: number; // จำนวนเครื่องที่ทำการประเมิน EQA
+  testedSerials?: string[]; // รายการ Serial Number ของเครื่องที่ทำการประเมิน EQA
+  testedMachines?: { 
+    serialNumber: string; 
+    ward: string;
+    level1Value?: number;
+    level1Target?: number;
+    level2Value?: number;
+    level2Target?: number;
+    level3Value?: number;
+    level3Target?: number;
+  }[]; // รายการ Serial Number, Ward และผล 3 ระดับของเครื่องที่ทำการทดสอบ EQA
+  dueDate?: string; // วันที่กำหนดส่งผล EQA (Submission Deadline)
+  notifiedLineAt?: string; // วันเวลาที่กดส่ง LINE แจ้งเตือนเตือนความจำล่าสุด
 }
 
 export interface UserManual {
@@ -114,6 +141,23 @@ export interface UserManual {
   category: 'guide' | 'video' | 'form';
   description: string;
   downloadUrl?: string;
+  fileName?: string;
+  fileData?: string;
+  uploadDate?: string;
+  isDeleted?: boolean;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  category: 'news' | 'alert' | 'event';
+  date: string;
+  author: string;
+  attachmentName?: string;
+  attachmentUrl?: string;
+  pinned?: boolean;
+  isDeleted?: boolean;
 }
 
 export interface TroubleshootingStep {

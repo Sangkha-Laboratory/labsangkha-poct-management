@@ -4,15 +4,20 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord } from './types';
-import {
-  INITIAL_MACHINES,
-  INITIAL_LOT_CONFIGS,
-  INITIAL_QC_RECORDS,
-  INITIAL_REPAIRS,
-  INITIAL_SUPPLIES,
-  INITIAL_EQA_RECORDS
+import CustomSelect from "./components/CustomSelect";
+import { dbService } from './lib/supabase';
+import { 
+  INITIAL_MACHINES, 
+  INITIAL_REPAIRS, 
+  INITIAL_SUPPLIES, 
+  INITIAL_QC_RECORDS, 
+  INITIAL_LOT_CONFIGS, 
+  INITIAL_EQA_RECORDS,
+  MANUALS_LIST,
+  INITIAL_ANNOUNCEMENTS
 } from './mockData';
+import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from './types';
+import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon } from 'lucide-react';
 
 // Component Imports
 import LandingPage from './components/LandingPage';
@@ -21,62 +26,160 @@ import StockManagement from './components/StockManagement';
 import QCManagement from './components/QCManagement';
 import RepairManagement from './components/RepairManagement';
 import EQAManagement from './components/EQAManagement';
+import QualityManagement from './components/QualityManagement';
 import LineNotifyConfig from './components/LineNotifyConfig';
+import SupabaseConfig from './components/SupabaseConfig';
+import DocumentsAndAnnouncementsManager from './components/DocumentsAndAnnouncementsManager';
 
-import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb } from 'lucide-react';
+// Supabase Imports
+import { isSupabaseConfigured, getSupabaseConfigInfo } from './lib/supabase';
 
 export default function App() {
-  // Global States loaded from localStorage or fallback to initial mocks
-  const [machines, setMachines] = useState<DtxMachine[]>(() => {
-    const saved = localStorage.getItem('dtx_machines');
-    return saved ? JSON.parse(saved) : INITIAL_MACHINES;
-  });
 
-  const [repairs, setRepairs] = useState<RepairRequest[]>(() => {
-    const saved = localStorage.getItem('dtx_repairs');
-    return saved ? JSON.parse(saved) : INITIAL_REPAIRS;
-  });
+  // Global States loaded from Supabase or fallback to initial mocks
+  const [machines, setMachines] = useState<DtxMachine[]>([]);
+  const [repairs, setRepairs] = useState<RepairRequest[]>([]);
+  const [supplies, setSupplies] = useState<SupplyRequest[]>([]);
+  const [qcRecords, setQcRecords] = useState<QcRecord[]>([]);
+  const [lotConfigs, setLotConfigs] = useState<QcLotConfig[]>([]);
+  const [eqaRecords, setEqaRecords] = useState<EqaRecord[]>([]);
+  const [lineNotifyToken, setLineNotifyToken] = useState<string>('');
 
-  const [supplies, setSupplies] = useState<SupplyRequest[]>(() => {
-    const saved = localStorage.getItem('dtx_supplies');
-    return saved ? JSON.parse(saved) : INITIAL_SUPPLIES;
-  });
-
-  const [qcRecords, setQcRecords] = useState<QcRecord[]>(() => {
-    const saved = localStorage.getItem('dtx_qc_records');
-    return saved ? JSON.parse(saved) : INITIAL_QC_RECORDS;
-  });
-
-  const [lotConfigs, setLotConfigs] = useState<QcLotConfig[]>(() => {
-    const saved = localStorage.getItem('dtx_lot_configs');
-    return saved ? JSON.parse(saved) : INITIAL_LOT_CONFIGS;
-  });
-
-  const [eqaRecords, setEqaRecords] = useState<EqaRecord[]>(() => {
-    const saved = localStorage.getItem('dtx_eqa_records');
-    return saved ? JSON.parse(saved) : INITIAL_EQA_RECORDS;
-  });
-
-  const [lineNotifyToken, setLineNotifyToken] = useState<string>(() => {
-    return localStorage.getItem('dtx_line_token') || '';
-  });
+  // Fetch initial data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        console.log('Fetching data from API...');
+        const [machines, repairs, supplies, qc, lot, eqa, remoteManuals, remoteAnnouncements] = await Promise.all([
+          dbService.getMachines().catch(() => []),
+          dbService.getRepairs().catch(() => []),
+          dbService.getSupplies().catch(() => []),
+          dbService.getQcRecords().catch(() => []),
+          dbService.getLotConfigs().catch(() => []),
+          dbService.getEqaRecords().catch(() => []),
+          dbService.getManuals().catch(() => []),
+          dbService.getAnnouncements().catch(() => [])
+        ]);
+        console.log('Data fetched from database:', { machines, repairs, supplies, qc, lot, eqa, remoteManuals, remoteAnnouncements });
+        setMachines(machines || []);
+        setRepairs(repairs || []);
+        setSupplies(supplies || []);
+        setQcRecords(qc || []);
+        setLotConfigs(lot || []);
+        setEqaRecords(eqa || []);
+        if (remoteManuals && remoteManuals.length > 0) setManuals(remoteManuals);
+        if (remoteAnnouncements && remoteAnnouncements.length > 0) setAnnouncements(remoteAnnouncements);
+      } catch (err) {
+        console.warn('DB Fetch failed, initializing with empty tables:', err);
+        setMachines([]);
+        setRepairs([]);
+        setSupplies([]);
+        setQcRecords([]);
+        setLotConfigs([]);
+        setEqaRecords([]);
+      }
+    };
+    fetchData();
+  }, []);
 
   // Navigation Roles & Active Tab inside Admin & User
-  const [role, setRole] = useState<'user' | 'admin'>('user');
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
+    const session = localStorage.getItem('dtx_admin_session');
+    const lastActiveStr = localStorage.getItem('dtx_admin_last_active');
+    if (session === 'true' && lastActiveStr) {
+      const lastActive = parseInt(lastActiveStr, 10);
+      const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      if (Date.now() - lastActive < TIMEOUT_MS) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  const [role, setRole] = useState<'user' | 'admin'>(() => {
+    const savedRole = localStorage.getItem('dtx_role');
+    const session = localStorage.getItem('dtx_admin_session');
+    const lastActiveStr = localStorage.getItem('dtx_admin_last_active');
+    if (session === 'true' && lastActiveStr) {
+      const lastActive = parseInt(lastActiveStr, 10);
+      if (Date.now() - lastActive < 30 * 60 * 1000) {
+        return savedRole === 'user' ? 'user' : 'admin';
+      }
+    }
+    return savedRole === 'admin' ? 'admin' : 'user';
+  });
+
   const [activeUserTab, setActiveUserTab] = useState<'repair' | 'supply' | 'track' | 'guide'>('repair');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'stock' | 'qc' | 'repair' | 'eqa' | 'line'>('dashboard');
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [isAdminProfileOpen, setIsAdminProfileOpen] = useState(false);
+  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'stock' | 'quality' | 'repair' | 'line' | 'supabase' | 'documents'>('dashboard');
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [showTimeoutNotice, setShowTimeoutNotice] = useState(false);
 
-  // Night Mode State
-  const [isNightMode, setIsNightMode] = useState<boolean>(() => {
-    return localStorage.getItem('dtx_night_mode') === 'true';
+  // Manuals & Announcements State
+  const [manuals, setManuals] = useState<UserManual[]>(() => {
+    let deletedManualIds: string[] = [];
+    try {
+      deletedManualIds = JSON.parse(localStorage.getItem('dtx_deleted_manual_ids') || '[]');
+    } catch (e) {}
+
+    const saved = localStorage.getItem('dtx_manuals');
+    let list: UserManual[] = [];
+    if (saved !== null) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch (e) {}
+    }
+    // Filter out old mock items ('man1', 'man2', 'man3') as well as deleted IDs
+    const filtered = list.filter(m => m && !m.isDeleted && !deletedManualIds.includes(m.id) && !['man1', 'man2', 'man3'].includes(m.id));
+    localStorage.setItem('dtx_manuals', JSON.stringify(filtered));
+    return filtered;
+  });
+
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
+    let deletedAnnIds: string[] = [];
+    try {
+      deletedAnnIds = JSON.parse(localStorage.getItem('dtx_deleted_ann_ids') || '[]');
+    } catch (e) {}
+
+    const saved = localStorage.getItem('dtx_announcements');
+    let list: Announcement[] = [];
+    if (saved !== null) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch (e) {}
+    }
+    // Filter out old mock items ('ann-1', 'ann-2') as well as deleted IDs
+    const filtered = list.filter(a => a && !a.isDeleted && !deletedAnnIds.includes(a.id) && !['ann-1', 'ann-2'].includes(a.id));
+    localStorage.setItem('dtx_announcements', JSON.stringify(filtered));
+    return filtered;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('dtx_manuals', JSON.stringify(manuals));
+  }, [manuals]);
+
+  useEffect(() => {
+    localStorage.setItem('dtx_announcements', JSON.stringify(announcements));
+  }, [announcements]);
+
+  // Dark Mode State
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('dtx_dark_mode') === 'true' || localStorage.getItem('dtx_night_mode') === 'true';
   });
   const [showToast, setShowToast] = useState<string>('');
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   useEffect(() => {
     if (showToast) {
@@ -85,13 +188,65 @@ export default function App() {
     }
   }, [showToast]);
 
-  const toggleNightMode = () => {
-    const nextVal = !isNightMode;
-    setIsNightMode(nextVal);
+  // Initial Load from Supabase (if configured)
+  useEffect(() => {
+    const loadDataFromSupabase = async () => {
+      try {
+        const config = await getSupabaseConfigInfo();
+        if (!config.configured) {
+          console.log('Database not configured. Running in local offline mode.');
+          setShowToast('ทำงานแบบออฟไลน์ (Local Storage) - ยังไม่ได้ต่อระบบคลาวด์');
+          return;
+        }
+
+        let fetchErrorOccurred = false;
+        const [
+          remoteMachines,
+          remoteRepairs,
+          remoteSupplies,
+          remoteQcRecords,
+          remoteLotConfigs,
+          remoteEqaRecords
+        ] = await Promise.all([
+          dbService.getMachines().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as DtxMachine[]; }),
+          dbService.getRepairs().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as RepairRequest[]; }),
+          dbService.getSupplies().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as SupplyRequest[]; }),
+          dbService.getQcRecords().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as QcRecord[]; }),
+          dbService.getLotConfigs().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as QcLotConfig[]; }),
+          dbService.getEqaRecords().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as EqaRecord[]; })
+        ]);
+
+        if (fetchErrorOccurred) {
+          setShowToast('ไม่สามารถดึงข้อมูลคลาวด์ได้ครบถ้วน (กรุณาตรวจสอบโครงสร้างตารางหรือสิทธิ์ RLS)');
+          return;
+        }
+
+        // Apply remote data if we got any records
+        if (remoteMachines.length > 0) setMachines(remoteMachines);
+        if (remoteRepairs.length > 0) setRepairs(remoteRepairs);
+        if (remoteSupplies.length > 0) setSupplies(remoteSupplies);
+        if (remoteQcRecords.length > 0) setQcRecords(remoteQcRecords);
+        if (remoteLotConfigs.length > 0) setLotConfigs(remoteLotConfigs);
+        if (remoteEqaRecords.length > 0) setEqaRecords(remoteEqaRecords);
+
+        setShowToast('เชื่อมต่อและดึงข้อมูลจากระบบ Supabase Cloud เรียบร้อยแล้ว');
+      } catch (err: any) {
+        console.error('Failed to load initial data from Supabase:', err);
+        setShowToast(`ทำงานแบบออฟไลน์ชั่วคราว: ไม่สามารถดึงข้อมูลจากคลาวด์ได้`);
+      }
+    };
+
+    loadDataFromSupabase();
+  }, []);
+
+  const toggleDarkMode = () => {
+    const nextVal = !isDarkMode;
+    setIsDarkMode(nextVal);
+    localStorage.setItem('dtx_dark_mode', String(nextVal));
     localStorage.setItem('dtx_night_mode', String(nextVal));
     setShowToast(nextVal 
-      ? 'เปิดใช้งานโหมดถนอมสายตาเวรดึก (Night Shift Mode) เรียบร้อย' 
-      : 'กลับสู่โหมดหน้าจอปกติความสว่างมาตรฐาน'
+      ? 'เปิดใช้งานโหมดมืด (Dark Mode) เรียบร้อย' 
+      : 'ปิดใช้งานโหมดมืด - กลับสู่โหมดสว่างปกติ'
     );
   };
 
@@ -104,10 +259,13 @@ export default function App() {
 
     const resetTimer = () => {
       window.clearTimeout(timeoutId);
+      localStorage.setItem('dtx_admin_last_active', String(Date.now()));
       timeoutId = window.setTimeout(() => {
         setIsAdminLoggedIn(false);
         setAdminPassword('');
         setShowTimeoutNotice(true);
+        localStorage.removeItem('dtx_admin_session');
+        localStorage.removeItem('dtx_admin_last_active');
       }, TIMEOUT_MS);
     };
 
@@ -128,117 +286,187 @@ export default function App() {
     };
   }, [isAdminLoggedIn]);
 
-  // Persistence Effects
-  useEffect(() => {
-    localStorage.setItem('dtx_machines', JSON.stringify(machines));
-  }, [machines]);
-
-  useEffect(() => {
-    localStorage.setItem('dtx_repairs', JSON.stringify(repairs));
-  }, [repairs]);
-
-  useEffect(() => {
-    localStorage.setItem('dtx_supplies', JSON.stringify(supplies));
-  }, [supplies]);
-
-  useEffect(() => {
-    localStorage.setItem('dtx_qc_records', JSON.stringify(qcRecords));
-  }, [qcRecords]);
-
-  useEffect(() => {
-    localStorage.setItem('dtx_lot_configs', JSON.stringify(lotConfigs));
-  }, [lotConfigs]);
-
-  useEffect(() => {
-    localStorage.setItem('dtx_eqa_records', JSON.stringify(eqaRecords));
-  }, [eqaRecords]);
-
+  // Handlers for data updates passed to children
+  
   useEffect(() => {
     localStorage.setItem('dtx_line_token', lineNotifyToken);
   }, [lineNotifyToken]);
 
-  // Handlers for data updates passed to children
   const handleAddRepair = (newRepair: RepairRequest) => {
     setRepairs(prev => [newRepair, ...prev]);
+    if (isSupabaseConfigured()) {
+      dbService.insertRepair(newRepair).then(() => {
+        setShowToast('ส่งตั๋วแจ้งซ่อมเข้าสู่ฐานข้อมูลคลาวด์แล้ว');
+      }).catch(err => {
+        setShowToast(`แจ้งซ่อมบันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
+      });
+    }
   };
 
   const handleAddSupply = (newSupply: SupplyRequest) => {
     setSupplies(prev => [newSupply, ...prev]);
+    if (isSupabaseConfigured()) {
+      dbService.insertSupply(newSupply).then(() => {
+        setShowToast('ส่งตั๋วเบิกอุปกรณ์เข้าสู่ฐานข้อมูลคลาวด์แล้ว');
+      }).catch(err => {
+        setShowToast(`ตั๋วเบิกบันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
+      });
+    }
   };
 
   const handleUpdateRepair = (updatedRepair: RepairRequest) => {
     setRepairs(prev => prev.map(r => r.id === updatedRepair.id ? updatedRepair : r));
     
+    let updatedMachines = [...machines];
     // If completed, update lastQCDate in corresponding machine
     if (updatedRepair.status === 'completed') {
-      setMachines(prev => prev.map(m => {
+      updatedMachines = machines.map(m => {
         if (m.serialNumber === updatedRepair.serialNumber) {
           return { ...m, status: 'active', lastQCDate: new Date().toISOString().split('T')[0] };
         }
         return m;
-      }));
+      });
+      setMachines(updatedMachines);
     } else if (updatedRepair.status === 'waiting_claim') {
-      setMachines(prev => prev.map(m => {
+      updatedMachines = machines.map(m => {
         if (m.serialNumber === updatedRepair.serialNumber) {
           return { ...m, status: 'waiting_claim' };
         }
         return m;
-      }));
+      });
+      setMachines(updatedMachines);
     } else if (updatedRepair.status === 'claimed') {
-      setMachines(prev => prev.map(m => {
+      updatedMachines = machines.map(m => {
         if (m.serialNumber === updatedRepair.serialNumber) {
           return { ...m, status: 'claimed' };
         }
         return m;
-      }));
+      });
+      setMachines(updatedMachines);
+    }
+
+    if (isSupabaseConfigured()) {
+      // 1. Update repair record
+      dbService.updateRepair(updatedRepair.id, updatedRepair).then(() => {
+        setShowToast('อัปเดตสถานะงานซ่อมบนระบบคลาวด์สำเร็จ');
+      }).catch(err => {
+        console.error('Failed to sync updated repair:', err);
+      });
+
+      // 2. Update corresponding machine status if affected
+      const affectedMachine = updatedMachines.find(m => m.serialNumber === updatedRepair.serialNumber);
+      if (affectedMachine) {
+        dbService.updateMachine(affectedMachine.id, affectedMachine).catch(err => {
+          console.error('Failed to sync machine state:', err);
+        });
+      }
     }
   };
 
   const handleAddMachine = (newMachine: DtxMachine) => {
     setMachines(prev => [...prev, newMachine]);
+    if (isSupabaseConfigured()) {
+      dbService.insertMachine(newMachine).then(() => {
+        setShowToast('บันทึกเครื่องตรวจน้ำตาลใหม่ขึ้นคลาวด์สำเร็จ');
+      }).catch(err => {
+        setShowToast(`บันทึกเครื่องในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
+      });
+    }
   };
 
   const handleUpdateMachine = (updatedMachine: DtxMachine) => {
     setMachines(prev => prev.map(m => m.id === updatedMachine.id ? updatedMachine : m));
+    if (isSupabaseConfigured()) {
+      dbService.updateMachine(updatedMachine.id, updatedMachine).then(() => {
+        setShowToast('อัปเดตข้อมูลเครื่องตรวจน้ำตาลบนคลาวด์สำเร็จ');
+      }).catch(err => {
+        console.error('Failed to sync updated machine:', err);
+      });
+    }
   };
 
   const handleDeleteMachine = (id: string) => {
     setMachines(prev => prev.filter(m => m.id !== id));
+    if (isSupabaseConfigured()) {
+      dbService.deleteMachine(id).then(() => {
+        setShowToast('ลบเครื่องตรวจน้ำตาลจากระบบคลาวด์สำเร็จ');
+      }).catch(err => {
+        console.error('Failed to sync deleted machine:', err);
+      });
+    }
   };
 
   const handleAddQcRecord = (newRecord: QcRecord) => {
     setQcRecords(prev => [newRecord, ...prev]);
     // Also update machine's lastQCDate and active status if normal
-    setMachines(prev => prev.map(m => {
+    const updatedMachines = machines.map(m => {
       if (m.serialNumber === newRecord.serialNumber) {
         return {
           ...m,
           lastQCDate: newRecord.date,
-          status: (newRecord.level1Status === 'normal' && newRecord.level2Status === 'normal' && newRecord.level3Status === 'normal') ? 'active' : m.status
+          status: (newRecord.level1Status === 'normal' && newRecord.level2Status === 'normal' && newRecord.level3Status === 'normal') ? 'active' : m.status as any
         };
       }
       return m;
-    }));
+    });
+    setMachines(updatedMachines);
+
+    if (isSupabaseConfigured()) {
+      // 1. Insert QC Record
+      dbService.insertQcRecord(newRecord).then(() => {
+        setShowToast('ผลการตรวจวิเคราะห์คุณภาพ (QC) ถูกส่งขึ้นคลาวด์แล้ว');
+      }).catch(err => {
+        setShowToast(`ผล QC บันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
+      });
+
+      // 2. Update machine affected states
+      const affectedMachine = updatedMachines.find(m => m.serialNumber === newRecord.serialNumber);
+      if (affectedMachine) {
+        dbService.updateMachine(affectedMachine.id, affectedMachine).catch(err => {
+          console.error('Failed to sync machine state after QC:', err);
+        });
+      }
+    }
   };
 
   const handleUpdateLotConfigs = (newConfigs: QcLotConfig[]) => {
     setLotConfigs(newConfigs);
+    if (isSupabaseConfigured()) {
+      // Find which LOT was modified by looking at changes or just sync all
+      Promise.all(newConfigs.map(lot => dbService.insertLotConfig(lot).catch(err => {
+        // If it already exists (duplicate key error), update it instead
+        if (err.message?.includes('duplicate key') || err.code === '23505') {
+          return dbService.updateLotConfig(lot.lotNumber, lot);
+        }
+        throw err;
+      }))).then(() => {
+        setShowToast('อัปเดตกำหนดค่าเป้าหมายล็อตน้ำยาบนระบบคลาวด์แล้ว');
+      }).catch(err => {
+        console.error('Failed to sync lot configs:', err);
+      });
+    }
   };
 
   const handleAddEqaRecord = (newEqa: EqaRecord) => {
     setEqaRecords(prev => [newEqa, ...prev]);
+    if (isSupabaseConfigured()) {
+      dbService.insertEqaRecord(newEqa).then(() => {
+        setShowToast('ส่งผลประเมินภายนอก (EQA) ขึ้นฐานข้อมูลคลาวด์แล้ว');
+      }).catch(err => {
+        setShowToast(`ผล EQA บันทึกในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
+      });
+    }
   };
 
   return (
     <div 
-      className="min-h-screen bg-slate-50/50 flex flex-col font-sans transition-all duration-300 relative" 
-      style={isNightMode ? { filter: 'sepia(0.24) brightness(0.92) contrast(0.96)' } : undefined}
+      className="min-h-screen bg-slate-50/50 dark:bg-slate-900 flex flex-col font-sans transition-all duration-300 relative text-slate-800 dark:text-slate-100" 
       id="app-root"
     >
       {/* Top Main Navigation Bar */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs no-print relative" id="app-header">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div onClick={() => { setRole('user'); setActiveUserTab('repair'); }} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer">
+          <div onClick={() => { setRole('user'); localStorage.setItem('dtx_role', 'user'); setActiveUserTab('repair'); }} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer">
             {/* ไอคอนกล้องจุลทรรศน์ */}
             <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
               <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
@@ -292,55 +520,210 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <div className="flex items-center space-x-2 mr-2 bg-emerald-50 text-emerald-800 px-4 py-2 rounded-xl border border-emerald-100/50">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-xs md:text-xs font-bold tracking-wide">ห้องปฏิบัติการผู้ดูแลระบบ (Admin)</span>
+              <div className="flex items-center space-x-2.5 mr-2">
+                <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-800 px-3.5 py-2 rounded-xl border border-emerald-100/50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-xs font-bold tracking-wide">ห้องปฏิบัติการผู้ดูแลระบบ (Admin)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRole('user');
+                    localStorage.setItem('dtx_role', 'user');
+                  }}
+                  className="bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition-all shadow-2xs border border-sky-200 cursor-pointer"
+                  id="header-back-main-btn"
+                  title="กลับสู่หน้าหลักสำหรับผู้ใช้งานทั่วไป"
+                >
+                  <ArrowLeft size={13} className="text-sky-600" />
+                  <span>กลับสู่หน้าหลัก</span>
+                </button>
               </div>
             )}
 
-            {/* Template Decorative Icons */}
-            <div className="flex items-center space-x-2 border-l border-slate-200 pl-4 h-8">
+            {/* Header Right Tools & Profile Menu */}
+            <div className="flex items-center space-x-2 border-l border-slate-200 dark:border-slate-700 pl-4 h-8 relative">
               <button 
-                onClick={toggleNightMode}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${isNightMode ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
-                title={isNightMode ? "ปิดโหมดถนอมสายตา" : "เปิดโหมดถนอมสายตาเวรดึก"}
+                type="button"
+                onClick={toggleDarkMode}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  isDarkMode 
+                    ? 'bg-slate-800 text-amber-300 border border-slate-700 hover:bg-slate-700 shadow-3xs' 
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                }`}
+                title={isDarkMode ? "เปลี่ยนเป็นโหมดสว่าง (Light Mode)" : "เปลี่ยนเป็นโหมดมืด (Dark Mode)"}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
               </button>
-              <button 
-                onClick={() => {
-                  if (role === 'admin') {
-                    setRole('user');
-                  } else {
-                    setRole('admin');
-                    if (!isAdminLoggedIn) {
-                      setShowToast('🔑 กรุณาเข้าสู่ระบบด้วยรหัสผ่านแอดมิน (lab1234)');
+
+              {role === 'admin' && isAdminLoggedIn ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsAdminProfileOpen(!isAdminProfileOpen)}
+                    className="flex items-center space-x-1.5 bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    id="admin-profile-menu-trigger"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
+                      <User size={12} />
+                    </div>
+                    <span>แอดมิน (Admin)</span>
+                    <ChevronDown size={14} className={`transition-transform duration-200 ${isAdminProfileOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isAdminProfileOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsAdminProfileOpen(false)} />
+                      <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        {/* Profile Info Header */}
+                        <div className="p-3 bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-xl mb-1.5 space-y-1">
+                          <div className="flex items-center space-x-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold">
+                              <User size={16} />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-bold text-white">ผู้ดูแลระบบ (Admin)</h4>
+                              <p className="text-[10px] text-slate-300">กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Section Title */}
+                        <div className="px-3 py-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                          เมนูตั้งค่าผู้ดูแลระบบ (Admin Profile)
+                        </div>
+
+                        {/* Profile Settings Menu Options */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveAdminTab('line');
+                            setIsAdminProfileOpen(false);
+                          }}
+                          className={`w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                            activeAdminTab === 'line' ? 'bg-sky-50 text-sky-700' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                          id="menu-line-settings"
+                        >
+                          <Smartphone size={15} className="text-emerald-500 shrink-0" />
+                          <span>ตั้งค่าแจ้งเตือน LINE</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveAdminTab('supabase');
+                            setIsAdminProfileOpen(false);
+                          }}
+                          className={`w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                            activeAdminTab === 'supabase' ? 'bg-sky-50 text-sky-700' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                          id="menu-supabase-settings"
+                        >
+                          <Database size={15} className="text-sky-500 shrink-0" />
+                          <span>เชื่อมต่อ Supabase</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveAdminTab('documents');
+                            setIsAdminProfileOpen(false);
+                          }}
+                          className={`w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left cursor-pointer ${
+                            activeAdminTab === 'documents' ? 'bg-sky-50 text-sky-700' : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                          id="menu-documents-settings"
+                        >
+                          <FileText size={15} className="text-amber-500 shrink-0" />
+                          <span>จัดการคู่มือ & ประชาสัมพันธ์</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRole('user');
+                            localStorage.setItem('dtx_role', 'user');
+                            setIsAdminProfileOpen(false);
+                          }}
+                          className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all text-left cursor-pointer"
+                          id="menu-back-main-option"
+                        >
+                          <ArrowLeft size={15} className="text-sky-600 shrink-0" />
+                          <span>กลับสู่หน้าหลัก (Staff View)</span>
+                        </button>
+
+                        <div className="my-1.5 border-t border-slate-100" />
+
+                        {/* Logout Option */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAdminLoggedIn(false);
+                            setAdminPassword('');
+                            localStorage.removeItem('dtx_admin_session');
+                            localStorage.removeItem('dtx_admin_last_active');
+                            localStorage.setItem('dtx_role', 'user');
+                            setRole('user');
+                            setIsAdminProfileOpen(false);
+                            setShowToast('ออกจากระบบผู้ดูแลระบบเรียบร้อยแล้ว');
+                          }}
+                          className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 transition-all text-left cursor-pointer"
+                          id="menu-logout-option"
+                        >
+                          <LogOut size={15} className="text-rose-500 shrink-0" />
+                          <span>ออกจากระบบ (Logout)</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button 
+                  type="button"
+                  onClick={() => {
+                    if (role === 'admin') {
+                      setRole('user');
+                      localStorage.setItem('dtx_role', 'user');
+                    } else {
+                      setRole('admin');
+                      localStorage.setItem('dtx_role', 'admin');
+                      if (!isAdminLoggedIn) {
+                        setShowToast('กรุณาเข้าสู่ระบบด้วยรหัสผ่านแอดมิน (lab1234)');
+                      }
                     }
-                  }
-                }}
-                className={`w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-colors animate-fade-in ${role === 'admin' ? 'bg-sky-600 text-white shadow-md shadow-sky-500/15' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                title={role === 'admin' ? "กลับสู่หน้าหลักแจ้งซ่อม/เบิก" : "เข้าสู่ระบบผู้ดูแลระบบ (Admin Login)"}
-              >
-                <User size={14} />
-              </button>
+                  }}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-colors animate-fade-in ${role === 'admin' ? 'bg-sky-600 text-white shadow-md shadow-sky-500/15' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  title={role === 'admin' ? "กลับสู่หน้าหลักแจ้งซ่อม/เบิก" : "เข้าสู่ระบบผู้ดูแลระบบ (Admin Login)"}
+                  id="admin-login-icon-btn"
+                >
+                  <User size={14} />
+                </button>
+              )}
             </div>
           </div>
 
           {/* Mobile Navigation Icons */}
           <div className="flex md:hidden items-center space-x-2.5">
             <button 
-              onClick={toggleNightMode}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${isNightMode ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-400'}`}
-              title="โหมดมืด"
+              type="button"
+              onClick={toggleDarkMode}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                isDarkMode 
+                  ? 'bg-slate-800 text-amber-300 border border-slate-700' 
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+              title={isDarkMode ? "โหมดมืด (เปิดอยู่)" : "โหมดสว่าง"}
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+              {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
             </button>
             <button 
               onClick={() => {
                 setRole('admin');
+                localStorage.setItem('dtx_role', 'admin');
                 setIsMobileMenuOpen(false);
                 if (!isAdminLoggedIn) {
-                  setShowToast('🔑 กรุณาเข้าสู่ระบบด้วยรหัสผ่านแอดมิน (lab1234)');
+                  setShowToast('กรุณาเข้าสู่ระบบด้วยรหัสผ่านแอดมิน (lab1234)');
                 }
               }}
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${role === 'admin' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600'}`}
@@ -439,13 +822,18 @@ export default function App() {
             lineNotifyToken={lineNotifyToken}
             activeTab={activeUserTab}
             onActiveTabChange={setActiveUserTab}
+            manuals={manuals}
+            announcements={announcements}
           />
         ) : !isAdminLoggedIn ? (
           // ADMIN LOGIN FORM
           <div className="max-w-md mx-auto space-y-4 mt-8">
             <button
               type="button"
-              onClick={() => setRole('user')}
+              onClick={() => {
+                setRole('user');
+                localStorage.setItem('dtx_role', 'user');
+              }}
               className="inline-flex items-center space-x-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
             >
               <ArrowLeft size={14} className="text-sky-600" />
@@ -481,6 +869,10 @@ export default function App() {
                 e.preventDefault();
                 if (adminUsername.trim() === 'admin' && adminPassword === 'lab1234') {
                   setIsAdminLoggedIn(true);
+                  localStorage.setItem('dtx_admin_session', 'true');
+                  localStorage.setItem('dtx_admin_last_active', String(Date.now()));
+                  localStorage.setItem('dtx_role', 'admin');
+                  setRole('admin');
                   setLoginError('');
                   setShowTimeoutNotice(false);
                 } else {
@@ -537,62 +929,24 @@ export default function App() {
         ) : (
           // ADMIN PANEL SYSTEM WITH SIDEBAR TABS
           <div className="space-y-6" id="admin-workspace-wrapper">
-            {/* Admin Header with Mobile-friendly Logout */}
-            <div className="bg-gradient-to-r from-sky-50 to-blue-50/50 p-4 rounded-2xl border border-sky-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center space-x-2.5">
-                <div className="p-2 bg-sky-600 text-white rounded-xl shadow-xs">
-                  <Unlock size={18} />
-                </div>
-                <div>
-                  <h2 className="text-sm font-extrabold text-slate-800">แผงควบคุมระบบแอดมิน (Admin Panel)</h2>
-                  <p className="text-[10px] text-slate-500 font-medium font-sans">เข้าสู่ระบบสำเร็จ • เซสชันผู้ใช้งาน 30 นาที (Auto Timeout)</p>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => {
-                    setRole('user');
-                  }}
-                  className="w-full sm:w-auto bg-white hover:bg-slate-50 text-slate-700 font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all shadow-2xs border border-slate-200 cursor-pointer"
-                  id="admin-back-top-btn"
-                >
-                  <ArrowLeft size={13} className="text-sky-600" />
-                  <span>กลับสู่หน้าหลัก (Staff View)</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setIsAdminLoggedIn(false);
-                    setAdminPassword('');
-                  }}
-                  className="w-full sm:w-auto bg-rose-50 hover:bg-rose-100 text-rose-700 font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all shadow-2xs border border-rose-100 cursor-pointer"
-                  id="admin-logout-top-btn"
-                >
-                  <Lock size={13} />
-                  <span>ออกจากระบบ (Logout)</span>
-                </button>
-              </div>
-            </div>
-
             <div className="space-y-6" id="admin-workspace">
-              {/* Admin Navigation: Clean plain text horizontal tabs on PC, Dropdown on Mobile */}
-              <div className="bg-white border-b border-slate-200 px-4 rounded-2xl shadow-3xs no-print" id="admin-tabs-nav">
-                {/* PC View: Underlined Plain Text Tabs (Benchmarks / Tasks style) */}
-                <div className="hidden md:flex space-x-6 overflow-x-auto scrollbar-none h-14 items-end">
+              {/* Admin Navigation: Clean plain text horizontal tabs spread evenly on PC, Dropdown on Mobile */}
+              <div className="bg-white border-b border-slate-200 px-2 sm:px-4 rounded-2xl shadow-3xs no-print" id="admin-tabs-nav">
+                {/* PC View: Underlined Plain Text Tabs Spread Evenly Across Page */}
+                <div className="hidden md:flex w-full items-end h-14">
                   {[
                     { id: 'dashboard', label: 'สรุปภาพรวม' },
                     { id: 'stock', label: 'คลังเครื่องมือ' },
-                    { id: 'qc', label: 'วิเคราะห์คุณภาพ (QC 3 Level)' },
                     { id: 'repair', label: 'งานซ่อมบำรุง' },
-                    { id: 'eqa', label: 'ประเมินภายนอก (EQA)' },
-                    { id: 'line', label: 'ตั้งค่าแจ้งเตือน LINE' }
+                    { id: 'quality', label: 'งานคุณภาพ (IQC & EQA)' }
                   ].map(tab => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveAdminTab(tab.id as any)}
-                      className={`h-14 flex items-center px-1 text-sm font-semibold border-b-2 transition-all duration-250 cursor-pointer whitespace-nowrap ${
+                      className={`h-14 flex-1 flex items-center justify-center px-4 text-sm font-semibold border-b-2 transition-all duration-250 cursor-pointer whitespace-nowrap text-center ${
                         activeAdminTab === tab.id
-                          ? 'border-sky-600 text-sky-600 font-bold'
-                          : 'border-transparent text-slate-500 hover:text-slate-800'
+                          ? 'border-sky-600 text-sky-600 font-bold bg-sky-50/40'
+                          : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/50'
                       }`}
                     >
                       {tab.label}
@@ -604,21 +958,19 @@ export default function App() {
                 <div className="md:hidden py-3">
                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">เลือกเมนูการประมวลผล</label>
                   <div className="relative">
-                    <select
+                    <CustomSelect
                       value={activeAdminTab}
                       onChange={(e) => setActiveAdminTab(e.target.value as any)}
-                      className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-3 py-2.5 appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-sky-500 pr-10"
+                      className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-3 py-2.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-sky-500 pr-10"
                     >
                       <option value="dashboard">สรุปภาพรวม (Dashboard)</option>
                       <option value="stock">คลังเครื่องมือ (DTX Stock)</option>
-                      <option value="qc">วิเคราะห์คุณภาพ (QC 3 Level)</option>
-                      <option value="repair">งานแจ้งซ่อม & วินิจฉัย</option>
-                      <option value="eqa">ประเมินภายนอก (EQA)</option>
+                      <option value="repair">งานซ่อมบำรุง</option>
+                      <option value="quality">งานคุณภาพ (IQC & EQA)</option>
                       <option value="line">ตั้งค่าแจ้งเตือน LINE</option>
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
-                      <ChevronDown size={14} />
-                    </div>
+                      <option value="supabase">เชื่อมต่อ Supabase</option>
+                      <option value="documents">จัดการคู่มือ & ประชาสัมพันธ์</option>
+                    </CustomSelect>
                   </div>
                 </div>
               </div>
@@ -636,15 +988,6 @@ export default function App() {
                   onDeleteMachine={handleDeleteMachine}
                 />
               )}
-              {activeAdminTab === 'qc' && (
-                <QCManagement
-                  machines={machines}
-                  qcRecords={qcRecords}
-                  lotConfigs={lotConfigs}
-                  onAddQcRecord={handleAddQcRecord}
-                  onUpdateLotConfigs={handleUpdateLotConfigs}
-                />
-              )}
               {activeAdminTab === 'repair' && (
                 <RepairManagement
                   repairs={repairs}
@@ -652,19 +995,100 @@ export default function App() {
                   lineNotifyToken={lineNotifyToken}
                 />
               )}
-              {activeAdminTab === 'eqa' && (
-                <EQAManagement
+              {(activeAdminTab === 'quality' || (activeAdminTab as string) === 'qc' || (activeAdminTab as string) === 'eqa') && (
+                <QualityManagement
+                  machines={machines}
+                  qcRecords={qcRecords}
+                  lotConfigs={lotConfigs}
+                  onAddQcRecord={handleAddQcRecord}
+                  onUpdateLotConfigs={handleUpdateLotConfigs}
                   eqaRecords={eqaRecords}
                   onAddEqaRecord={handleAddEqaRecord}
+                  initialSubTab={(activeAdminTab as string) === 'eqa' ? 'eqa' : 'iqc'}
                 />
               )}
               {activeAdminTab === 'line' && (
-                <LineNotifyConfig
-                  token={lineNotifyToken}
-                  onUpdateToken={setLineNotifyToken}
-                  repairs={repairs}
-                  onUpdateRepair={handleUpdateRepair}
-                />
+                <div className="space-y-4">
+                  <div className="bg-emerald-50/80 border border-emerald-200/80 p-3.5 rounded-2xl flex items-center justify-between text-xs text-emerald-900 shadow-2xs">
+                    <div className="flex items-center space-x-2 font-bold">
+                      <Smartphone size={16} className="text-emerald-600" />
+                      <span>ตั้งค่าระบบ: การแจ้งเตือนผ่าน LINE Notify (เรียกจากเมนูโปรไฟล์แอดมิน)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('dashboard')}
+                      className="font-extrabold text-emerald-700 hover:text-emerald-950 hover:underline cursor-pointer flex items-center space-x-1"
+                    >
+                      <span>← กลับสู่แผงควบคุมหลัก</span>
+                    </button>
+                  </div>
+                  <LineNotifyConfig
+                    token={lineNotifyToken}
+                    onUpdateToken={setLineNotifyToken}
+                    repairs={repairs}
+                    onUpdateRepair={handleUpdateRepair}
+                  />
+                </div>
+              )}
+              {activeAdminTab === 'supabase' && (
+                <div className="space-y-4">
+                  <div className="bg-sky-50/80 border border-sky-200/80 p-3.5 rounded-2xl flex items-center justify-between text-xs text-sky-900 shadow-2xs">
+                    <div className="flex items-center space-x-2 font-bold">
+                      <Database size={16} className="text-sky-600" />
+                      <span>ตั้งค่าระบบ: เชื่อมต่อฐานข้อมูลคลาวด์ Supabase (เรียกจากเมนูโปรไฟล์แอดมิน)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('dashboard')}
+                      className="font-extrabold text-sky-700 hover:text-sky-950 hover:underline cursor-pointer flex items-center space-x-1"
+                    >
+                      <span>← กลับสู่แผงควบคุมหลัก</span>
+                    </button>
+                  </div>
+                  <SupabaseConfig
+                    machines={machines}
+                    repairs={repairs}
+                    supplies={supplies}
+                    qcRecords={qcRecords}
+                    lotConfigs={lotConfigs}
+                    eqaRecords={eqaRecords}
+                    manuals={manuals}
+                    announcements={announcements}
+                    setMachines={setMachines}
+                    setRepairs={setRepairs}
+                    setSupplies={setSupplies}
+                    setQcRecords={setQcRecords}
+                    setLotConfigs={setLotConfigs}
+                    setEqaRecords={setEqaRecords}
+                    setManuals={setManuals}
+                    setAnnouncements={setAnnouncements}
+                    onShowToast={setShowToast}
+                  />
+                </div>
+              )}
+              {activeAdminTab === 'documents' && (
+                <div className="space-y-4">
+                  <div className="bg-amber-50/80 border border-amber-200/80 p-3.5 rounded-2xl flex items-center justify-between text-xs text-amber-900 shadow-2xs">
+                    <div className="flex items-center space-x-2 font-bold">
+                      <FileText size={16} className="text-amber-600" />
+                      <span>ตั้งค่าระบบ: จัดการเอกสารคู่มือ & ข่าวประชาสัมพันธ์ (เรียกจากเมนูโปรไฟล์แอดมิน)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveAdminTab('dashboard')}
+                      className="font-extrabold text-amber-700 hover:text-amber-950 hover:underline cursor-pointer flex items-center space-x-1"
+                    >
+                      <span>← กลับสู่แผงควบคุมหลัก</span>
+                    </button>
+                  </div>
+                  <DocumentsAndAnnouncementsManager
+                    manuals={manuals}
+                    setManuals={setManuals}
+                    announcements={announcements}
+                    setAnnouncements={setAnnouncements}
+                    showToast={setShowToast}
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -676,7 +1100,7 @@ export default function App() {
       <footer className="bg-white border-t border-slate-150 py-5 text-center text-[10px] text-slate-400 mt-auto no-print" id="app-footer">
         <p>© 2026 Medical Technology Department, Sangkha Hospital. All rights reserved.</p>
         <p className="mt-1 font-semibold text-slate-500">Blood Glucose POCT Management System</p>
-        <p className="text-slate-400">Version 2.0.0 • Developed by MT.S. S. Singsard</p>
+        <p className="text-slate-400">Version 2.0.0 • Developed by MT. S. Singsard</p>
         <p className="mt-1 text-slate-300">ระบบบริหารจัดการเครื่องตรวจน้ำตาลปลายนิ้ว</p>
       </footer>
 

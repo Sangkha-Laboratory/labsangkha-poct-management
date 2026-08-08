@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, TroubleshootingStep } from './types';
+import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, TroubleshootingStep, Announcement } from './types';
 
 export const INITIAL_WARDS = [
   'LAB',
@@ -273,25 +273,33 @@ export const INITIAL_SUPPLIES: SupplyRequest[] = [
 export const INITIAL_EQA_RECORDS: EqaRecord[] = [
   {
     id: 'eqa1',
-    round: 'EQA 1/2026',
+    organizer: 'ศูนย์ประเมินคุณภาพ คณะแพทยศาสตร์ โรงพยาบาลรามาธิบดี',
+    round: 'รอบที่ 1/2569 (EQA 1/2026)',
+    actionStatus: 'completed',
+    actionDate: '2026-03-12',
     testDate: '2026-03-15',
     level1Value: 46, level1Target: 45,
     level2Value: 122, level2Target: 120,
     level3Value: 312, level3Target: 310,
     score: 98.2,
     status: 'excellent',
-    feedback: 'ผลการเปรียบเทียบกับค่ากลางอยู่ในเกณฑ์ดีเยี่ยมผ่านเกณฑ์ระดับชาติ'
+    feedback: 'ผลการเปรียบเทียบกับค่ากลางอยู่ในเกณฑ์ดีเยี่ยมผ่านเกณฑ์ระดับชาติ',
+    documentUrl: 'https://onedrive.live.com/view.aspx?resid=EQA_REPORT_RAMA_2026_01'
   },
   {
     id: 'eqa2',
-    round: 'EQA 2/2026',
+    organizer: 'สภาเทคนิคการแพทย์ ร่วมกับ กรมวิทยาศาสตร์การแพทย์',
+    round: 'รอบที่ 2/2569 (EQA 2/2026)',
+    actionStatus: 'completed',
+    actionDate: '2026-06-18',
     testDate: '2026-06-20',
     level1Value: 48, level1Target: 45,
     level2Value: 114, level2Target: 120,
     level3Value: 322, level3Target: 310,
     score: 94.5,
     status: 'pass',
-    feedback: 'ผ่านเกณฑ์มาตรฐาน ค่าคลาดเคลื่อนอยู่ในระดับที่ยอมรับได้สำหรับ POCT'
+    feedback: 'ผ่านเกณฑ์มาตรฐาน ค่าคลาดเคลื่อนอยู่ในระดับที่ยอมรับได้สำหรับ POCT',
+    documentUrl: 'https://onedrive.live.com/view.aspx?resid=EQA_REPORT_TMT_2026_02'
   }
 ];
 
@@ -325,26 +333,9 @@ export const TROUBLESHOOTING_GUIDE: TroubleshootingStep[] = [
   }
 ];
 
-export const MANUALS_LIST: UserManual[] = [
-  {
-    id: 'man1',
-    title: 'คู่มือการใช้งานเครื่องตรวจวัดน้ำตาลปลายนิ้วแบบย่อ POCT (โรงพยาบาลสังขะ)',
-    category: 'guide',
-    description: 'เอกสาร PDF แสดงลำดับขั้นตอนการเจาะ ตรวจวัดค่า และบันทึกข้อมูลอย่างเป็นระบบเพื่อลด Error'
-  },
-  {
-    id: 'man2',
-    title: 'แนวทางการควบคุมคุณภาพภายใน (IQC) และการแปลผลลัพธ์ Levey-Jennings',
-    category: 'guide',
-    description: 'คู่มือการเตรียมและรันน้ำยาควบคุมคุณภาพ 3 ระดับ พร้อมแนวปฏิบัติเมื่อเจอ Out of Control'
-  },
-  {
-    id: 'man3',
-    title: 'วิดีโอสาธิตการทำความสะอาดและบำรุงรักษาเชิงป้องกันเครื่อง DTX ประจำสัปดาห์',
-    category: 'video',
-    description: 'คลิปสาธิตขั้นตอนการเช็ดทำความสะอาดพอร์ตเสียบและฝาช่องถ่านเพื่อยืดอายุการใช้งาน'
-  }
-];
+export const MANUALS_LIST: UserManual[] = [];
+
+export const INITIAL_ANNOUNCEMENTS: Announcement[] = [];
 
 export interface DtxMaintenanceGuideline {
   id: string;

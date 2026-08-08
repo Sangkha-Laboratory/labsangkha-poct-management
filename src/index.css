@@ -78,4 +78,165 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 11px !important;
 }
 
+/* Enable Tailwind dark variant */
+@variant dark (&:where(.dark, .dark *));
+
+/* Global Dark Mode Overrides & Contrast Improvements */
+.text-slate-400, .text-gray-400 {
+  color: #64748b; /* Boost light mode grey text contrast */
+}
+
+html.dark, html.dark body, html.dark #app-root {
+  background-color: #0f172a !important; /* slate-900 */
+  color: #f8fafc !important; /* slate-50 */
+}
+
+/* Header & Tab navigation bar */
+html.dark header#app-header,
+html.dark #admin-tabs-nav {
+  background-color: #1e293b !important; /* slate-800 */
+  border-color: #334155 !important; /* slate-700 */
+  color: #f8fafc !important;
+}
+
+html.dark #app-header h1 {
+  color: #f8fafc !important;
+}
+
+html.dark #app-header p {
+  color: #cbd5e1 !important;
+}
+
+/* White cards & Slate-50 / Slate-100 / Slate-200 containers converted to Slate-800 / Slate-700 */
+html.dark .bg-white,
+html.dark .bg-slate-50\/50,
+html.dark .bg-slate-50\/60,
+html.dark .bg-slate-50\/80,
+html.dark .bg-slate-50 {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+html.dark .bg-slate-100,
+html.dark .bg-slate-100\/50,
+html.dark .bg-slate-100\/80,
+html.dark .bg-slate-200,
+html.dark .bg-slate-200\/50 {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
+
+/* Ensure grey elements/buttons/badges/pills have high contrast text in dark mode */
+html.dark span,
+html.dark p,
+html.dark label,
+html.dark button,
+html.dark div {
+  border-color: #334155;
+}
+
+/* Text colors in Dark Mode - High Contrast White and Silver */
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700,
+html.dark .text-slate-600,
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-gray-700 {
+  color: #f8fafc !important; /* slate-50 */
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400,
+html.dark .text-slate-300,
+html.dark .text-gray-500,
+html.dark .text-gray-400,
+html.dark .text-gray-300 {
+  color: #cbd5e1 !important; /* slate-300 - clear silver */
+}
+
+/* Form Inputs, Selects, Textareas */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0f172a !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94a3b8 !important; /* slate-400 - bright placeholder */
+}
+
+/* Borders */
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-gray-200,
+html.dark .border-gray-100 {
+  border-color: #334155 !important;
+}
+
+/* Soft colored boxes in dark mode */
+html.dark .bg-sky-50,
+html.dark .bg-sky-50\/80,
+html.dark .bg-sky-50\/60,
+html.dark .bg-sky-50\/50 {
+  background-color: #0c4a6e !important; /* sky-900 */
+  border-color: #0369a1 !important;
+  color: #e0f2fe !important;
+}
+
+html.dark .text-sky-950,
+html.dark .text-sky-900,
+html.dark .text-sky-800,
+html.dark .text-sky-700 {
+  color: #7dd3fc !important;
+}
+
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-50\/80,
+html.dark .bg-emerald-50\/50 {
+  background-color: #064e3b !important;
+  border-color: #047857 !important;
+  color: #ecfdf5 !important;
+}
+
+html.dark .text-emerald-800,
+html.dark .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+html.dark .bg-amber-50,
+html.dark .bg-amber-50\/80 {
+  background-color: #451a03 !important;
+  border-color: #b45309 !important;
+  color: #fef3c7 !important;
+}
+
+html.dark .text-amber-800,
+html.dark .text-amber-700 {
+  color: #fcd34d !important;
+}
+
+html.dark .bg-rose-50,
+html.dark .bg-rose-50\/80 {
+  background-color: #4c0519 !important;
+  border-color: #be123c !important;
+  color: #ffe4e6 !important;
+}
+
+html.dark .text-rose-800,
+html.dark .text-rose-700 {
+  color: #fca5a5 !important;
+}
+
+/* Footer */
+html.dark #app-footer {
+  background-color: #020617 !important;
+  border-color: #1e293b !important;
+}
+
 

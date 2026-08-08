@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import CustomSelect from "./CustomSelect";
 import { DtxMachine } from '../types';
-import { INITIAL_WARDS, INITIAL_LOT_CONFIGS } from '../mockData';
+import { INITIAL_LOT_CONFIGS } from '../mockData';
 import { Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle } from 'lucide-react';
 
 interface StockManagementProps {
@@ -19,6 +20,14 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
   const [searchTerm, setSearchTerm] = useState('');
   const [filterWard, setFilterWard] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/wards')
+      .then(res => res.json())
+      .then(setWards)
+      .catch(err => console.error('Failed to fetch wards:', err));
+  }, []);
 
   // Add/Edit Modal state
   const [isOpenModal, setIsOpenModal] = useState(false);
@@ -171,20 +180,20 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
         </div>
 
         <div>
-          <select
+          <CustomSelect
             value={filterWard}
             onChange={(e) => setFilterWard(e.target.value)}
             className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
           >
             <option value="">-- หน่วยงานทั้งหมด --</option>
-            {INITIAL_WARDS.map((w, idx) => (
-              <option key={idx} value={w}>{w}</option>
+            {wards.map((w, idx) => (
+              <option key={idx} value={w.thai_name}>{w.thai_name}</option>
             ))}
-          </select>
+          </CustomSelect>
         </div>
 
         <div>
-          <select
+          <CustomSelect
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
@@ -196,7 +205,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
             <option value="unknown">ไม่ทราบสถานะ</option>
             <option value="waiting_claim">รอส่งเคลม</option>
             <option value="claimed">ส่งเคลมแล้ว</option>
-          </select>
+          </CustomSelect>
         </div>
       </div>
 
@@ -220,7 +229,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
             {filteredMachines.length === 0 ? (
               <tr>
                 <td colSpan={9} className="text-center p-8 text-slate-400">
-                  ไม่พบรายการเครื่องตรวจวัดน้ำตาลที่ค้นหา
+                  ยังไม่มีข้อมูลรายการเครื่องตรวจวัดน้ำตาล
                 </td>
               </tr>
             ) : (
@@ -342,7 +351,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                 {/* Brand */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-700">แบรนด์ *</label>
-                  <select
+                  <CustomSelect
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
@@ -354,7 +363,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                     <option value="Roche">Roche</option>
                     <option value="Abbott">Abbott</option>
                     <option value="Lifescan">Lifescan</option>
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 {/* Model */}
@@ -375,23 +384,23 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                 {/* Ward */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-700">วอร์ด / ตึกประจำการ *</label>
-                  <select
+                  <CustomSelect
                     value={ward}
                     onChange={(e) => setWard(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
                     required
                   >
                     <option value="">-- เลือกวอร์ด --</option>
-                    {INITIAL_WARDS.map((w, idx) => (
-                      <option key={idx} value={w}>{w}</option>
+                    {wards.map((w, idx) => (
+                      <option key={idx} value={w.thai_name}>{w.thai_name}</option>
                     ))}
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 {/* Lot Configuration mapping */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-700">ล็อตของเครื่อง (LOT) *</label>
-                  <select
+                  <CustomSelect
                     value={lotNumber}
                     onChange={(e) => setLotNumber(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
@@ -400,7 +409,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                     {INITIAL_LOT_CONFIGS.map((cfg, idx) => (
                       <option key={idx} value={cfg.lotNumber}>{cfg.lotNumber}</option>
                     ))}
-                  </select>
+                  </CustomSelect>
                 </div>
               </div>
 
@@ -419,7 +428,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                 {/* Status */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-700">สถานะตัวเครื่อง *</label>
-                  <select
+                  <CustomSelect
                     value={status}
                     onChange={(e) => setStatus(e.target.value as any)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
@@ -431,7 +440,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                     <option value="unknown">ไม่ทราบสถานะ</option>
                     <option value="waiting_claim">รอส่งเคลม</option>
                     <option value="claimed">ส่งเคลมแล้ว</option>
-                  </select>
+                  </CustomSelect>
                 </div>
               </div>
 

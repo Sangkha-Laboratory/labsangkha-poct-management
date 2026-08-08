@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import CustomSelect from "./CustomSelect";
 import { RepairRequest } from '../types';
 import { Smartphone, Send, Key, HelpCircle, CheckCircle, Code, MessageSquare, AlertTriangle, ShieldCheck } from 'lucide-react';
 
@@ -213,7 +214,7 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
               "type": "button",
               "action": {
                 "type": "postback",
-                "label": "🟢 กดรับงานซ่อมทันที",
+                "label": "กดรับงานซ่อมทันที",
                 "data": `action=accept&id=${rep.id}`
               },
               "style": "primary",
@@ -281,7 +282,7 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
                 </div>
               </div>
               <div className="bg-white p-3 rounded-lg border border-slate-200 text-[10px] space-y-1 leading-relaxed">
-                <span className="font-bold text-slate-700 block">🌐 Webhook URL ของระบบเซิร์ฟเวอร์:</span>
+                <span className="font-bold text-slate-700 block">Webhook URL ของระบบเซิร์ฟเวอร์:</span>
                 <code className="bg-slate-50 text-sky-700 font-mono px-1 rounded block truncate py-1 border border-slate-100 select-all">
                   https://dtx-sangkha.pages.dev/api/line-webhook
                 </code>
@@ -330,7 +331,7 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 items-end">
                   <div className="md:col-span-2 space-y-1">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">เลือกตั๋วส่งซ่อมเพื่อทดสอบ:</label>
-                    <select
+                    <CustomSelect
                       value={selectedRepairId}
                       onChange={(e) => setSelectedRepairId(e.target.value)}
                       className="w-full text-xs p-2.5 rounded-lg border border-slate-200 bg-white"
@@ -340,7 +341,7 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
                           {rep.id} - {rep.serialNumber} ({rep.ward}) - อาการ: {rep.reportedProblem}
                         </option>
                       ))}
-                    </select>
+                    </CustomSelect>
                   </div>
                   <button
                     type="button"
@@ -459,11 +460,11 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
                                 className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-1.5 px-3 rounded-md font-bold text-[9px] transition-all hover:scale-[1.02] flex items-center justify-center space-x-1 shadow-xs"
                               >
                                 <ShieldCheck size={11} />
-                                <span>🟢 กดรับงานซ่อมทันที</span>
+                                <span>กดรับงานซ่อมทันที</span>
                               </button>
                             ) : (
                               <div className="w-full py-1.5 px-3 bg-slate-200 text-slate-500 rounded-md font-bold text-[9px] text-center">
-                                🔒 ช่างรับงานเข้าระบบแล้ว ({rep.status === 'completed' ? 'ซ่อมเสร็จสิ้น' : 'กำลังดำเนินการซ่อม'})
+                                ช่างรับงานเข้าระบบแล้ว ({rep.status === 'completed' ? 'ซ่อมเสร็จสิ้น' : 'กำลังดำเนินการซ่อม'})
                               </div>
                             )}
                           </div>

@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { DtxMachine, RepairRequest, SupplyRequest } from '../types';
-import { INITIAL_WARDS, TROUBLESHOOTING_GUIDE, MANUALS_LIST, DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES } from '../mockData';
-import { Wrench, Package, Search, Download, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, FileText, Check, Award, Lightbulb, Phone } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import CustomSelect from "./CustomSelect";
+import { DtxMachine, RepairRequest, SupplyRequest, UserManual, Announcement } from '../types';
+import { TROUBLESHOOTING_GUIDE, MANUALS_LIST, INITIAL_ANNOUNCEMENTS, DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES } from '../mockData';
+import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers } from 'lucide-react';
 
 interface LandingPageProps {
   machines: DtxMachine[];
@@ -17,6 +18,8 @@ interface LandingPageProps {
   lineNotifyToken: string;
   activeTab?: 'repair' | 'supply' | 'track' | 'guide';
   onActiveTabChange?: (tab: 'repair' | 'supply' | 'track' | 'guide') => void;
+  manuals?: UserManual[];
+  announcements?: Announcement[];
 }
 
 export default function LandingPage({ 
@@ -27,9 +30,20 @@ export default function LandingPage({
   onAddSupply, 
   lineNotifyToken,
   activeTab: controlledActiveTab,
-  onActiveTabChange
+  onActiveTabChange,
+  manuals: propManuals,
+  announcements: propAnnouncements
 }: LandingPageProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<'repair' | 'supply' | 'track' | 'guide'>('repair');
+  
+  const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/wards')
+      .then(res => res.json())
+      .then(setWards)
+      .catch(err => console.error('Failed to fetch wards:', err));
+  }, []);
 
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
   const setActiveTab = (tab: 'repair' | 'supply' | 'track' | 'guide') => {
@@ -39,6 +53,17 @@ export default function LandingPage({
       setInternalActiveTab(tab);
     }
   };
+
+  let deletedManualIds: string[] = [];
+  let deletedAnnIds: string[] = [];
+  try {
+    deletedManualIds = JSON.parse(localStorage.getItem('dtx_deleted_manual_ids') || '[]');
+    deletedAnnIds = JSON.parse(localStorage.getItem('dtx_deleted_ann_ids') || '[]');
+  } catch (e) {}
+
+  const currentManuals = (propManuals !== undefined ? propManuals : MANUALS_LIST).filter(m => m && !m.isDeleted && !deletedManualIds.includes(m.id) && !['man1', 'man2', 'man3'].includes(m.id));
+  const currentAnnouncements = (propAnnouncements !== undefined ? propAnnouncements : INITIAL_ANNOUNCEMENTS).filter(a => a && !a.isDeleted && !deletedAnnIds.includes(a.id) && !['ann-1', 'ann-2'].includes(a.id));
+  const featuredAnnouncement = currentAnnouncements.find(a => a.pinned) || currentAnnouncements[0];
 
   // Repair form states
   const [repairSerial, setRepairSerial] = useState('');
@@ -70,7 +95,7 @@ export default function LandingPage({
 
   // Guide and troubleshooting states
   const [errorCodeSearch, setErrorCodeSearch] = useState('');
-  const [guideSubTab, setGuideSubTab] = useState<'maintenance' | 'errors' | 'documents'>('maintenance');
+  const [guideSubTab, setGuideSubTab] = useState<'maintenance' | 'errors' | 'documents' | 'announcements'>('maintenance');
 
   // Auto-fill ward and serial when selecting machine serial number in repair form
   const handleSerialChange = (serial: string) => {
@@ -146,7 +171,7 @@ export default function LandingPage({
 
   const handleSupplySubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supplyWard || !requesterName || !supplyReason || supplyQty <= 0) {
+    if (!supplyWard || !requesterName || supplyQty <= 0) {
       alert('กรุณากรอกข้อมูลให้ถูกต้องครบถ้วน');
       return;
     }
@@ -251,21 +276,23 @@ export default function LandingPage({
         </div>
       )}
 
-      {/* Hero Welcome */}
-      <div className="bg-gradient-to-br from-slate-50 via-sky-50/40 to-white text-slate-800 p-8 md:p-12 rounded-3xl border border-slate-100 shadow-2xs text-center md:text-left relative overflow-hidden animate-fade-in" id="hero-banner">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-sky-300/10 rounded-full blur-3xl -mr-20 -mt-20"></div>
-        <div className="relative z-10 md:flex items-center justify-between">
-          <div className="space-y-4 max-w-xl">
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 leading-tight">
-              บริหารจัดการเครื่อง POCT ครบวงจร
+      {/* Hero Welcome Banner - Soft Light Mode / Deep Dark Mode */}
+      <div className="bg-gradient-to-br from-slate-50 via-sky-50/40 to-white dark:bg-gradient-to-r dark:from-slate-900 dark:via-sky-950 dark:to-indigo-950 text-slate-800 dark:text-white p-7 md:p-10 rounded-3xl border border-slate-200/80 dark:border-sky-800/40 shadow-xs relative overflow-hidden animate-fade-in" id="hero-banner">
+        <div className="absolute -top-12 -right-12 w-80 h-80 bg-sky-300/10 dark:bg-sky-400/20 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -bottom-12 -left-12 w-80 h-80 bg-indigo-300/10 dark:bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+        
+        <div className="relative z-10 md:flex items-center justify-between gap-6">
+          <div className="space-y-3.5 max-w-xl text-center md:text-left">
+            <h1 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight whitespace-nowrap">
+              ระบบบริหารจัดการเครื่อง POCT ครบวงจร
             </h1>
-            <p className="text-base md:text-lg font-bold text-sky-600">
-              ควบคุมคุณภาพได้มาตรฐาน วอร์ดใช้งานมั่นใจ
+            <p className="text-sm md:text-base font-bold text-sky-600 dark:text-sky-300">
+              ควบคุมคุณภาพได้มาตรฐาน ใช้งานมั่นใจ รายงานสถานะแบบรวดเร็ว
             </p>
-            <p className="text-slate-500 text-xs md:text-xs leading-relaxed max-w-lg">
-              บริการส่งซ่อมเครื่องตรวจน้ำตาลปลายนิ้ว (DTX) เบิกแผ่นตรวจ-อุปกรณ์ ตรวจสอบค่าน้ำยาควบคุมคุณภาพ (IQC 3 Level) ของล็อต VivaChek Fad และติดตามสถานะได้ทันที
+            <p className="text-slate-600 dark:text-slate-300 text-xs md:text-sm leading-relaxed max-w-lg">
+              บริการเบิก-คืน ซ่อมบำรุง และควบคุมคุณภาพเครื่องตรวจน้ำตาลปลายนิ้ว (DTX) พร้อมติดตามสถานะงานซ่อมได้ตลอด 24 ชั่วโมง
             </p>
-            <div className="flex flex-wrap gap-2.5 pt-2 justify-center md:justify-start">
+            <div className="flex flex-wrap gap-3 pt-2 justify-center md:justify-start">
               <button
                 onClick={() => { 
                   setActiveTab('repair'); 
@@ -273,9 +300,10 @@ export default function LandingPage({
                     document.getElementById('landing-workspace')?.scrollIntoView({ behavior: 'smooth' });
                   }, 50);
                 }}
-                className="bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold px-6 py-2.5 rounded-full transition-all shadow-md shadow-sky-500/15 cursor-pointer"
+                className="bg-sky-600 hover:bg-sky-500 text-white text-xs md:text-sm font-extrabold px-6 py-3 rounded-xl transition-all shadow-md shadow-sky-600/15 cursor-pointer flex items-center space-x-2"
               >
-                เริ่มแจ้งส่งซ่อมเครื่อง
+                <Wrench size={16} />
+                <span>เริ่มแจ้งส่งซ่อมเครื่อง</span>
               </button>
               <button
                 onClick={() => { 
@@ -284,20 +312,54 @@ export default function LandingPage({
                     document.getElementById('landing-workspace')?.scrollIntoView({ behavior: 'smooth' });
                   }, 50);
                 }}
-                className="bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold px-6 py-2.5 rounded-full transition-all border border-slate-200 shadow-3xs cursor-pointer"
+                className="bg-white hover:bg-slate-50 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-100 text-xs md:text-sm font-bold px-6 py-3 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-3xs cursor-pointer flex items-center space-x-2"
               >
-                ตรวจสอบสถานะล่าสุด
+                <Search size={16} className="text-sky-600 dark:text-sky-300" />
+                <span>ตรวจสอบสถานะล่าสุด</span>
               </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Announcements & PR Notice Board */}
+      {currentAnnouncements.length > 0 && featuredAnnouncement && (
+        <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-indigo-950 text-white p-5 rounded-2xl border border-sky-700/40 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-fade-in" id="announcements-banner">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2.5 bg-sky-800/80 text-amber-300 border border-sky-600/40 rounded-xl shrink-0 mt-0.5 shadow-xs">
+              <Megaphone size={20} />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 bg-sky-800/80 text-sky-100 border border-sky-600/30 rounded-md">
+                  ประกาศ / ประชาสัมพันธ์
+                </span>
+                {featuredAnnouncement.pinned && (
+                  <span className="text-[10px] font-extrabold bg-amber-400 text-slate-950 px-2 py-0.5 rounded-md shadow-2xs">
+                    ปักหมุด
+                  </span>
+                )}
+                <span className="text-[11px] font-medium text-sky-200/80">{featuredAnnouncement.date}</span>
+              </div>
+              <h3 className="text-xs md:text-sm font-bold text-white">{featuredAnnouncement.title}</h3>
+              <p className="text-xs text-sky-100/90 line-clamp-1">{featuredAnnouncement.content}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('guide')}
+            className="text-xs font-bold text-sky-300 hover:text-white bg-sky-900/60 hover:bg-sky-800 px-4 py-2 rounded-xl border border-sky-600/30 transition-all shrink-0 whitespace-nowrap self-end md:self-center cursor-pointer"
+          >
+            ดูประกาศทั้งหมด ({currentAnnouncements.length}) →
+          </button>
+        </div>
+      )}
+
       {/* Main Grid Content */}
       <div className={
         (activeTab === 'repair' || activeTab === 'supply')
-          ? "grid grid-cols-1 lg:grid-cols-3 gap-8"
-          : "grid grid-cols-1 gap-8"
+          ? "grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8 items-start"
+          : "grid grid-cols-1 gap-6 md:gap-8"
       } id="landing-workspace">
         {/* Left Side: Dynamic Forms / Action view */}
         <div className={
@@ -308,7 +370,7 @@ export default function LandingPage({
 
           {/* Form Content 1: Repair Request */}
           {activeTab === 'repair' && (
-            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm" id="repair-form-container">
+            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="repair-form-container">
               <div className="border-b border-slate-100 pb-4 mb-5">
                 <h2 className="text-lg md:text-xl font-bold text-slate-800">กรอกข้อมูลเพื่อส่งเครื่องซ่อมบำรุง</h2>
                 <p className="text-xs md:text-sm text-slate-400">ระบบจะทำการจัดบันทึกข้อมูลและแปลงข้อมูลเป็นเอกสารรายงาน เพื่อให้ท่านปริ้นใช้งานภายหลังได้</p>
@@ -331,7 +393,7 @@ export default function LandingPage({
                 {/* หน่วยงาน/แผนก * */}
                 <div className="space-y-1.5">
                   <label className="text-xs md:text-sm font-bold text-slate-700">หน่วยงาน/แผนก *</label>
-                  <select
+                  <CustomSelect
                     value={repairWard}
                     onChange={(e) => {
                       const ward = e.target.value;
@@ -345,16 +407,16 @@ export default function LandingPage({
                     required
                   >
                     <option value="">เลือกหน่วยงาน/แผนก</option>
-                    {INITIAL_WARDS.map((w, idx) => (
-                      <option key={idx} value={w}>{w}</option>
+                    {wards.map((w, idx) => (
+                      <option key={idx} value={w.thai_name}>{w.thai_name}</option>
                     ))}
-                  </select>
+                  </CustomSelect>
                 </div>
 
                 {/* รหัสเครื่อง (Code) * */}
                 <div className="space-y-1.5">
                   <label className="text-xs md:text-sm font-bold text-slate-700">รหัสเครื่อง (Code) *</label>
-                  <select
+                  <CustomSelect
                     value={repairSerial}
                     onChange={(e) => {
                       const serial = e.target.value;
@@ -368,7 +430,7 @@ export default function LandingPage({
                       <option key={m.id} value={m.serialNumber}>{m.serialNumber} ({m.brand} {m.model})</option>
                     ))}
                     <option value="CUSTOM">-- ระบุรหัสเครื่องเอง (เครื่องนอกระบบ) --</option>
-                  </select>
+                  </CustomSelect>
 
                   {repairSerial === 'CUSTOM' && (
                     <input
@@ -385,7 +447,7 @@ export default function LandingPage({
                 {/* Serial Number * */}
                 <div className="space-y-1.5">
                   <label className="text-xs md:text-sm font-bold text-slate-700">Serial Number *</label>
-                  <select
+                  <CustomSelect
                     value={repairMachineSerial}
                     onChange={(e) => {
                       const mSerial = e.target.value;
@@ -405,7 +467,7 @@ export default function LandingPage({
                       <option key={m.id} value={m.machineSerial}>{m.machineSerial || 'ไม่มี Serial'}</option>
                     ))}
                     <option value="CUSTOM">-- ระบุ Serial Number เอง --</option>
-                  </select>
+                  </CustomSelect>
 
                   {repairMachineSerial === 'CUSTOM' && (
                     <input
@@ -470,81 +532,142 @@ export default function LandingPage({
 
           {/* Form Content 2: Supply Request */}
           {activeTab === 'supply' && (
-            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm" id="supply-form-container">
-              <div className="border-b border-slate-100 pb-4 mb-5">
-                <h2 className="text-lg md:text-xl font-bold text-slate-800">ส่งคำขอเบิกอุปกรณ์และวัสดุ DTX</h2>
+            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="supply-form-container">
+              <div className="border-b border-slate-100 pb-4">
+                <div className="flex items-center space-x-2 text-sky-600 mb-1">
+                  <Package size={22} />
+                  <h2 className="text-lg md:text-xl font-extrabold text-slate-800">ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</h2>
+                </div>
+                <p className="text-xs md:text-sm text-slate-500">
+                  ยื่นคำขอเบิกเครื่องตรวจน้ำตาล DTX เพิ่มเติมสำหรับใช้งานประจำหน่วยงาน/วอร์ด
+                </p>
               </div>
 
-              <form onSubmit={handleSupplySubmit} className="space-y-4" id="supply-landing-form">
-                {/* Requester / ชื่อผู้แจ้ง */}
-                <div className="space-y-1.5">
-                  <label className="text-xs md:text-sm font-bold text-slate-700">ชื่อผู้แจ้ง *</label>
-                  <input
-                    type="text"
-                    placeholder="กรอกชื่อ-นามสกุลผู้แจ้ง เช่น พว. สมใจ จิตดี"
-                    value={requesterName}
-                    onChange={(e) => setRequesterName(e.target.value)}
-                    className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
-                    required
-                  />
+              <form onSubmit={handleSupplySubmit} className="space-y-5" id="supply-landing-form">
+                {/* Item Type Info Card (Fixed to DTX Machine) */}
+                <div className="p-4 rounded-xl bg-sky-50/80 border border-sky-200/80 flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2.5 bg-sky-600 text-white rounded-xl shadow-xs">
+                      <Monitor size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-sky-950">รายการที่ขอเบิก</p>
+                      <p className="text-sm font-extrabold text-slate-800">เครื่องตรวจน้ำตาล DTX (Blood Glucose Monitor)</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-sky-700 bg-white px-3 py-1.5 rounded-lg border border-sky-100 shadow-3xs">
+                    หน่วยนับ: เครื่อง
+                  </span>
                 </div>
 
-                {/* Ward / หน่วยงาน/แผนก */}
-                <div className="space-y-1.5">
-                  <label className="text-xs md:text-sm font-bold text-slate-700">หน่วยงาน/แผนก *</label>
-                  <select
-                    value={supplyWard}
-                    onChange={(e) => setSupplyWard(e.target.value)}
-                    className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white transition-colors"
-                    required
-                  >
-                    <option value="">เลือกหน่วยงาน/แผนก</option>
-                    {INITIAL_WARDS.map((w, idx) => (
-                      <option key={idx} value={w}>{w}</option>
-                    ))}
-                  </select>
+                {/* Requester & Ward Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Requester / ชื่อผู้แจ้ง */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs md:text-sm font-bold text-slate-700 flex items-center space-x-1">
+                      <User size={14} className="text-slate-400" />
+                      <span>ชื่อผู้แจ้ง *</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="กรอกชื่อ-นามสกุลผู้แจ้ง เช่น พว. สมใจ จิตดี"
+                      value={requesterName}
+                      onChange={(e) => setRequesterName(e.target.value)}
+                      className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                      required
+                    />
+                  </div>
+
+                  {/* Ward / หน่วยงาน/แผนก */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs md:text-sm font-bold text-slate-700 flex items-center space-x-1">
+                      <Wrench size={14} className="text-slate-400" />
+                      <span>หน่วยงาน/แผนก *</span>
+                    </label>
+                    <CustomSelect
+                      value={supplyWard}
+                      onChange={(e) => setSupplyWard(e.target.value)}
+                      className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white transition-colors"
+                      required
+                    >
+                      <option value="">เลือกหน่วยงาน/แผนก</option>
+                      {wards.map((w, idx) => (
+                        <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                      ))}
+                    </CustomSelect>
+                  </div>
                 </div>
 
                 {/* Quantity / จำนวนที่ขอเบิก */}
                 <div className="space-y-1.5">
-                  <label className="text-xs md:text-sm font-bold text-slate-700">จำนวนที่ขอเบิก *</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    placeholder="ระบุจำนวนเฉพาะตัวเลข"
-                    value={supplyQty || ''}
-                    onChange={(e) => {
-                      // Only allow digits
-                      const val = e.target.value.replace(/[^0-9]/g, '');
-                      setSupplyQty(val ? parseInt(val, 10) : 0);
-                    }}
-                    className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
-                    required
-                  />
+                  <label className="text-xs md:text-sm font-bold text-slate-700 flex items-center justify-between">
+                    <span>จำนวนเครื่องที่ขอเบิก *</span>
+                    <span className="text-[11px] font-normal text-slate-500">
+                      (หน่วยนับ: เครื่อง)
+                    </span>
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setSupplyQty(Math.max(1, (supplyQty || 1) - 1))}
+                      className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all border border-slate-200 cursor-pointer"
+                      title="ลดจำนวน"
+                    >
+                      <Minus size={16} />
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="ระบุจำนวน"
+                      value={supplyQty || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
+                        setSupplyQty(val ? parseInt(val, 10) : 0);
+                      }}
+                      className="w-full text-center font-bold text-slate-800 text-sm md:text-base p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSupplyQty((supplyQty || 0) + 1)}
+                      className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all border border-slate-200 cursor-pointer"
+                      title="เพิ่มจำนวน"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Reason / เหตุผลประกอบการเบิก */}
                 <div className="space-y-1.5">
-                  <label className="text-xs md:text-sm font-bold text-slate-700">เหตุผลประกอบการเบิก / อธิบายความจำเป็น *</label>
+                  <label className="text-xs md:text-sm font-bold text-slate-700">เหตุผลประกอบการเบิก / อธิบายความจำเป็น (ไม่บังคับ)</label>
                   <textarea
                     rows={3}
-                    placeholder="ระบุเหตุผลประกอบการเบิก เช่น เพื่อทดแทนตัวเดิมที่ส่งเคลม หรือ แถบวัดเดิมหมดสต็อกก่อนสิ้นเดือน..."
+                    placeholder="ระบุเหตุผลประกอบการเบิก เช่น เพื่อทดแทนตัวเดิมที่ส่งซ่อม/เคลม, แถบวัดหมดสต็อกล่วงหน้าก่อนสิ้นเดือน, หรือเปิดหน่วยงานใหม่..."
                     value={supplyReason}
                     onChange={(e) => setSupplyReason(e.target.value)}
                     className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
-                    required
                   ></textarea>
                 </div>
 
-                <div className="pt-2">
+                {/* Submit Button */}
+                <div className="pt-2 space-y-3">
                   <button
                     type="submit"
-                    className="w-full bg-[#0ea5e9] hover:bg-[#0284c7] text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-sky-600/15 cursor-pointer"
+                    className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-md shadow-sky-600/15 cursor-pointer"
                     id="submit-supply-btn"
                   >
-                    <span>ส่งคำร้อง</span>
+                    <Package size={18} />
+                    <span>ส่งคำขอเบิกอุปกรณ์และวัสดุ DTX</span>
                   </button>
+
+                  <div className="bg-sky-50/60 p-3 rounded-xl border border-sky-100 flex items-start space-x-2 text-[11px] text-sky-800">
+                    <Info size={15} className="text-sky-600 shrink-0 mt-0.5" />
+                    <span>
+                      เมื่อยื่นคำขอเรียบร้อยแล้ว ระบบจะส่งการแจ้งเตือนไปยังทีมเจ้าหน้าที่ห้องปฏิบัติการโดยอัตโนมัติ ท่านสามารถติดตามสถานะได้ในแท็บ "ติดตามสถานะ"
+                    </span>
+                  </div>
                 </div>
               </form>
             </div>
@@ -697,35 +820,66 @@ export default function LandingPage({
                 </div>
               </div>
 
-              {/* Guide Sub-Tabs */}
-              <div className="flex bg-slate-100/80 p-1 rounded-xl w-full max-w-lg font-bold shadow-xs">
-                <button
-                  type="button"
-                  onClick={() => setGuideSubTab('maintenance')}
-                  className={`flex-1 py-2 text-xs rounded-lg transition-all text-center ${guideSubTab === 'maintenance' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <span className="flex items-center justify-center space-x-1">
-                    <Lightbulb size={13} className="shrink-0" />
-                    <span>การดูแลรักษาเครื่อง</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGuideSubTab('errors')}
-                  className={`flex-1 py-2 text-xs rounded-lg transition-all text-center ${guideSubTab === 'errors' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <span className="flex items-center justify-center space-x-1">
-                    <AlertTriangle size={13} className="shrink-0" />
-                    <span>รหัส Error และวิธีแก้ไข</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGuideSubTab('documents')}
-                  className={`flex-1 py-2 text-xs rounded-lg transition-all text-center ${guideSubTab === 'documents' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  📄 เอกสารคู่มือ PDF
-                </button>
+              {/* Guide Sub-Tabs: Spread evenly across full width */}
+              <div className="bg-sky-50/80 dark:bg-slate-800 p-1.5 rounded-2xl w-full shadow-2xs border border-sky-100 dark:border-slate-700" id="guide-subtabs-nav">
+                <div className="flex flex-col sm:flex-row w-full gap-1 font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setGuideSubTab('maintenance')}
+                    className={`flex-1 py-2.5 px-3 text-xs rounded-xl transition-all text-center cursor-pointer whitespace-nowrap ${
+                      guideSubTab === 'maintenance'
+                        ? 'bg-sky-600 text-white shadow-sm font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    }`}
+                  >
+                    <span className="flex items-center justify-center space-x-1.5">
+                      <Lightbulb size={14} className="shrink-0" />
+                      <span>การดูแลรักษาเครื่อง</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGuideSubTab('errors')}
+                    className={`flex-1 py-2.5 px-3 text-xs rounded-xl transition-all text-center cursor-pointer whitespace-nowrap ${
+                      guideSubTab === 'errors'
+                        ? 'bg-sky-600 text-white shadow-sm font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    }`}
+                  >
+                    <span className="flex items-center justify-center space-x-1.5">
+                      <AlertTriangle size={14} className="shrink-0" />
+                      <span>รหัส Error และวิธีแก้ไข</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGuideSubTab('documents')}
+                    className={`flex-1 py-2.5 px-3 text-xs rounded-xl transition-all text-center cursor-pointer whitespace-nowrap ${
+                      guideSubTab === 'documents'
+                        ? 'bg-sky-600 text-white shadow-sm font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    }`}
+                  >
+                    <span className="flex items-center justify-center space-x-1.5">
+                      <FileText size={14} className="shrink-0" />
+                      <span>เอกสารคู่มือ PDF</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGuideSubTab('announcements')}
+                    className={`flex-1 py-2.5 px-3 text-xs rounded-xl transition-all text-center cursor-pointer whitespace-nowrap ${
+                      guideSubTab === 'announcements'
+                        ? 'bg-sky-600 text-white shadow-sm font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                    }`}
+                  >
+                    <span className="flex items-center justify-center space-x-1.5">
+                      <Bell size={14} className="shrink-0" />
+                      <span>ข่าวประชาสัมพันธ์</span>
+                    </span>
+                  </button>
+                </div>
               </div>
 
               {/* Sub-Tab 1: Maintenance Guidelines */}
@@ -937,24 +1091,115 @@ export default function LandingPage({
 
               {/* Sub-Tab 3: Documents and Files */}
               {guideSubTab === 'documents' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-scale-up" id="guides-list">
-                  {MANUALS_LIST.map((manual) => (
-                    <div key={manual.id} className="border border-slate-100 p-4 rounded-xl hover:border-sky-100 hover:bg-sky-50/10 transition-all flex items-start space-x-3.5">
-                      <div className="p-2.5 bg-sky-50 text-sky-600 rounded-lg shrink-0">
-                        <Download size={20} />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-sky-50 text-sky-700 rounded-md">
-                          {manual.category === 'guide' ? 'เอกสาร PDF' : 'วิดีโอสาธิต'}
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-800 leading-snug">{manual.title}</h4>
-                        <p className="text-[11px] text-slate-500">{manual.description}</p>
-                        <button className="text-xs font-bold text-sky-600 hover:text-sky-500 hover:underline pt-2 inline-flex items-center space-x-0.5">
-                          <span>ดาวน์โหลด (.pdf)</span>
-                        </button>
-                      </div>
+                <div className="animate-scale-up" id="guides-list">
+                  {currentManuals.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                      ยังไม่มีเอกสารคู่มือในระบบขณะนี้
                     </div>
-                  ))}
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {currentManuals.map((manual) => (
+                        <div key={manual.id} className="border border-slate-100 p-4 rounded-xl hover:border-sky-100 hover:bg-sky-50/10 transition-all flex items-start space-x-3.5 bg-white shadow-2xs">
+                          <div className="p-2.5 bg-sky-50 text-sky-600 rounded-lg shrink-0">
+                            <Download size={20} />
+                          </div>
+                          <div className="space-y-1.5 flex-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-sky-50 text-sky-700 rounded-md">
+                              {manual.category === 'guide' ? 'เอกสาร PDF' : manual.category === 'video' ? 'วิดีโอสาธิต' : 'แบบฟอร์ม'}
+                            </span>
+                            <h4 className="text-xs font-bold text-slate-800 leading-snug">{manual.title}</h4>
+                            <p className="text-[11px] text-slate-500">{manual.description}</p>
+                            {manual.fileName && (
+                              <div className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded inline-flex items-center space-x-1">
+                                <FileCheck size={12} />
+                                <span>{manual.fileName}</span>
+                              </div>
+                            )}
+                            <div>
+                              {manual.downloadUrl ? (
+                                <a
+                                  href={manual.downloadUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-bold text-sky-600 hover:text-sky-500 hover:underline pt-1 inline-flex items-center space-x-1"
+                                >
+                                  <ExternalLink size={13} />
+                                  <span>{manual.fileName || 'เปิดลิงก์เอกสารออนไลน์'}</span>
+                                </a>
+                              ) : manual.fileData ? (
+                                <a
+                                  href={manual.fileData}
+                                  download={manual.fileName || 'manual.pdf'}
+                                  className="text-xs font-bold text-sky-600 hover:text-sky-500 hover:underline pt-1 inline-flex items-center space-x-1"
+                                >
+                                  <Download size={13} />
+                                  <span>ดาวน์โหลดเอกสาร ({manual.fileName || 'PDF'})</span>
+                                </a>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => alert(`ดาวน์โหลดเอกสาร: ${manual.title}`)}
+                                  className="text-xs font-bold text-sky-600 hover:text-sky-500 hover:underline pt-1 inline-flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <Download size={13} />
+                                  <span>ดาวน์โหลดคู่มือมาตรฐาน (.pdf)</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sub-Tab 4: Announcements & PR */}
+              {guideSubTab === 'announcements' && (
+                <div className="space-y-4 animate-scale-up" id="announcements-list-view">
+                  {currentAnnouncements.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                      ยังไม่มีประกาศหรือข่าวประชาสัมพันธ์ในขณะนี้
+                    </div>
+                  ) : (
+                    currentAnnouncements.map((ann) => (
+                      <div key={ann.id} className={`border p-4.5 rounded-xl space-y-2 bg-white shadow-2xs ${ann.pinned ? 'border-sky-300 bg-sky-50/15' : 'border-slate-100'}`}>
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${ann.category === 'alert' ? 'bg-rose-50 text-rose-700' : ann.category === 'event' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
+                            {ann.category === 'alert' ? 'ประกาศด่วน' : ann.category === 'event' ? 'กิจกรรม' : 'ข่าวสาร'}
+                          </span>
+                          {ann.pinned && (
+                            <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500 text-white">
+                              ปักหมุด
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400 flex items-center space-x-1">
+                            <Calendar size={11} />
+                            <span>{ann.date}</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 flex items-center space-x-1">
+                            <User size={11} />
+                            <span>{ann.author}</span>
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-800">{ann.title}</h4>
+                        <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{ann.content}</p>
+                        {ann.attachmentUrl && (
+                          <div className="pt-2">
+                            <a
+                              href={ann.attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-bold text-sky-600 hover:underline inline-flex items-center space-x-1 bg-sky-50 px-3 py-1.5 rounded-lg"
+                            >
+                              <ExternalLink size={13} />
+                              <span>{ann.attachmentName || 'เปิดลิงก์เอกสารแนบ'}</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -963,7 +1208,7 @@ export default function LandingPage({
 
         {/* Right Side: POCT Contact & LINE Simulation */}
         {(activeTab === 'repair' || activeTab === 'supply') && (
-          <div className="space-y-6">
+          <div className="space-y-6 lg:sticky lg:top-20 self-start">
             {/* Section: POCT Lab Contact & Status */}
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4" id="poct-contact-card">
               <div className="border-b border-slate-100 pb-3">
@@ -1073,7 +1318,7 @@ export default function LandingPage({
                   
                   <div className="bg-[#1e293b] p-3 rounded-lg border border-slate-700/50 space-y-2 text-xs">
                     <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 border-b border-slate-700/60 pb-1">
-                      <span>🔔 แจ้งซ่อมเครื่อง DTX ด่วน!</span>
+                      <span>แจ้งซ่อมเครื่อง DTX ด่วน!</span>
                       <span className="text-[9px] bg-emerald-950/50 text-emerald-400 border border-emerald-900 px-1 py-0.5 rounded">{latestSubmittedRepair.id}</span>
                     </div>
                     <div className="space-y-1 font-mono text-[10px] text-slate-300 leading-snug">

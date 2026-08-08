@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import CustomSelect from "./CustomSelect";
 import { QcRecord, QcLotConfig, DtxMachine } from '../types';
-import { INITIAL_WARDS, INITIAL_LOT_CONFIGS } from '../mockData';
+import { INITIAL_LOT_CONFIGS } from '../mockData';
 import { Plus, Settings, BarChart2, CheckCircle, AlertTriangle, FileText, Download, Sliders, Calendar, User, Eye, Lightbulb } from 'lucide-react';
 
 interface QCManagementProps {
@@ -19,9 +20,19 @@ interface QCManagementProps {
 export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcRecord, onUpdateLotConfigs }: QCManagementProps) {
   const [activeSubTab, setActiveSubTab] = useState<'log' | 'config' | 'chart'>('log');
   
+  const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/wards')
+      .then(res => res.json())
+      .then(setWards)
+      .catch(err => console.error('Failed to fetch wards:', err));
+  }, []);
+  
   // Filtering states
   const [filterWard, setFilterWard] = useState('');
   const [filterLot, setFilterLot] = useState('LOT2026-A');
+  const [filterMonth, setFilterMonth] = useState('');
   const [selectedChartLevel, setSelectedChartLevel] = useState<1 | 2 | 3>(1);
 
   // New Record Form states
@@ -67,10 +78,17 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
     const l2 = Number(level2Val);
     const l3 = Number(level3Val);
 
-    // Calculate Out of Control status (using 3SD i.e. Target +/- 3*SD)
-    const level1Status = (l1 < config.level1Target - 3 * config.level1SD || l1 > config.level1Target + 3 * config.level1SD) ? 'out_of_control' : 'normal';
-    const level2Status = (l2 < config.level2Target - 3 * config.level2SD || l2 > config.level2Target + 3 * config.level2SD) ? 'out_of_control' : 'normal';
-    const level3Status = (l3 < config.level3Target - 3 * config.level3SD || l3 > config.level3Target + 3 * config.level3SD) ? 'out_of_control' : 'normal';
+    // Calculate Out of Control status using Min/Max ranges, or fallback to Target +/- 3SD
+    const getStatus = (val: number, min: number, max: number, target: number, sd: number) => {
+      if (min !== undefined && max !== undefined && (min !== 0 || max !== 0)) {
+        return (val < min || val > max) ? 'out_of_control' : 'normal';
+      }
+      return (val < target - 3 * sd || val > target + 3 * sd) ? 'out_of_control' : 'normal';
+    };
+
+    const level1Status = getStatus(l1, config.level1Min, config.level1Max, config.level1Target, config.level1SD);
+    const level2Status = getStatus(l2, config.level2Min, config.level2Max, config.level2Target, config.level2SD);
+    const level3Status = getStatus(l3, config.level3Min, config.level3Max, config.level3Target, config.level3SD);
 
     const newRecord: QcRecord = {
       id: `QC-${Date.now()}`,
@@ -106,16 +124,38 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
   const handleSaveLotConfig = () => {
     if (!editedLot) return;
     const newConfigs = [...lotConfigs];
-    newConfigs[editingLotIdx!] = editedLot;
+    
+    // If we're adding a new lot (index equals length)
+    if (editingLotIdx === lotConfigs.length) {
+      newConfigs.push(editedLot);
+    } else {
+      newConfigs[editingLotIdx!] = editedLot;
+    }
+    
     onUpdateLotConfigs(newConfigs);
     setEditingLotIdx(null);
     setEditedLot(null);
   };
 
+  const handleAddLotConfig = () => {
+    const newLotIdx = lotConfigs.length;
+    setEditingLotIdx(newLotIdx);
+    setEditedLot({
+      lotNumber: `LOT-${new Date().getFullYear()}-NEW`,
+      level1Target: 0, level1Min: 0, level1Max: 0, level1SD: 0,
+      level2Target: 0, level2Min: 0, level2Max: 0, level2SD: 0,
+      level3Target: 0, level3Min: 0, level3Max: 0, level3SD: 0,
+    });
+  };
+
   // Stats Calculations
-  const getCalculatedStats = (records: QcRecord[], lot: string, level: 1 | 2 | 3) => {
+  const getCalculatedStats = (records: QcRecord[], lot: string, level: 1 | 2 | 3, month: string) => {
     const activeLotConfig = lotConfigs.find(c => c.lotNumber === lot);
-    const filtered = records.filter(r => r.lotNumber === lot && (filterWard === '' || r.ward === filterWard));
+    const filtered = records.filter(r => 
+      r.lotNumber === lot && 
+      (filterWard === '' || r.ward === filterWard) &&
+      (month === '' || r.date.startsWith(month))
+    );
     const values = filtered.map(r => level === 1 ? r.level1 : level === 2 ? r.level2 : r.level3);
     const n = values.length;
 
@@ -133,32 +173,31 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
     
     const cv = mean > 0 ? (sd / mean) * 100 : 0;
 
-    // Out of control count based on Lot Config target +/- 3SD
-    let outOfControlCount = 0;
-    if (activeLotConfig) {
-      const target = level === 1 ? activeLotConfig.level1Target : level === 2 ? activeLotConfig.level2Target : activeLotConfig.level3Target;
-      const targetSD = level === 1 ? activeLotConfig.level1SD : level === 2 ? activeLotConfig.level2SD : activeLotConfig.level3SD;
-      outOfControlCount = values.filter(v => v < target - 3 * targetSD || v > target + 3 * targetSD).length;
-    }
+    // Out of control count based on the recorded status
+    const outOfControlCount = filtered.filter(r => 
+      (level === 1 && r.level1Status === 'out_of_control') ||
+      (level === 2 && r.level2Status === 'out_of_control') ||
+      (level === 3 && r.level3Status === 'out_of_control')
+    ).length;
 
     return {
       n,
       mean: Math.round(mean * 100) / 100,
       sd: Math.round(sd * 100) / 100,
       cv: Math.round(cv * 100) / 100,
-      outOfControlCount,
-      target: activeLotConfig ? (level === 1 ? activeLotConfig.level1Target : level === 2 ? activeLotConfig.level2Target : activeLotConfig.level3Target) : 0
+      outOfControlCount
     };
   };
 
-  const level1Stats = getCalculatedStats(qcRecords, filterLot, 1);
-  const level2Stats = getCalculatedStats(qcRecords, filterLot, 2);
-  const level3Stats = getCalculatedStats(qcRecords, filterLot, 3);
+  const level1Stats = getCalculatedStats(qcRecords, filterLot, 1, filterMonth);
+  const level2Stats = getCalculatedStats(qcRecords, filterLot, 2, filterMonth);
+  const level3Stats = getCalculatedStats(qcRecords, filterLot, 3, filterMonth);
 
   // Filtered QC records for table display
   const tableRecords = qcRecords.filter(r => 
     (filterWard === '' || r.ward === filterWard) &&
-    (filterLot === '' || r.lotNumber === filterLot)
+    (filterLot === '' || r.lotNumber === filterLot) &&
+    (filterMonth === '' || r.date.startsWith(filterMonth))
   ).sort((a, b) => b.date.localeCompare(a.date));
 
   // CSV/JSON Export Helper
@@ -195,6 +234,8 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
     document.body.removeChild(link);
   };
 
+  const availableMonths = Array.from(new Set(qcRecords.map(r => r.date.substring(0, 7)))).sort((a, b) => b.localeCompare(a));
+
   return (
     <div className="space-y-6" id="qc-management-panel">
       {/* Tab Header Controls */}
@@ -229,19 +270,6 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
         </div>
       </div>
 
-      {/* Lab Responsibility Banner & VivaChek Fad Standard */}
-      <div className="bg-sky-50 border border-sky-100 rounded-xl p-4 flex items-start space-x-3 text-xs text-sky-900">
-        <div className="bg-sky-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-md mt-0.5 shrink-0">IQC INFO</div>
-        <div className="space-y-1">
-          <p className="font-bold text-sky-950">การควบคุมคุณภาพภายใน (IQC) และระบบวัสดุอุปกรณ์หลัก</p>
-          <p className="text-sky-800/90 leading-relaxed">
-            ปกติการทดสอบควบคุมคุณภาพภายใน <span className="font-bold">IQC 3 Level</span> จะดำเนินการโดย <span className="font-bold text-sky-950 underline">เจ้าหน้าที่กลุ่มงานเทคนิคการแพทย์ (ห้องแลปผู้รับผิดชอบ)</span> เพื่อรักษาระบบมาตรฐานความเที่ยงตรงของอุปกรณ์ก่อนส่งกลับหน่วยงาน
-          </p>
-          <p className="text-sky-800/90 leading-relaxed">
-            * <span className="font-bold">VivaChek Fad</span> เป็นยี่ห้อและรุ่นมาตรฐานหลักของโรงพยาบาลสังขะ ซึ่งเป็นชื่อของทั้ง <span className="font-bold">ตัวเครื่องตรวจวัด (Device)</span> และ <span className="font-bold">แผ่นตรวจวัดน้ำตาล (Test Strips)</span> ที่ใช้ร่วมกันในการควบคุมคุณภาพและการเจาะจริง
-          </p>
-        </div>
-      </div>
 
       {/* Stats Dashboard Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" id="qc-stats-cards">
@@ -254,7 +282,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
           <div className="grid grid-cols-3 gap-2 text-center py-1">
             <div>
               <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
-              <span className="text-sm font-bold text-slate-800">{level1Stats.mean} <span className="text-[9px] text-slate-400 font-normal">({level1Stats.target})</span></span>
+              <span className="text-sm font-bold text-slate-800">{level1Stats.mean}</span>
             </div>
             <div>
               <span className="text-[10px] text-slate-400 block">S.D. (ค่าเบี่ยงเบน)</span>
@@ -272,7 +300,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 <AlertTriangle size={10} className="mr-0.5" /> หลุดเกณฑ์: {level1Stats.outOfControlCount} ครั้ง
               </span>
             ) : (
-              <span className="text-emerald-600 font-bold">✓ สถิติปกติในเกณฑ์ 3SD</span>
+              <span className="text-emerald-600 font-bold">✓ สถิติปกติในเกณฑ์ที่กำหนด</span>
             )}
           </div>
         </div>
@@ -286,7 +314,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
           <div className="grid grid-cols-3 gap-2 text-center py-1">
             <div>
               <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
-              <span className="text-sm font-bold text-slate-800">{level2Stats.mean} <span className="text-[9px] text-slate-400 font-normal">({level2Stats.target})</span></span>
+              <span className="text-sm font-bold text-slate-800">{level2Stats.mean}</span>
             </div>
             <div>
               <span className="text-[10px] text-slate-400 block">S.D. (ค่าเบี่ยงเบน)</span>
@@ -304,7 +332,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 <AlertTriangle size={10} className="mr-0.5" /> หลุดเกณฑ์: {level2Stats.outOfControlCount} ครั้ง
               </span>
             ) : (
-              <span className="text-emerald-600 font-bold">✓ สถิติปกติในเกณฑ์ 3SD</span>
+              <span className="text-emerald-600 font-bold">✓ สถิติปกติในเกณฑ์ที่กำหนด</span>
             )}
           </div>
         </div>
@@ -318,7 +346,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
           <div className="grid grid-cols-3 gap-2 text-center py-1">
             <div>
               <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
-              <span className="text-sm font-bold text-slate-800">{level3Stats.mean} <span className="text-[9px] text-slate-400 font-normal">({level3Stats.target})</span></span>
+              <span className="text-sm font-bold text-slate-800">{level3Stats.mean}</span>
             </div>
             <div>
               <span className="text-[10px] text-slate-400 block">S.D. (ค่าเบี่ยงเบน)</span>
@@ -336,7 +364,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 <AlertTriangle size={10} className="mr-0.5" /> หลุดเกณฑ์: {level3Stats.outOfControlCount} ครั้ง
               </span>
             ) : (
-              <span className="text-emerald-600 font-bold">✓ สถิติปกติในเกณฑ์ 3SD</span>
+              <span className="text-emerald-600 font-bold">✓ สถิติปกติในเกณฑ์ที่กำหนด</span>
             )}
           </div>
         </div>
@@ -348,20 +376,32 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
           {/* Controls filter row */}
           <div className="bg-slate-50 p-4 rounded-xl flex flex-wrap gap-3 items-center justify-between" id="qc-log-filters">
             <div className="flex flex-wrap items-center gap-3">
+              {/* Filter Month */}
+              <CustomSelect
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="text-xs p-2.5 rounded-lg border border-slate-200 bg-white"
+              >
+                <option value="">-- ทุกเดือน --</option>
+                {availableMonths.map((m, idx) => (
+                  <option key={idx} value={m}>{m}</option>
+                ))}
+              </CustomSelect>
+
               {/* Filter Ward */}
-              <select
+              <CustomSelect
                 value={filterWard}
                 onChange={(e) => setFilterWard(e.target.value)}
                 className="text-xs p-2.5 rounded-lg border border-slate-200 bg-white"
               >
                 <option value="">-- กรองตามวอร์ด (ทั้งหมด) --</option>
-                {INITIAL_WARDS.map((w, idx) => (
-                  <option key={idx} value={w}>{w}</option>
+                {wards.map((w, idx) => (
+                  <option key={idx} value={w.thai_name}>{w.thai_name}</option>
                 ))}
-              </select>
+              </CustomSelect>
 
               {/* Filter Lot */}
-              <select
+              <CustomSelect
                 value={filterLot}
                 onChange={(e) => setFilterLot(e.target.value)}
                 className="text-xs p-2.5 rounded-lg border border-slate-200 bg-white font-bold text-slate-700"
@@ -369,7 +409,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 {lotConfigs.map((cfg, idx) => (
                   <option key={idx} value={cfg.lotNumber}>แสดงเฉพาะ ล็อต: {cfg.lotNumber}</option>
                 ))}
-              </select>
+              </CustomSelect>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -428,7 +468,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 {/* Serial selection */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500">เลือกเครื่องตรวจวัดน้ำตาล (DTX CODE) *</label>
-                  <select
+                  <CustomSelect
                     value={qcSerial}
                     onChange={(e) => handleSerialChange(e.target.value)}
                     className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
@@ -438,7 +478,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                     {machines.filter(m => m.status === 'active').map(m => (
                       <option key={m.id} value={m.serialNumber}>{m.serialNumber} ({m.ward}) - ล็อต {m.lotNumber}</option>
                     ))}
-                  </select>
+                  </CustomSelect>
                 </div>
                 {/* Target Ward (auto) */}
                 <div className="space-y-1">
@@ -526,7 +566,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 {tableRecords.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="text-center p-8 text-slate-400">
-                      ไม่พบรายการบันทึกควบคุมคุณภาพตามที่เลือก
+                      ยังไม่มีข้อมูลบันทึกการควบคุมคุณภาพ (QC)
                     </td>
                   </tr>
                 ) : (
@@ -601,8 +641,20 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 </button>
               </div>
 
+              {/* Month selector */}
+              <CustomSelect
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="p-2 bg-white rounded-lg border border-slate-200 font-semibold text-xs"
+              >
+                <option value="">ทุกเดือน</option>
+                {availableMonths.map((m, idx) => (
+                  <option key={idx} value={m}>{m}</option>
+                ))}
+              </CustomSelect>
+
               {/* Lot selector */}
-              <select
+              <CustomSelect
                 value={filterLot}
                 onChange={(e) => setFilterLot(e.target.value)}
                 className="p-2 bg-white rounded-lg border border-slate-200 font-semibold"
@@ -610,7 +662,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                 {lotConfigs.map((cfg, idx) => (
                   <option key={idx} value={cfg.lotNumber}>ล็อต: {cfg.lotNumber}</option>
                 ))}
-              </select>
+              </CustomSelect>
             </div>
           </div>
 
@@ -618,20 +670,21 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
           {(() => {
             const currentLotConfig = lotConfigs.find(c => c.lotNumber === filterLot);
             const filteredChartRecords = qcRecords
-              .filter(r => r.lotNumber === filterLot && (filterWard === '' || r.ward === filterWard))
+              .filter(r => 
+                r.lotNumber === filterLot && 
+                (filterWard === '' || r.ward === filterWard) &&
+                (filterMonth === '' || r.date.startsWith(filterMonth))
+              )
               .sort((a, b) => a.date.localeCompare(b.date));
 
             if (!currentLotConfig) {
               return <p className="text-xs text-center text-slate-400 py-12">ไม่พบล็อตที่กำหนดในระบบ</p>;
             }
 
-            // Extract level targets and SDs
-            const target = selectedChartLevel === 1 ? currentLotConfig.level1Target : selectedChartLevel === 2 ? currentLotConfig.level2Target : currentLotConfig.level3Target;
-            const sd = selectedChartLevel === 1 ? currentLotConfig.level1SD : selectedChartLevel === 2 ? currentLotConfig.level2SD : currentChartLevelSD();
-            
-            function currentChartLevelSD() {
-              return selectedChartLevel === 3 ? currentLotConfig!.level3SD : 1.0;
-            }
+            // Use dynamically calculated Mean and SD for the chart
+            const chartStats = selectedChartLevel === 1 ? level1Stats : selectedChartLevel === 2 ? level2Stats : level3Stats;
+            const target = chartStats.mean;
+            const sd = chartStats.sd || 1; // Fallback to 1 if SD is 0 to prevent division by zero in charting
 
             const rangeMin = target - 3.5 * sd;
             const rangeMax = target + 3.5 * sd;
@@ -810,23 +863,44 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
       {/* SUB-TAB 3: LOT RANGE CONFIGURATION */}
       {activeSubTab === 'config' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="qc-config-subtab">
-          <div>
-            <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-1.5">
-              <Settings size={16} className="text-sky-600" />
-              <span>กำหนดค่าเป้าหมายจำแนกตามล็อต (Target & Range Configuration)</span>
-            </h3>
-            <p className="text-xs text-slate-400">ระบุค่าควบคุม Target, Min/Max Limit, และ Standard Deviation (SD) เพื่อป้อนให้ระบบคำนวณกราฟและสถานะโดยอัตโนมัติ</p>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-1.5">
+                <Settings size={16} className="text-sky-600" />
+                <span>กำหนดค่าเป้าหมายจำแนกตามล็อต (Target & Range Configuration)</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">ระบุค่าควบคุม Target, Min/Max Limit, และ Standard Deviation (SD) เพื่อป้อนให้ระบบคำนวณกราฟและสถานะโดยอัตโนมัติ</p>
+            </div>
+            {!editingLotIdx && editingLotIdx !== 0 && (
+              <button 
+                onClick={handleAddLotConfig}
+                className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 shrink-0 hover:bg-slate-800 shadow-sm transition-all"
+              >
+                <Plus size={14} />
+                <span>เพิ่ม Lot ใหม่</span>
+              </button>
+            )}
           </div>
 
           <div className="space-y-4" id="configs-editor-list">
-            {lotConfigs.map((cfg, idx) => {
+            {(editingLotIdx === lotConfigs.length ? [...lotConfigs, editedLot!] : lotConfigs).map((cfg, idx) => {
               const isEditing = editingLotIdx === idx;
               return (
                 <div key={idx} className="border border-slate-100 rounded-xl p-4 space-y-4 hover:border-slate-200 transition-all bg-slate-50/20">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <div className="flex items-center space-x-2">
-                      <span className="font-mono font-bold text-xs bg-slate-900 text-white px-2 py-0.5 rounded">{cfg.lotNumber}</span>
-                      <span className="text-xs font-semibold text-slate-500">สำหรับกลุ่มแถบตรวจวัดค่าน้ำตาล POCT</span>
+                      {isEditing && editedLot ? (
+                        <input
+                          type="text"
+                          value={editedLot.lotNumber}
+                          onChange={(e) => setEditedLot({ ...editedLot, lotNumber: e.target.value })}
+                          className="font-mono font-bold text-xs px-2 py-1 border border-slate-300 rounded focus:border-sky-500 focus:outline-hidden"
+                          placeholder="ชื่อ Lot"
+                        />
+                      ) : (
+                        <span className="font-mono font-bold text-xs bg-slate-900 text-white px-2 py-0.5 rounded">{cfg.lotNumber}</span>
+                      )}
+                      <span className="text-xs font-semibold text-slate-500 hidden sm:inline-block">สำหรับกลุ่มแถบตรวจวัดค่าน้ำตาล POCT</span>
                     </div>
                     {isEditing ? (
                       <div className="flex space-x-1.5 text-xs">
@@ -855,45 +929,53 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                   </div>
 
                   {isEditing && editedLot ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4" id="config-editing-fields">
-                      {/* Level 1 Fields */}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4" id="config-editing-fields">
+                        {/* Level 1 Fields */}
                       <div className="bg-emerald-50/10 p-3.5 rounded-lg border border-emerald-100 space-y-3 text-xs">
                         <h4 className="font-bold text-emerald-700">เกณฑ์ Level 1 (Low)</h4>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-500 block">Target Mean</label>
-                          <input type="number" value={editedLot.level1Target} onChange={(e) => setEditedLot({ ...editedLot, level1Target: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-500 block">S.D. Target</label>
-                          <input type="number" step="any" value={editedLot.level1SD} onChange={(e) => setEditedLot({ ...editedLot, level1SD: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 block">Min Range</label>
+                            <input type="number" step="any" value={editedLot.level1Min} onChange={(e) => setEditedLot({ ...editedLot, level1Min: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 block">Max Range</label>
+                            <input type="number" step="any" value={editedLot.level1Max} onChange={(e) => setEditedLot({ ...editedLot, level1Max: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                          </div>
                         </div>
                       </div>
 
                       {/* Level 2 Fields */}
                       <div className="bg-sky-50/10 p-3.5 rounded-lg border border-sky-100 space-y-3 text-xs">
                         <h4 className="font-bold text-sky-700">เกณฑ์ Level 2 (Normal)</h4>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-500 block">Target Mean</label>
-                          <input type="number" value={editedLot.level2Target} onChange={(e) => setEditedLot({ ...editedLot, level2Target: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-500 block">S.D. Target</label>
-                          <input type="number" step="any" value={editedLot.level2SD} onChange={(e) => setEditedLot({ ...editedLot, level2SD: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 block">Min Range</label>
+                            <input type="number" step="any" value={editedLot.level2Min} onChange={(e) => setEditedLot({ ...editedLot, level2Min: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 block">Max Range</label>
+                            <input type="number" step="any" value={editedLot.level2Max} onChange={(e) => setEditedLot({ ...editedLot, level2Max: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                          </div>
                         </div>
                       </div>
 
                       {/* Level 3 Fields */}
                       <div className="bg-purple-50/10 p-3.5 rounded-lg border border-purple-100 space-y-3 text-xs">
                         <h4 className="font-bold text-purple-700">เกณฑ์ Level 3 (High)</h4>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-500 block">Target Mean</label>
-                          <input type="number" value={editedLot.level3Target} onChange={(e) => setEditedLot({ ...editedLot, level3Target: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-500 block">S.D. Target</label>
-                          <input type="number" step="any" value={editedLot.level3SD} onChange={(e) => setEditedLot({ ...editedLot, level3SD: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 block">Min Range</label>
+                            <input type="number" step="any" value={editedLot.level3Min} onChange={(e) => setEditedLot({ ...editedLot, level3Min: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] text-slate-500 block">Max Range</label>
+                            <input type="number" step="any" value={editedLot.level3Max} onChange={(e) => setEditedLot({ ...editedLot, level3Max: Number(e.target.value) })} className="w-full p-2 border border-slate-200 rounded" />
+                          </div>
                         </div>
                       </div>
+                    </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs" id="config-static-fields">
@@ -901,9 +983,11 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                       <div className="p-3 bg-slate-50 rounded-lg">
                         <span className="font-semibold text-emerald-700 block">Level 1 (Low)</span>
                         <div className="mt-1 font-mono space-y-0.5 text-[11px] text-slate-600">
-                          <p>Mean Target: <span className="font-bold text-slate-800">{cfg.level1Target}</span> mg/dL</p>
-                          <p>SD Standard: <span className="font-bold text-slate-800">{cfg.level1SD}</span></p>
-                          <p>3SD Range: <span className="font-bold text-slate-800">{cfg.level1Target - 3 * cfg.level1SD} - {cfg.level1Target + 3 * cfg.level1SD}</span></p>
+                          {(cfg.level1Min !== undefined && cfg.level1Max !== undefined && (cfg.level1Min !== 0 || cfg.level1Max !== 0)) ? (
+                            <p>Range limit: <span className="font-bold text-slate-800">{cfg.level1Min} - {cfg.level1Max}</span></p>
+                          ) : (
+                            <p className="text-slate-400 italic">ไม่ได้กำหนดช่วง (Range)</p>
+                          )}
                         </div>
                       </div>
 
@@ -911,9 +995,11 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                       <div className="p-3 bg-slate-50 rounded-lg">
                         <span className="font-semibold text-sky-700 block">Level 2 (Normal)</span>
                         <div className="mt-1 font-mono space-y-0.5 text-[11px] text-slate-600">
-                          <p>Mean Target: <span className="font-bold text-slate-800">{cfg.level2Target}</span> mg/dL</p>
-                          <p>SD Standard: <span className="font-bold text-slate-800">{cfg.level2SD}</span></p>
-                          <p>3SD Range: <span className="font-bold text-slate-800">{cfg.level2Target - 3 * cfg.level2SD} - {cfg.level2Target + 3 * cfg.level2SD}</span></p>
+                          {(cfg.level2Min !== undefined && cfg.level2Max !== undefined && (cfg.level2Min !== 0 || cfg.level2Max !== 0)) ? (
+                            <p>Range limit: <span className="font-bold text-slate-800">{cfg.level2Min} - {cfg.level2Max}</span></p>
+                          ) : (
+                            <p className="text-slate-400 italic">ไม่ได้กำหนดช่วง (Range)</p>
+                          )}
                         </div>
                       </div>
 
@@ -921,9 +1007,11 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                       <div className="p-3 bg-slate-50 rounded-lg">
                         <span className="font-semibold text-purple-700 block">Level 3 (High)</span>
                         <div className="mt-1 font-mono space-y-0.5 text-[11px] text-slate-600">
-                          <p>Mean Target: <span className="font-bold text-slate-800">{cfg.level3Target}</span> mg/dL</p>
-                          <p>SD Standard: <span className="font-bold text-slate-800">{cfg.level3SD}</span></p>
-                          <p>3SD Range: <span className="font-bold text-slate-800">{cfg.level3Target - 3 * cfg.level3SD} - {cfg.level3Target + 3 * cfg.level3SD}</span></p>
+                          {(cfg.level3Min !== undefined && cfg.level3Max !== undefined && (cfg.level3Min !== 0 || cfg.level3Max !== 0)) ? (
+                            <p>Range limit: <span className="font-bold text-slate-800">{cfg.level3Min} - {cfg.level3Max}</span></p>
+                          ) : (
+                            <p className="text-slate-400 italic">ไม่ได้กำหนดช่วง (Range)</p>
+                          )}
                         </div>
                       </div>
                     </div>

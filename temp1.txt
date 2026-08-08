@@ -1,0 +1,250 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import CustomSelect from "./CustomSelect";
+import { QcRecord, QcLotConfig, DtxMachine } from '../types';
+import { INITIAL_LOT_CONFIGS } from '../mockData';
+import { Plus, Settings, BarChart2, CheckCircle, AlertTriangle, FileText, Download, Sliders, Calendar, User, Eye, Lightbulb } from 'lucide-react';
+
+interface QCManagementProps {
+  machines: DtxMachine[];
+  qcRecords: QcRecord[];
+  lotConfigs: QcLotConfig[];
+  onAddQcRecord: (record: QcRecord) => void;
+  onUpdateLotConfigs: (configs: QcLotConfig[]) => void;
+}
+
+export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcRecord, onUpdateLotConfigs }: QCManagementProps) {
+  const [activeSubTab, setActiveSubTab] = useState<'log' | 'config' | 'chart'>('log');
+  
+  const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+
+  useEffect(() => {
+    fetch('/api/wards')
+      .then(res => res.json())
+      .then(setWards)
+      .catch(err => console.error('Failed to fetch wards:', err));
+  }, []);
+  
+  // Filtering states
+  const [filterWard, setFilterWard] = useState('');
+  const [filterLot, setFilterLot] = useState('LOT2026-A');
+  const [selectedChartLevel, setSelectedChartLevel] = useState<1 | 2 | 3>(1);
+
+  // New Record Form states
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [qcDate, setQcDate] = useState(new Date().toISOString().split('T')[0]);
+  const [receiveDate, setReceiveDate] = useState(new Date().toISOString().split('T')[0]);
+  const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0]);
+  const [qcWard, setQcWard] = useState('');
+  const [qcSerial, setQcSerial] = useState('');
+  const [qcOperator, setQcOperator] = useState('');
+  const [qcLot, setQcLot] = useState('LOT2026-A');
+  const [level1Val, setLevel1Val] = useState('');
+  const [level2Val, setLevel2Val] = useState('');
+  const [level3Val, setLevel3Val] = useState('');
+
+  // Lot Config editing states
+  const [editingLotIdx, setEditingLotIdx] = useState<number | null>(null);
+  const [editedLot, setEditedLot] = useState<QcLotConfig | null>(null);
+
+  const handleSerialChange = (serial: string) => {
+    setQcSerial(serial);
+    const matchedMachine = machines.find(m => m.serialNumber === serial);
+    if (matchedMachine) {
+      setQcWard(matchedMachine.ward);
+      setQcLot(matchedMachine.lotNumber);
+    }
+  };
+
+  const handleAddQcSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!qcSerial || !qcOperator || !level1Val || !level2Val || !level3Val) {
+      alert('กรุณากรอกข้อมูลและค่าผลการตรวจวัดให้ครบถ้วน');
+      return;
+    }
+
+    const config = lotConfigs.find(c => c.lotNumber === qcLot);
+    if (!config) {
+      alert('ไม่พบข้อมูลการกำหนดค่าเป้าหมายล็อตนี้ กรุณาตั้งค่าก่อน');
+      return;
+    }
+
+    const l1 = Number(level1Val);
+    const l2 = Number(level2Val);
+    const l3 = Number(level3Val);
+
+    // Calculate Out of Control status using Min/Max ranges, or fallback to Target +/- 3SD
+    const getStatus = (val: number, min: number, max: number, target: number, sd: number) => {
+      if (min !== undefined && max !== undefined && (min !== 0 || max !== 0)) {
+        return (val < min || val > max) ? 'out_of_control' : 'normal';
+      }
+      return (val < target - 3 * sd || val > target + 3 * sd) ? 'out_of_control' : 'normal';
+    };
+
+    const level1Status = getStatus(l1, config.level1Min, config.level1Max, config.level1Target, config.level1SD);
+    const level2Status = getStatus(l2, config.level2Min, config.level2Max, config.level2Target, config.level2SD);
+    const level3Status = getStatus(l3, config.level3Min, config.level3Max, config.level3Target, config.level3SD);
+
+    const newRecord: QcRecord = {
+      id: `QC-${Date.now()}`,
+      date: qcDate,
+      receiveDate,
+      returnDate,
+      ward: qcWard,
+      serialNumber: qcSerial,
+      operator: qcOperator,
+      lotNumber: qcLot,
+      level1: l1,
+      level2: l2,
+      level3: l3,
+      level1Status,
+      level2Status,
+      level3Status
+    };
+
+    onAddQcRecord(newRecord);
+    setShowAddForm(false);
+    
+    // Clear inputs
+    setLevel1Val('');
+    setLevel2Val('');
+    setLevel3Val('');
+  };
+
+  const handleStartEditLot = (idx: number) => {
+    setEditingLotIdx(idx);
+    setEditedLot({ ...lotConfigs[idx] });
+  };
+
+  const handleSaveLotConfig = () => {
+    if (!editedLot) return;
+    const newConfigs = [...lotConfigs];
+    
+    // If we're adding a new lot (index equals length)
+    if (editingLotIdx === lotConfigs.length) {
+      newConfigs.push(editedLot);
+    } else {
+      newConfigs[editingLotIdx!] = editedLot;
+    }
+    
+    onUpdateLotConfigs(newConfigs);
+    setEditingLotIdx(null);
+    setEditedLot(null);
+  };
+
+  const handleAddLotConfig = () => {
+    const newLotIdx = lotConfigs.length;
+    setEditingLotIdx(newLotIdx);
+    setEditedLot({
+      lotNumber: `LOT-${new Date().getFullYear()}-NEW`,
+      level1Target: 0, level1Min: 0, level1Max: 0, level1SD: 0,
+      level2Target: 0, level2Min: 0, level2Max: 0, level2SD: 0,
+      level3Target: 0, level3Min: 0, level3Max: 0, level3SD: 0,
+    });
+  };
+
+  // Stats Calculations
+  const getCalculatedStats = (records: QcRecord[], lot: string, level: 1 | 2 | 3) => {
+    const activeLotConfig = lotConfigs.find(c => c.lotNumber === lot);
+    const filtered = records.filter(r => r.lotNumber === lot && (filterWard === '' || r.ward === filterWard));
+    const values = filtered.map(r => level === 1 ? r.level1 : level === 2 ? r.level2 : r.level3);
+    const n = values.length;
+
+    if (n === 0) {
+      return { n, mean: 0, sd: 0, cv: 0, outOfControlCount: 0, target: activeLotConfig ? (level === 1 ? activeLotConfig.level1Target : level === 2 ? activeLotConfig.level2Target : activeLotConfig.level3Target) : 0 };
+    }
+
+    const mean = values.reduce((sum, v) => sum + v, 0) / n;
+    
+    let sd = 0;
+    if (n > 1) {
+      const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (n - 1);
+      sd = Math.sqrt(variance);
+    }
+    
+    const cv = mean > 0 ? (sd / mean) * 100 : 0;
+
+    // Out of control count based on Lot Config target +/- 3SD
+    let outOfControlCount = 0;
+    if (activeLotConfig) {
+      const target = level === 1 ? activeLotConfig.level1Target : level === 2 ? activeLotConfig.level2Target : activeLotConfig.level3Target;
+      const targetSD = level === 1 ? activeLotConfig.level1SD : level === 2 ? activeLotConfig.level2SD : activeLotConfig.level3SD;
+      outOfControlCount = values.filter(v => v < target - 3 * targetSD || v > target + 3 * targetSD).length;
+    }
+
+    return {
+      n,
+      mean: Math.round(mean * 100) / 100,
+      sd: Math.round(sd * 100) / 100,
+      cv: Math.round(cv * 100) / 100,
+      outOfControlCount,
+      target: activeLotConfig ? (level === 1 ? activeLotConfig.level1Target : level === 2 ? activeLotConfig.level2Target : activeLotConfig.level3Target) : 0
+    };
+  };
+
+  const level1Stats = getCalculatedStats(qcRecords, filterLot, 1);
+  const level2Stats = getCalculatedStats(qcRecords, filterLot, 2);
+  const level3Stats = getCalculatedStats(qcRecords, filterLot, 3);
+
+  // Filtered QC records for table display
+  const tableRecords = qcRecords.filter(r => 
+    (filterWard === '' || r.ward === filterWard) &&
+    (filterLot === '' || r.lotNumber === filterLot)
+  ).sort((a, b) => b.date.localeCompare(a.date));
+
+  // CSV/JSON Export Helper
+  const handleExportCSV = () => {
+    const headers = ['วันที่ทำ QC', 'รับเครื่อง', 'ส่งคืนเครื่อง', 'หน่วยงาน', 'รหัสเครื่อง DTX', 'ล็อตน้ำยา', 'ผู้ตรวจ', 'Level 1', 'Level 1 สถานะ', 'Level 2', 'Level 2 สถานะ', 'Level 3', 'Level 3 สถานะ'];
+    const csvRows = [headers.join(',')];
+
+    tableRecords.forEach(r => {
+      const row = [
+        r.date,
+        r.receiveDate,
+        r.returnDate,
+        `"${r.ward}"`,
+        r.serialNumber,
+        r.lotNumber,
+        `"${r.operator}"`,
+        r.level1,
+        r.level1Status === 'out_of_control' ? 'Out of Control' : 'Normal',
+        r.level2,
+        r.level2Status === 'out_of_control' ? 'Out of Control' : 'Normal',
+        r.level3,
+        r.level3Status === 'out_of_control' ? 'Out of Control' : 'Normal'
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `QC_Summary_${filterLot || 'All'}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="space-y-6" id="qc-management-panel">
+      {/* Tab Header Controls */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-5">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+            <BarChart2 size={20} className="text-sky-600" />
+            <span>ระบบบันทึกและคำนวณสถิติควบคุมคุณภาพ (QC 3 Level POCT)</span>
+          </h2>
+          <p className="text-xs text-slate-400">บันทึกค่าควบคุมคุณภาพน้ำยา 3 ระดับ วิเคราะห์ค่าเฉลี่ย, SD, CV% และระบบแจ้งเตือนเมื่อหลุดเกณฑ์ 3SD</p>
+        </div>
+        
+        <div className="flex space-x-2 shrink-0">
+          <button
+            onClick={() => setActiveSubTab('log')}
+            className={`px-3 py-2 text-xs font-bold rounded-lg transition-all ${activeSubTab === 'log' ? 'bg-slate-950 text-white shadow-xs' : 'bg-slate-50 text-slate-600 hover:text-slate-900'}`}
+          >
+            รายการบันทึก QC
