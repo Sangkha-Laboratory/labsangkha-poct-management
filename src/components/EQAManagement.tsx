@@ -394,7 +394,7 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
       </div>
 
       {/* Info Notice Box: OneDrive & File Preview */}
-      <div className="bg-gradient-to-r from-sky-50 via-slate-50 to-indigo-50/50 p-4 rounded-xl border border-sky-100 text-xs text-slate-700 flex items-start space-x-3">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs text-xs text-slate-700 flex items-start space-x-3">
         <Sparkles size={18} className="text-sky-600 shrink-0 mt-0.5" />
         <div className="space-y-1">
           <p className="font-bold text-slate-800">การจัดเก็บไฟล์รายงานผลบน OneDrive และแสดงภาพพรีวิวบนหน้าเว็บ</p>
@@ -406,7 +406,7 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
 
       {/* Add / Edit EQA Form */}
       {showAddForm && (
-        <form onSubmit={handleSubmit} className="bg-slate-50/80 p-5 rounded-2xl border border-slate-200/80 space-y-5 animate-scale-up" id="eqa-form">
+        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-sm space-y-5 animate-scale-up" id="eqa-form">
           <div className="flex items-center justify-between border-b border-slate-200 pb-3">
             <div className="flex items-center space-x-2">
               <FolderKanban size={18} className="text-sky-600" />

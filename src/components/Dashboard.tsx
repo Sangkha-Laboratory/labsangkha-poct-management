@@ -94,63 +94,63 @@ export default function Dashboard({ machines, repairs }: DashboardProps) {
       {/* Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="stats-overview">
         {/* Card 1: Total Machines */}
-        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between" id="stat-card-total">
+        <div className="bg-white p-5 rounded-xl border border-sky-100 shadow-2xs flex items-center justify-between" id="stat-card-total">
           <div className="space-y-1">
-            <span className="text-sm font-medium text-slate-500">จำนวนเครื่อง DTX ทั้งหมด</span>
+            <span className="text-sm font-semibold text-slate-600">จำนวนเครื่อง DTX ทั้งหมด</span>
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-slate-900">{totalMachines}</span>
-              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center">
-                <TrendingUp size={12} className="mr-0.5" /> เครื่อง
+              <span className="text-3xl font-extrabold text-sky-600">{totalMachines}</span>
+              <span className="text-xs font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded flex items-center border border-sky-100">
+                <TrendingUp size={12} className="mr-0.5 text-sky-600" /> เครื่อง
               </span>
             </div>
-            <p className="text-xs text-slate-400">สต็อกเครื่องตรวจน้ำตาลในระบบ</p>
+            <p className="text-xs text-slate-400">คลังเครื่องตรวจน้ำตาลในระบบ</p>
           </div>
-          <div className="p-3 bg-sky-50 text-sky-600 rounded-lg">
+          <div className="p-3 bg-sky-50 text-sky-600 rounded-xl border border-sky-100 shrink-0">
             <Package size={24} />
           </div>
         </div>
 
         {/* Card 2: Active Count */}
-        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between" id="stat-card-active">
+        <div className="bg-white p-5 rounded-xl border border-sky-100 shadow-2xs flex items-center justify-between" id="stat-card-active">
           <div className="space-y-1">
-            <span className="text-sm font-medium text-slate-500">พร้อมใช้งานปกติ</span>
+            <span className="text-sm font-semibold text-slate-600">พร้อมใช้งานปกติ</span>
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-emerald-600">{activeCount}</span>
+              <span className="text-3xl font-extrabold text-sky-600">{activeCount}</span>
               <span className="text-xs text-slate-400">จากทั้งหมด</span>
             </div>
-            <p className="text-xs text-slate-400">คิดเป็น {totalMachines ? Math.round((activeCount / totalMachines) * 100) : 0}% ของสปอน์เซน</p>
+            <p className="text-xs text-slate-400">คิดเป็น {totalMachines ? Math.round((activeCount / totalMachines) * 100) : 0}% ของคลัง</p>
           </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg">
+          <div className="p-3 bg-sky-50 text-sky-600 rounded-xl border border-sky-100 shrink-0">
             <Activity size={24} />
           </div>
         </div>
 
         {/* Card 3: Repairing Count */}
-        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between" id="stat-card-repairs">
+        <div className="bg-white p-5 rounded-xl border border-sky-100 shadow-2xs flex items-center justify-between" id="stat-card-repairs">
           <div className="space-y-1">
-            <span className="text-sm font-medium text-slate-500">กำลังส่งซ่อม/แจ้งซ่อม</span>
+            <span className="text-sm font-semibold text-slate-600">กำลังส่งซ่อม/แจ้งซ่อม</span>
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-amber-500">{activeRepairs}</span>
+              <span className="text-3xl font-extrabold text-sky-700">{activeRepairs}</span>
               <span className="text-xs text-slate-400">รายการ</span>
             </div>
             <p className="text-xs text-slate-400">ซ่อมเสร็จแล้วคืนวอร์ด {completedRepairsCount} เครื่อง</p>
           </div>
-          <div className="p-3 bg-amber-50 text-amber-500 rounded-lg">
+          <div className="p-3 bg-sky-50 text-sky-600 rounded-xl border border-sky-100 shrink-0">
             <Wrench size={24} />
           </div>
         </div>
 
         {/* Card 4: Lost/Claim Counts */}
-        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-xs flex items-center justify-between" id="stat-card-claims">
+        <div className="bg-white p-5 rounded-xl border border-sky-100 shadow-2xs flex items-center justify-between" id="stat-card-claims">
           <div className="space-y-1">
-            <span className="text-sm font-medium text-slate-500">ชำรุดรอเคลม/สูญหาย</span>
+            <span className="text-sm font-semibold text-slate-600">ชำรุดรอเคลม/สูญหาย</span>
             <div className="flex items-baseline space-x-2">
-              <span className="text-3xl font-bold text-rose-500">{(waitingClaimCount + claimedCount) + lostCount}</span>
+              <span className="text-3xl font-extrabold text-sky-800">{(waitingClaimCount + claimedCount) + lostCount}</span>
               <span className="text-xs text-slate-400">เครื่อง</span>
             </div>
             <p className="text-xs text-slate-400">หาย: {lostCount} | รอเคลม: {waitingClaimCount} | เคลมแล้ว: {claimedCount}</p>
           </div>
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-lg">
+          <div className="p-3 bg-sky-50 text-sky-600 rounded-xl border border-sky-100 shrink-0">
             <ShieldAlert size={24} />
           </div>
         </div>

@@ -17,7 +17,10 @@ import {
   INITIAL_ANNOUNCEMENTS
 } from './mockData';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from './types';
-import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon } from 'lucide-react';
+import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw } from 'lucide-react';
+
+import hospitalLogoImg from './assets/images/hospital_logo_1786363305769.jpg';
+import departmentLogoImg from './assets/images/department_logo_1786363319173.jpg';
 
 // Component Imports
 import LandingPage from './components/LandingPage';
@@ -195,6 +198,15 @@ export default function App() {
     return localStorage.getItem('dtx_dark_mode') === 'true' || localStorage.getItem('dtx_night_mode') === 'true';
   });
   const [showToast, setShowToast] = useState<string>('');
+
+  // Logo States
+  const [hospitalLogo, setHospitalLogo] = useState<string>(() => {
+    return localStorage.getItem('dtx_hospital_logo') || hospitalLogoImg;
+  });
+  const [deptLogo, setDeptLogo] = useState<string>(() => {
+    return localStorage.getItem('dtx_dept_logo') || departmentLogoImg;
+  });
+  const [showLogoModal, setShowLogoModal] = useState<boolean>(false);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -412,7 +424,7 @@ export default function App() {
         }
         throw err;
       }))).then(() => {
-        setShowToast('อัปเดตกำหนดค่าเป้าหมายล็อตน้ำยาบนระบบคลาวด์แล้ว');
+        setShowToast('อัปเดตกำหนดค่าเป้าหมาย LOT น้ำยาบนระบบคลาวด์แล้ว');
       }).catch(err => {
         console.error('Failed to sync lot configs:', err);
       });
@@ -432,11 +444,17 @@ export default function App() {
 
   return (
     <div 
-      className="min-h-screen bg-slate-50/50 dark:bg-slate-900 flex flex-col font-sans transition-all duration-300 relative text-slate-800 dark:text-slate-100" 
+      className="min-h-screen bg-gradient-to-b from-sky-50/80 via-slate-50 to-sky-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex flex-col font-sans transition-all duration-300 relative text-slate-800 dark:text-slate-100" 
       id="app-root"
     >
+      {/* Background Soft Dimensional Glows */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 no-print" aria-hidden="true">
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-sky-200/35 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/3 -right-24 w-96 h-96 bg-sky-100/40 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-10 left-1/4 w-96 h-96 bg-sky-200/25 rounded-full blur-3xl"></div>
+      </div>
       {/* Top Main Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs no-print relative" id="app-header">
+      <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-sky-100 dark:border-slate-800 sticky top-0 z-40 shadow-md shadow-slate-200/50 dark:shadow-none no-print relative" id="app-header">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div onClick={() => { setRole('user'); localStorage.setItem('dtx_role', 'user'); setActiveUserTab('repair'); }} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer">
             {/* ไอคอนกล้องจุลทรรศน์ */}
@@ -492,11 +510,7 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <div className="flex items-center space-x-2.5 mr-2">
-                <div className="flex items-center space-x-2 bg-emerald-50 text-emerald-800 px-3.5 py-2 rounded-xl border border-emerald-100/50">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="text-xs font-bold tracking-wide">ห้องปฏิบัติการผู้ดูแลระบบ (Admin)</span>
-                </div>
+              <div className="flex items-center mr-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -539,7 +553,7 @@ export default function App() {
                     <div className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center">
                       <User size={12} />
                     </div>
-                    <span>แอดมิน (Admin)</span>
+                    <span>Admin</span>
                     <ChevronDown size={14} className={`transition-transform duration-200 ${isAdminProfileOpen ? 'rotate-180' : ''}`} />
                   </button>
 
@@ -554,7 +568,7 @@ export default function App() {
                               <User size={16} />
                             </div>
                             <div>
-                              <h4 className="text-xs font-bold text-white">ผู้ดูแลระบบ (Admin)</h4>
+                              <h4 className="text-xs font-bold text-white">Admin</h4>
                               <p className="text-[10px] text-slate-300">กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</p>
                             </div>
                           </div>
@@ -782,7 +796,7 @@ export default function App() {
       </header>
 
       {/* Main Workspace Layout */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8" id="app-workspace">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8 relative z-10" id="app-workspace">
         {role === 'user' ? (
           // USER STAFF LANDING PAGE
           <LandingPage
@@ -903,7 +917,7 @@ export default function App() {
           <div className="space-y-6" id="admin-workspace-wrapper">
             <div className="space-y-6" id="admin-workspace">
               {/* Admin Navigation: Clean plain text horizontal tabs spread evenly on PC, Dropdown on Mobile */}
-              <div className="bg-white border-b border-slate-200 px-2 sm:px-4 rounded-2xl shadow-3xs no-print" id="admin-tabs-nav">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 px-2 sm:px-4 rounded-2xl shadow-md shadow-slate-200/50 dark:shadow-none overflow-hidden no-print" id="admin-tabs-nav">
                 {/* PC View: Underlined Plain Text Tabs Spread Evenly Across Page */}
                 <div className="hidden md:flex w-full items-end h-14">
                   {[

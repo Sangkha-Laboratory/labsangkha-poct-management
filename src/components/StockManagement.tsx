@@ -225,9 +225,9 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
         <div>
           <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-1.5">
             <Layers size={20} className="text-sky-600" />
-            <span>จัดการสต็อกเครื่องตรวจวัดน้ำตาล (DTX Stock Inventory)</span>
+            <span>จัดการคลังเครื่องตรวจวัดน้ำตาล (DTX Stock Inventory)</span>
           </h2>
-          <p className="text-xs text-slate-400">ควบคุมจำนวน ประจำการ วินิจฉัยสถานะ และบันทึกล็อตของเครื่องทั้งหมดในโรงพยาบาล</p>
+          <p className="text-xs text-slate-400">ควบคุมจำนวน ประจำการ วินิจฉัยสถานะ และบันทึก LOT ของเครื่องทั้งหมดในโรงพยาบาล</p>
         </div>
         <button
           onClick={openAddModal}

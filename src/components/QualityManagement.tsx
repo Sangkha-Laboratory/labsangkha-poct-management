@@ -51,7 +51,7 @@ export default function QualityManagement({
         </div>
 
         {/* Sub-tab pills */}
-        <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-full md:w-auto">
+        <div className="flex items-center p-1.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs w-full md:w-auto">
           <button
             type="button"
             onClick={() => setActiveSubTab('iqc')}

@@ -221,10 +221,10 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
       </div>
 
       {/* Repair List Table */}
-      <div className="overflow-x-auto border border-slate-100 rounded-xl bg-white" id="repairs-table-container">
+      <div className="overflow-x-auto border border-slate-200/90 rounded-2xl bg-white shadow-2xs" id="repairs-table-container">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
-            <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+            <tr className="bg-white text-slate-700 font-bold border-b border-slate-200">
               <th className="p-4">เลขแจ้งซ่อม</th>
               <th className="p-4">รหัสเครื่อง DTX</th>
               <th className="p-4">หน่วยงานที่ส่ง</th>
@@ -321,7 +321,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                   <span>เช็คลิสต์ตรวจเช็คตามใบฟอร์มมาตรฐาน</span>
                 </h4>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2.5 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2.5 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
                   {/* Cleanliness */}
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-slate-700">1.1. ความสะอาดวัสดุตัวเครื่อง</span>
@@ -485,7 +485,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
                 {/* Action Taken */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-700">สรุปการดำเนินการ *</label>

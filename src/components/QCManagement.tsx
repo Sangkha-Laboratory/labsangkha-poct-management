@@ -8,7 +8,7 @@ import CustomSelect from "./CustomSelect";
 import { QcRecord, QcLotConfig, DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
 import { INITIAL_LOT_CONFIGS } from '../mockData';
-import { Plus, Settings, BarChart2, CheckCircle, AlertTriangle, FileText, Download, Sliders, Calendar, User, Eye, Lightbulb } from 'lucide-react';
+import { Plus, Settings, BarChart2, CheckCircle, AlertTriangle, FileText, Download, Sliders, Calendar, User, Eye, Lightbulb, TrendingUp } from 'lucide-react';
 
 interface QCManagementProps {
   machines: DtxMachine[];
@@ -33,7 +33,15 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
   const [filterWard, setFilterWard] = useState('');
   const [filterLot, setFilterLot] = useState('LOT2026-A');
   const [filterMonth, setFilterMonth] = useState('');
-  const [selectedChartLevel, setSelectedChartLevel] = useState<1 | 2 | 3>(1);
+  const [activeLevels, setActiveLevels] = useState<{ [key: number]: boolean }>({ 1: true, 2: true, 3: true });
+
+  const toggleLevel = (lvl: number) => {
+    setActiveLevels(prev => {
+      const next = { ...prev, [lvl]: !prev[lvl] };
+      if (!next[1] && !next[2] && !next[3]) return prev; // Keep at least one selected
+      return next;
+    });
+  };
 
   // New Record Form states
   const [showAddForm, setShowAddForm] = useState(false);
@@ -52,11 +60,23 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
   const [editingLotIdx, setEditingLotIdx] = useState<number | null>(null);
   const [editedLot, setEditedLot] = useState<QcLotConfig | null>(null);
 
+  const handleWardChange = (wardName: string) => {
+    setQcWard(wardName);
+    if (qcSerial) {
+      const matchedMachine = machines.find(m => m.serialNumber === qcSerial);
+      if (matchedMachine && matchedMachine.ward !== wardName) {
+        setQcSerial('');
+      }
+    }
+  };
+
   const handleSerialChange = (serial: string) => {
     setQcSerial(serial);
     const matchedMachine = machines.find(m => m.serialNumber === serial);
     if (matchedMachine) {
-      setQcWard(matchedMachine.ward);
+      if (!qcWard) {
+        setQcWard(matchedMachine.ward);
+      }
       setQcLot(matchedMachine.lotNumber);
     }
   };
@@ -70,7 +90,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
 
     const config = lotConfigs.find(c => c.lotNumber === qcLot);
     if (!config) {
-      alert('ไม่พบข้อมูลการกำหนดค่าเป้าหมายล็อตนี้ กรุณาตั้งค่าก่อน');
+      alert('ไม่พบข้อมูลการกำหนดค่าเป้าหมาย LOT นี้ กรุณาตั้งค่าก่อน');
       return;
     }
 
@@ -202,7 +222,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
 
   // CSV/JSON Export Helper
   const handleExportCSV = () => {
-    const headers = ['วันที่ทำ QC', 'รับเครื่อง', 'ส่งคืนเครื่อง', 'หน่วยงาน', 'รหัสเครื่อง DTX', 'ล็อตน้ำยา', 'ผู้ตรวจ', 'Level 1', 'Level 1 สถานะ', 'Level 2', 'Level 2 สถานะ', 'Level 3', 'Level 3 สถานะ'];
+    const headers = ['วันที่ทำ QC', 'รับเครื่อง', 'ส่งคืนเครื่อง', 'หน่วยงาน', 'รหัสเครื่อง DTX', 'LOT น้ำยา', 'ผู้ตรวจ', 'Level 1', 'Level 1 สถานะ', 'Level 2', 'Level 2 สถานะ', 'Level 3', 'Level 3 สถานะ'];
     const csvRows = [headers.join(',')];
 
     tableRecords.forEach(r => {
@@ -274,29 +294,29 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
       {/* Stats Dashboard Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" id="qc-stats-cards">
         {/* Level 1 Stats Card */}
-        <div className="bg-white p-4.5 rounded-xl border border-slate-100 shadow-xs space-y-3">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-md shadow-slate-200/40 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">Level 1 (Low)</span>
-            <span className="text-[10px] font-semibold text-slate-400">ล็อต {filterLot}</span>
+            <span className="text-xs font-bold text-slate-700 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2.5 py-0.5 rounded-md">Level 1 (Low)</span>
+            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">LOT {filterLot}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center py-1">
             <div>
-              <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
-              <span className="text-sm font-bold text-slate-800">{level1Stats.mean}</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">Mean (เป้าหมาย)</span>
+              <span className="text-base font-extrabold text-slate-900">{level1Stats.mean}</span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block">S.D. (ค่าเบี่ยงเบน)</span>
-              <span className="text-sm font-bold text-slate-800">{level1Stats.sd}</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">S.D. (ค่าเบี่ยงเบน)</span>
+              <span className="text-base font-extrabold text-slate-900">{level1Stats.sd}</span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block">C.V.%</span>
-              <span className={`text-sm font-bold ${level1Stats.cv > 10 ? 'text-rose-600' : 'text-sky-600'}`}>{level1Stats.cv}%</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">C.V.%</span>
+              <span className={`text-base font-extrabold ${level1Stats.cv > 10 ? 'text-rose-600' : 'text-emerald-600'}`}>{level1Stats.cv}%</span>
             </div>
           </div>
-          <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-50">
-            <span className="text-slate-400">ทดสอบทั้งหมด: {level1Stats.n} ครั้ง</span>
+          <div className="flex items-center justify-between text-[10px] pt-2.5 border-t border-slate-100">
+            <span className="text-slate-500 font-medium">ทดสอบทั้งหมด: {level1Stats.n} ครั้ง</span>
             {level1Stats.outOfControlCount > 0 ? (
-              <span className="text-rose-600 font-bold flex items-center bg-rose-50 px-1.5 py-0.5 rounded">
+              <span className="text-rose-600 font-bold flex items-center bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
                 <AlertTriangle size={10} className="mr-0.5" /> หลุดเกณฑ์: {level1Stats.outOfControlCount} ครั้ง
               </span>
             ) : (
@@ -306,29 +326,29 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
         </div>
 
         {/* Level 2 Stats Card */}
-        <div className="bg-white p-4.5 rounded-xl border border-slate-100 shadow-xs space-y-3">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-md shadow-slate-200/40 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 bg-sky-50 text-sky-700 px-2 py-0.5 rounded">Level 2 (Normal)</span>
-            <span className="text-[10px] font-semibold text-slate-400">ล็อต {filterLot}</span>
+            <span className="text-xs font-bold text-slate-700 bg-sky-50 border border-sky-200 text-sky-800 px-2.5 py-0.5 rounded-md">Level 2 (Normal)</span>
+            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">LOT {filterLot}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center py-1">
             <div>
-              <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
-              <span className="text-sm font-bold text-slate-800">{level2Stats.mean}</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">Mean (เป้าหมาย)</span>
+              <span className="text-base font-extrabold text-slate-900">{level2Stats.mean}</span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block">S.D. (ค่าเบี่ยงเบน)</span>
-              <span className="text-sm font-bold text-slate-800">{level2Stats.sd}</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">S.D. (ค่าเบี่ยงเบน)</span>
+              <span className="text-base font-extrabold text-slate-900">{level2Stats.sd}</span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block">C.V.%</span>
-              <span className={`text-sm font-bold ${level2Stats.cv > 8 ? 'text-rose-600' : 'text-sky-600'}`}>{level2Stats.cv}%</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">C.V.%</span>
+              <span className={`text-base font-extrabold ${level2Stats.cv > 8 ? 'text-rose-600' : 'text-sky-600'}`}>{level2Stats.cv}%</span>
             </div>
           </div>
-          <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-50">
-            <span className="text-slate-400">ทดสอบทั้งหมด: {level2Stats.n} ครั้ง</span>
+          <div className="flex items-center justify-between text-[10px] pt-2.5 border-t border-slate-100">
+            <span className="text-slate-500 font-medium">ทดสอบทั้งหมด: {level2Stats.n} ครั้ง</span>
             {level2Stats.outOfControlCount > 0 ? (
-              <span className="text-rose-600 font-bold flex items-center bg-rose-50 px-1.5 py-0.5 rounded">
+              <span className="text-rose-600 font-bold flex items-center bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
                 <AlertTriangle size={10} className="mr-0.5" /> หลุดเกณฑ์: {level2Stats.outOfControlCount} ครั้ง
               </span>
             ) : (
@@ -338,29 +358,29 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
         </div>
 
         {/* Level 3 Stats Card */}
-        <div className="bg-white p-4.5 rounded-xl border border-slate-100 shadow-xs space-y-3">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-md shadow-slate-200/40 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 bg-purple-50 text-purple-700 px-2 py-0.5 rounded">Level 3 (High)</span>
-            <span className="text-[10px] font-semibold text-slate-400">ล็อต {filterLot}</span>
+            <span className="text-xs font-bold text-slate-700 bg-purple-50 border border-purple-200 text-purple-800 px-2.5 py-0.5 rounded-md">Level 3 (High)</span>
+            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">LOT {filterLot}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 text-center py-1">
             <div>
-              <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
-              <span className="text-sm font-bold text-slate-800">{level3Stats.mean}</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">Mean (เป้าหมาย)</span>
+              <span className="text-base font-extrabold text-slate-900">{level3Stats.mean}</span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block">S.D. (ค่าเบี่ยงเบน)</span>
-              <span className="text-sm font-bold text-slate-800">{level3Stats.sd}</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">S.D. (ค่าเบี่ยงเบน)</span>
+              <span className="text-base font-extrabold text-slate-900">{level3Stats.sd}</span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block">C.V.%</span>
-              <span className={`text-sm font-bold ${level3Stats.cv > 8 ? 'text-rose-600' : 'text-purple-600'}`}>{level3Stats.cv}%</span>
+              <span className="text-[10px] text-slate-400 font-semibold block">C.V.%</span>
+              <span className={`text-base font-extrabold ${level3Stats.cv > 8 ? 'text-rose-600' : 'text-purple-600'}`}>{level3Stats.cv}%</span>
             </div>
           </div>
-          <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-50">
-            <span className="text-slate-400">ทดสอบทั้งหมด: {level3Stats.n} ครั้ง</span>
+          <div className="flex items-center justify-between text-[10px] pt-2.5 border-t border-slate-100">
+            <span className="text-slate-500 font-medium">ทดสอบทั้งหมด: {level3Stats.n} ครั้ง</span>
             {level3Stats.outOfControlCount > 0 ? (
-              <span className="text-rose-600 font-bold flex items-center bg-rose-50 px-1.5 py-0.5 rounded">
+              <span className="text-rose-600 font-bold flex items-center bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
                 <AlertTriangle size={10} className="mr-0.5" /> หลุดเกณฑ์: {level3Stats.outOfControlCount} ครั้ง
               </span>
             ) : (
@@ -374,48 +394,62 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
       {activeSubTab === 'log' && (
         <div className="space-y-4" id="qc-log-subtab">
           {/* Controls filter row */}
-          <div className="bg-slate-50 p-4 rounded-xl flex flex-wrap gap-3 items-center justify-between" id="qc-log-filters">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs flex flex-wrap items-center justify-between gap-3" id="qc-log-filters">
+            <div className="flex flex-wrap items-center gap-2.5 text-xs">
+              <div className="flex items-center text-slate-500 font-bold px-2 py-1 bg-slate-100 rounded-md shrink-0">
+                <Sliders size={13} className="mr-1 text-slate-600" />
+                <span>ตัวกรอง IQC:</span>
+              </div>
+
               {/* Filter Month */}
-              <CustomSelect
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value)}
-                className="text-xs p-2.5 rounded-lg border border-slate-200 bg-white"
-              >
-                <option value="">-- ทุกเดือน --</option>
-                {availableMonths.map((m, idx) => (
-                  <option key={idx} value={m}>{m}</option>
-                ))}
-              </CustomSelect>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-slate-500 font-semibold whitespace-nowrap">เดือน:</span>
+                <CustomSelect
+                  value={filterMonth}
+                  onChange={(e) => setFilterMonth(e.target.value)}
+                  className="text-xs p-2 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white font-medium min-w-[130px]"
+                >
+                  <option value="">-- ทุกเดือน --</option>
+                  {availableMonths.map((m, idx) => (
+                    <option key={idx} value={m}>{m}</option>
+                  ))}
+                </CustomSelect>
+              </div>
 
               {/* Filter Ward */}
-              <CustomSelect
-                value={filterWard}
-                onChange={(e) => setFilterWard(e.target.value)}
-                className="text-xs p-2.5 rounded-lg border border-slate-200 bg-white"
-              >
-                <option value="">-- กรองตามวอร์ด (ทั้งหมด) --</option>
-                {wards.map((w, idx) => (
-                  <option key={idx} value={w.thai_name}>{w.thai_name}</option>
-                ))}
-              </CustomSelect>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-slate-500 font-semibold whitespace-nowrap">หน่วยงาน:</span>
+                <CustomSelect
+                  value={filterWard}
+                  onChange={(e) => setFilterWard(e.target.value)}
+                  className="text-xs p-2 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white font-medium min-w-[170px]"
+                >
+                  <option value="">-- ทุกหน่วยงาน --</option>
+                  {wards.map((w, idx) => (
+                    <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                  ))}
+                </CustomSelect>
+              </div>
 
               {/* Filter Lot */}
-              <CustomSelect
-                value={filterLot}
-                onChange={(e) => setFilterLot(e.target.value)}
-                className="text-xs p-2.5 rounded-lg border border-slate-200 bg-white font-bold text-slate-700"
-              >
-                {lotConfigs.map((cfg, idx) => (
-                  <option key={idx} value={cfg.lotNumber}>แสดงเฉพาะ ล็อต: {cfg.lotNumber}</option>
-                ))}
-              </CustomSelect>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-slate-500 font-semibold whitespace-nowrap">LOT:</span>
+                <CustomSelect
+                  value={filterLot}
+                  onChange={(e) => setFilterLot(e.target.value)}
+                  className="text-xs p-2 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-white focus:bg-white font-bold text-slate-700 min-w-[150px]"
+                >
+                  {lotConfigs.map((cfg, idx) => (
+                    <option key={idx} value={cfg.lotNumber}>LOT: {cfg.lotNumber}</option>
+                  ))}
+                </CustomSelect>
+              </div>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 shrink-0 ml-auto">
               <button
                 onClick={handleExportCSV}
-                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2.5 rounded-lg flex items-center space-x-1 transition-all"
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold px-3 py-2 rounded-lg flex items-center space-x-1 transition-all cursor-pointer shadow-2xs"
               >
                 <Download size={13} />
                 <span>Export สรุป (.csv)</span>
@@ -423,10 +457,10 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
 
               <button
                 onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center space-x-1 transition-all shadow-md shadow-sky-600/10"
+                className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center space-x-1 transition-all cursor-pointer shadow-md shadow-sky-600/10"
               >
                 <Plus size={13} />
-                <span>บันทึกผล QC รายวัน</span>
+                <span>บันทึกผล QC</span>
               </button>
             </div>
           </div>
@@ -465,6 +499,22 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Target Ward selection */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500">เลือกหน่วยงาน (Ward) *</label>
+                  <CustomSelect
+                    value={qcWard}
+                    onChange={(e) => handleWardChange(e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
+                    required
+                  >
+                    <option value="">-- เลือกหน่วยงาน --</option>
+                    {wards.map((w, idx) => (
+                      <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                    ))}
+                  </CustomSelect>
+                </div>
+
                 {/* Serial selection */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500">เลือกเครื่องตรวจวัดน้ำตาล (DTX CODE) *</label>
@@ -475,19 +525,17 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                     required
                   >
                     <option value="">-- เลือกเครื่อง --</option>
-                    {machines.filter(m => m.status === 'active').map(m => (
-                      <option key={m.id} value={m.serialNumber}>{m.serialNumber} ({m.ward}) - ล็อต {m.lotNumber}</option>
-                    ))}
+                    {machines
+                      .filter(m => m.status === 'active' && (!qcWard || m.ward === qcWard))
+                      .map(m => (
+                        <option key={m.id} value={m.serialNumber}>{m.serialNumber} ({m.ward}) - LOT {m.lotNumber}</option>
+                      ))}
                   </CustomSelect>
                 </div>
-                {/* Target Ward (auto) */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400">หน่วยงาน (ระบุอัตโนมัติ)</label>
-                  <input type="text" value={qcWard} disabled className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-500" />
-                </div>
+
                 {/* Lot Number (auto) */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400">ล็อตของเครื่อง (ระบุอัตโนมัติ)</label>
+                  <label className="text-[10px] font-bold text-slate-400">LOT ของเครื่อง (ระบุอัตโนมัติ)</label>
                   <input type="text" value={qcLot} disabled className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 font-bold" />
                 </div>
               </div>
@@ -555,7 +603,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
                   <th className="p-3">รับเครื่อง - ส่งคืน</th>
                   <th className="p-3">หน่วยงาน</th>
                   <th className="p-3">รหัสเครื่อง (CODE)</th>
-                  <th className="p-3">ล็อตเครื่อง (LOT)</th>
+                  <th className="p-3">LOT</th>
                   <th className="p-3">L1 (Low)</th>
                   <th className="p-3">L2 (Normal)</th>
                   <th className="p-3">L3 (High)</th>
@@ -611,58 +659,131 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
 
       {/* SUB-TAB 2: LEVEY-JENNINGS CHARTS */}
       {activeSubTab === 'chart' && (
-        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-6" id="qc-chart-subtab">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
-            <div>
-              <h3 className="font-bold text-slate-800 text-sm">Levey-Jennings Control Charts (IQC Trend)</h3>
-              <p className="text-xs text-slate-500">กราฟวิเคราะห์แนวโน้มควบคุมคุณภาพตามเวลา สำหรับเครื่องตรวจวัดน้ำตาลรายหน่วยงาน</p>
-            </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-5" id="qc-chart-subtab">
+          <div className="space-y-1 pb-2 border-b border-slate-100">
+            <h3 className="font-extrabold text-slate-800 text-base flex items-center space-x-2">
+              <TrendingUp size={18} className="text-sky-600" />
+              <span>Levey-Jennings Control Charts (IQC Trend)</span>
+            </h3>
+            <p className="text-xs text-slate-500">กราฟวิเคราะห์แนวโน้มควบคุมคุณภาพตามเวลา สำหรับเครื่องตรวจวัดน้ำตาลรายหน่วยงาน</p>
+          </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-xs">
-              {/* Level Selector */}
-              <div className="flex bg-white rounded-lg p-0.5 border border-slate-200 font-bold shadow-xs">
-                <button
-                  onClick={() => setSelectedChartLevel(1)}
-                  className={`px-3 py-1.5 rounded-md transition-all ${selectedChartLevel === 1 ? 'bg-sky-600 text-white' : 'text-slate-600'}`}
+          {/* Filter Toolbar for LJ Chart */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs" id="lj-chart-filters">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+              {/* Filter Icon Only */}
+              <div className="p-2.5 bg-sky-50 text-sky-600 rounded-xl border border-sky-200/80 shadow-2xs flex items-center justify-center shrink-0" title="ตัวกรองกราฟ">
+                <Sliders size={16} className="text-sky-600" />
+              </div>
+
+              {/* Filter Ward */}
+              <div className="flex-1 min-w-[150px] flex items-center space-x-2 bg-white p-1.5 rounded-xl border border-slate-200/90 shadow-2xs">
+                <span className="text-slate-500 font-bold whitespace-nowrap pl-1 text-[11px]">หน่วยงาน:</span>
+                <CustomSelect
+                  value={filterWard}
+                  onChange={(e) => setFilterWard(e.target.value)}
+                  className="p-1.5 bg-white rounded-lg border-0 font-semibold text-slate-800 text-xs w-full focus:ring-0"
                 >
-                  Level 1 (Low)
-                </button>
-                <button
-                  onClick={() => setSelectedChartLevel(2)}
-                  className={`px-3 py-1.5 rounded-md transition-all ${selectedChartLevel === 2 ? 'bg-sky-600 text-white' : 'text-slate-600'}`}
-                >
-                  Level 2 (Normal)
-                </button>
-                <button
-                  onClick={() => setSelectedChartLevel(3)}
-                  className={`px-3 py-1.5 rounded-md transition-all ${selectedChartLevel === 3 ? 'bg-sky-600 text-white' : 'text-slate-600'}`}
-                >
-                  Level 3 (High)
-                </button>
+                  <option value="">-- ทุกหน่วยงาน --</option>
+                  {wards.map((w, idx) => (
+                    <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                  ))}
+                </CustomSelect>
               </div>
 
               {/* Month selector */}
-              <CustomSelect
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value)}
-                className="p-2 bg-white rounded-lg border border-slate-200 font-semibold text-xs"
-              >
-                <option value="">ทุกเดือน</option>
-                {availableMonths.map((m, idx) => (
-                  <option key={idx} value={m}>{m}</option>
-                ))}
-              </CustomSelect>
+              <div className="flex-1 min-w-[130px] flex items-center space-x-2 bg-white p-1.5 rounded-xl border border-slate-200/90 shadow-2xs">
+                <span className="text-slate-500 font-bold whitespace-nowrap pl-1 text-[11px]">เดือน:</span>
+                <CustomSelect
+                  value={filterMonth}
+                  onChange={(e) => setFilterMonth(e.target.value)}
+                  className="p-1.5 bg-white rounded-lg border-0 font-semibold text-slate-800 text-xs w-full focus:ring-0"
+                >
+                  <option value="">-- ทุกเดือน --</option>
+                  {availableMonths.map((m, idx) => (
+                    <option key={idx} value={m}>{m}</option>
+                  ))}
+                </CustomSelect>
+              </div>
 
               {/* Lot selector */}
-              <CustomSelect
-                value={filterLot}
-                onChange={(e) => setFilterLot(e.target.value)}
-                className="p-2 bg-white rounded-lg border border-slate-200 font-semibold"
+              <div className="flex-1 min-w-[130px] flex items-center space-x-2 bg-white p-1.5 rounded-xl border border-slate-200/90 shadow-2xs">
+                <span className="text-slate-500 font-bold whitespace-nowrap pl-1 text-[11px]">LOT:</span>
+                <CustomSelect
+                  value={filterLot}
+                  onChange={(e) => setFilterLot(e.target.value)}
+                  className="p-1.5 bg-white rounded-lg border-0 font-bold text-slate-800 text-xs w-full focus:ring-0"
+                >
+                  {lotConfigs.map((cfg, idx) => (
+                    <option key={idx} value={cfg.lotNumber}>LOT: {cfg.lotNumber}</option>
+                  ))}
+                </CustomSelect>
+              </div>
+            </div>
+
+            {/* Level Selector - L (Green), N (Sky), H (Red) checkboxes */}
+            <div className="flex items-center space-x-1.5 bg-white rounded-xl p-1.5 border border-slate-200/90 shadow-2xs shrink-0">
+              <span className="text-[11px] font-extrabold text-slate-600 px-1 whitespace-nowrap">ระดับ QC:</span>
+              
+              {/* Level 1 (L) */}
+              <button
+                type="button"
+                onClick={() => toggleLevel(1)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer font-extrabold text-xs border ${
+                  activeLevels[1]
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs'
+                    : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                }`}
               >
-                {lotConfigs.map((cfg, idx) => (
-                  <option key={idx} value={cfg.lotNumber}>ล็อต: {cfg.lotNumber}</option>
-                ))}
-              </CustomSelect>
+                <input
+                  type="checkbox"
+                  checked={!!activeLevels[1]}
+                  readOnly
+                  className="accent-emerald-600 w-3.5 h-3.5 rounded cursor-pointer pointer-events-none"
+                />
+                <span className="text-emerald-700">L</span>
+                <span className="text-[10px] font-normal opacity-80">(Low)</span>
+              </button>
+
+              {/* Level 2 (N) */}
+              <button
+                type="button"
+                onClick={() => toggleLevel(2)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer font-extrabold text-xs border ${
+                  activeLevels[2]
+                    ? 'bg-sky-50 text-sky-800 border-sky-300 shadow-2xs'
+                    : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!activeLevels[2]}
+                  readOnly
+                  className="accent-sky-600 w-3.5 h-3.5 rounded cursor-pointer pointer-events-none"
+                />
+                <span className="text-sky-700">N</span>
+                <span className="text-[10px] font-normal opacity-80">(Normal)</span>
+              </button>
+
+              {/* Level 3 (H) - Red */}
+              <button
+                type="button"
+                onClick={() => toggleLevel(3)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer font-extrabold text-xs border ${
+                  activeLevels[3]
+                    ? 'bg-rose-50 text-rose-800 border-rose-300 shadow-2xs'
+                    : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!activeLevels[3]}
+                  readOnly
+                  className="accent-rose-600 w-3.5 h-3.5 rounded cursor-pointer pointer-events-none"
+                />
+                <span className="text-rose-700">H</span>
+                <span className="text-[10px] font-normal opacity-80">(High)</span>
+              </button>
             </div>
           </div>
 
@@ -678,34 +799,53 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
               .sort((a, b) => a.date.localeCompare(b.date));
 
             if (!currentLotConfig) {
-              return <p className="text-xs text-center text-slate-400 py-12">ไม่พบล็อตที่กำหนดในระบบ</p>;
+              return <p className="text-xs text-center text-slate-400 py-12">ไม่พบ LOT ที่กำหนดในระบบ</p>;
             }
 
-            // Use dynamically calculated Mean and SD for the chart
-            const chartStats = selectedChartLevel === 1 ? level1Stats : selectedChartLevel === 2 ? level2Stats : level3Stats;
-            const target = chartStats.mean;
-            const sd = chartStats.sd || 1; // Fallback to 1 if SD is 0 to prevent division by zero in charting
+            // Define config for each level
+            const levelDefs = [
+              { level: 1, key: 'L', label: 'Level 1 (Low)', shortLabel: 'L (Low)', dataKey: 'level1' as const, color: '#10b981', stats: level1Stats, badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+              { level: 2, key: 'N', label: 'Level 2 (Normal)', shortLabel: 'N (Normal)', dataKey: 'level2' as const, color: '#0284c7', stats: level2Stats, badgeBg: 'bg-sky-50 text-sky-700 border-sky-200' },
+              { level: 3, key: 'H', label: 'Level 3 (High)', shortLabel: 'H (High)', dataKey: 'level3' as const, color: '#f43f5e', stats: level3Stats, badgeBg: 'bg-rose-50 text-rose-700 border-rose-200' },
+            ];
 
-            const rangeMin = target - 3.5 * sd;
-            const rangeMax = target + 3.5 * sd;
+            const activeLevelDefs = levelDefs.filter(d => activeLevels[d.level]);
 
             if (filteredChartRecords.length === 0) {
               return (
                 <div className="text-center py-20 bg-white rounded-xl border border-dashed border-slate-200">
                   <BarChart2 size={36} className="mx-auto text-slate-300 mb-2" />
-                  <p className="text-xs font-semibold text-slate-500">ไม่มีข้อมูลบันทึก QC ของล็อต {filterLot} เพื่อพล็อตแนวโน้ม</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">กรุณารันผลลัพธ์ QC หรือเปลี่ยนตัวเลือกล็อตด้านบน</p>
+                  <p className="text-xs font-semibold text-slate-500">ไม่มีข้อมูลบันทึก QC ของ LOT {filterLot} เพื่อพล็อตแนวโน้ม</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">กรุณารันผลลัพธ์ QC หรือเปลี่ยนตัวเลือก LOT ด้านบน</p>
                 </div>
               );
             }
 
+            // Calculate min and max range based on all enabled active levels
+            let rangeMin = Infinity;
+            let rangeMax = -Infinity;
+
+            activeLevelDefs.forEach(d => {
+              const target = d.stats.mean;
+              const sd = d.stats.sd || 1;
+              const minVal = target - 3.5 * sd;
+              const maxVal = target + 3.5 * sd;
+              if (minVal < rangeMin) rangeMin = minVal;
+              if (maxVal > rangeMax) rangeMax = maxVal;
+            });
+
+            if (!isFinite(rangeMin) || !isFinite(rangeMax) || rangeMin === rangeMax) {
+              rangeMin = 0;
+              rangeMax = 400;
+            }
+
             // Dimensions of our SVG
             const width = 800;
-            const height = 320;
-            const paddingLeft = 60;
-            const paddingRight = 40;
+            const height = 340;
+            const paddingLeft = 65;
+            const paddingRight = 45;
             const paddingTop = 30;
-            const paddingBottom = 40;
+            const paddingBottom = 45;
 
             const plotWidth = width - paddingLeft - paddingRight;
             const plotHeight = height - paddingTop - paddingBottom;
@@ -718,80 +858,131 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
 
             const getY = (val: number) => {
               const fraction = (val - rangeMin) / (rangeMax - rangeMin);
-              // Invert Y coordinate because SVG 0,0 is top-left
               return paddingTop + plotHeight - fraction * plotHeight;
             };
 
-            // Build gridlines for Target, +/-1SD, +/-2SD, +/-3SD
-            const lines = [
-              { val: target, color: '#10b981', label: 'Mean', strokeWidth: 1.5, strokeDash: '' },
-              { val: target + sd, color: '#94a3b8', label: '+1 SD', strokeWidth: 1, strokeDash: '4,4' },
-              { val: target - sd, color: '#94a3b8', label: '-1 SD', strokeWidth: 1, strokeDash: '4,4' },
-              { val: target + 2 * sd, color: '#f59e0b', label: '+2 SD', strokeWidth: 1.2, strokeDash: '4,2' },
-              { val: target - 2 * sd, color: '#f59e0b', label: '-2 SD', strokeWidth: 1.2, strokeDash: '4,2' },
-              { val: target + 3 * sd, color: '#ef4444', label: '+3 SD', strokeWidth: 1.5, strokeDash: '' },
-              { val: target - 3 * sd, color: '#ef4444', label: '-3 SD', strokeWidth: 1.5, strokeDash: '' },
-            ];
-
             return (
-              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-xs space-y-3">
-                <div className="flex items-center justify-between text-xs px-2">
-                  <span className="font-bold text-slate-700">ลานวิเคราะห์ Levey-Jennings (เครื่องประมวลผล QC ในระบบ)</span>
-                  <div className="flex items-center space-x-3 text-[10px]">
-                    <span className="flex items-center"><span className="w-2.5 h-1 bg-emerald-500 mr-1 inline-block"></span> Mean</span>
-                    <span className="flex items-center"><span className="w-2.5 h-1 bg-amber-500 mr-1 inline-block"></span> +/- 2SD Warning</span>
-                    <span className="flex items-center"><span className="w-2.5 h-1 bg-rose-500 mr-1 inline-block"></span> +/- 3SD Out-Of-Control</span>
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs px-1">
+                  <span className="font-extrabold text-slate-800 flex items-center space-x-1.5">
+                    <span>แนวโน้มผลการวิเคราะห์ QC (เปรียบเทียบระดับ {activeLevelDefs.map(d => d.key).join(', ')})</span>
+                  </span>
+
+                  {/* Active Level Badges & Indicators */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeLevelDefs.map(d => (
+                      <span key={d.level} className={`inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold ${d.badgeBg}`}>
+                        <span className="w-2 h-2 rounded-full mr-1.5 inline-block" style={{ backgroundColor: d.color }}></span>
+                        {d.shortLabel} (Target: {Math.round(d.stats.mean)})
+                      </span>
+                    ))}
                   </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <svg className="w-full min-w-[700px] h-80" viewBox={`0 0 ${width} ${height}`}>
+                  <svg className="w-full min-w-[720px] h-84" viewBox={`0 0 ${width} ${height}`}>
                     {/* Background Rect */}
-                    <rect x={paddingLeft} y={paddingTop} width={plotWidth} height={plotHeight} fill="#f8fafc" />
+                    <rect x={paddingLeft} y={paddingTop} width={plotWidth} height={plotHeight} fill="#f8fafc" rx="4" />
 
-                    {/* Translucent control zones background (Green zone +/-2SD, Red out) */}
-                    <rect x={paddingLeft} y={getY(target + 2 * sd)} width={plotWidth} height={getY(target - 2 * sd) - getY(target + 2 * sd)} fill="#10b981" fillOpacity="0.04" />
-                    <rect x={paddingLeft} y={getY(target + 3 * sd)} width={plotWidth} height={getY(target + 2 * sd) - getY(target + 3 * sd)} fill="#f59e0b" fillOpacity="0.08" />
-                    <rect x={paddingLeft} y={getY(target - 2 * sd)} width={plotWidth} height={getY(target - 3 * sd) - getY(target - 2 * sd)} fill="#f59e0b" fillOpacity="0.08" />
+                    {/* Render target and SD lines for active levels */}
+                    {activeLevelDefs.map(d => {
+                      const target = d.stats.mean;
+                      const sd = d.stats.sd || 1;
 
-                    {/* Plot standard SD grid lines */}
-                    {lines.map((line, idx) => (
-                      <g key={idx}>
-                        <line
-                          x1={paddingLeft}
-                          y1={getY(line.val)}
-                          x2={width - paddingRight}
-                          y2={getY(line.val)}
-                          stroke={line.color}
-                          strokeWidth={line.strokeWidth}
-                          strokeDasharray={line.strokeDash}
-                        />
-                        <text
-                          x={paddingLeft - 8}
-                          y={getY(line.val) + 4}
-                          textAnchor="end"
-                          fill={line.color}
-                          className="font-mono text-[9px] font-bold"
-                        >
-                          {Math.round(line.val)}
-                        </text>
-                        <text
-                          x={width - paddingRight + 5}
-                          y={getY(line.val) + 4}
-                          textAnchor="start"
-                          fill={line.color}
-                          className="font-semibold text-[8px]"
-                        >
-                          {line.label}
-                        </text>
-                      </g>
-                    ))}
+                      if (activeLevelDefs.length === 1) {
+                        // Full SD gridlines when single level selected
+                        const lines = [
+                          { val: target, color: d.color, label: 'Mean', strokeWidth: 1.5, strokeDash: '' },
+                          { val: target + sd, color: '#94a3b8', label: '+1 SD', strokeWidth: 1, strokeDash: '4,4' },
+                          { val: target - sd, color: '#94a3b8', label: '-1 SD', strokeWidth: 1, strokeDash: '4,4' },
+                          { val: target + 2 * sd, color: '#f59e0b', label: '+2 SD', strokeWidth: 1.2, strokeDash: '4,2' },
+                          { val: target - 2 * sd, color: '#f59e0b', label: '-2 SD', strokeWidth: 1.2, strokeDash: '4,2' },
+                          { val: target + 3 * sd, color: '#ef4444', label: '+3 SD', strokeWidth: 1.5, strokeDash: '' },
+                          { val: target - 3 * sd, color: '#ef4444', label: '-3 SD', strokeWidth: 1.5, strokeDash: '' },
+                        ];
 
-                    {/* Draw timeline path */}
-                    {(() => {
+                        return (
+                          <g key={`grid-single-${d.level}`}>
+                            {/* Translucent control zones */}
+                            <rect x={paddingLeft} y={getY(target + 2 * sd)} width={plotWidth} height={getY(target - 2 * sd) - getY(target + 2 * sd)} fill="#10b981" fillOpacity="0.04" />
+                            <rect x={paddingLeft} y={getY(target + 3 * sd)} width={plotWidth} height={getY(target + 2 * sd) - getY(target + 3 * sd)} fill="#f59e0b" fillOpacity="0.08" />
+                            <rect x={paddingLeft} y={getY(target - 2 * sd)} width={plotWidth} height={getY(target - 3 * sd) - getY(target - 2 * sd)} fill="#f59e0b" fillOpacity="0.08" />
+
+                            {lines.map((line, idx) => (
+                              <g key={idx}>
+                                <line
+                                  x1={paddingLeft}
+                                  y1={getY(line.val)}
+                                  x2={width - paddingRight}
+                                  y2={getY(line.val)}
+                                  stroke={line.color}
+                                  strokeWidth={line.strokeWidth}
+                                  strokeDasharray={line.strokeDash}
+                                />
+                                <text
+                                  x={paddingLeft - 8}
+                                  y={getY(line.val) + 4}
+                                  textAnchor="end"
+                                  fill={line.color}
+                                  className="font-mono text-[9px] font-bold"
+                                >
+                                  {Math.round(line.val)}
+                                </text>
+                                <text
+                                  x={width - paddingRight + 5}
+                                  y={getY(line.val) + 4}
+                                  textAnchor="start"
+                                  fill={line.color}
+                                  className="font-semibold text-[8px]"
+                                >
+                                  {line.label}
+                                </text>
+                              </g>
+                            ))}
+                          </g>
+                        );
+                      } else {
+                        // Target lines when multiple levels selected
+                        return (
+                          <g key={`grid-multi-${d.level}`}>
+                            {/* Mean line */}
+                            <line
+                              x1={paddingLeft}
+                              y1={getY(target)}
+                              x2={width - paddingRight}
+                              y2={getY(target)}
+                              stroke={d.color}
+                              strokeWidth={1.5}
+                              strokeDasharray="4,3"
+                            />
+                            <text
+                              x={paddingLeft - 8}
+                              y={getY(target) + 4}
+                              textAnchor="end"
+                              fill={d.color}
+                              className="font-mono text-[9px] font-bold"
+                            >
+                              {Math.round(target)}
+                            </text>
+                            <text
+                              x={width - paddingRight + 5}
+                              y={getY(target) + 4}
+                              textAnchor="start"
+                              fill={d.color}
+                              className="font-bold text-[8px]"
+                            >
+                              {d.key} Mean
+                            </text>
+                          </g>
+                        );
+                      }
+                    })}
+
+                    {/* Draw timeline path for each active level */}
+                    {activeLevelDefs.map(d => {
                       let pathD = '';
                       filteredChartRecords.forEach((rec, idx) => {
-                        const val = selectedChartLevel === 1 ? rec.level1 : selectedChartLevel === 2 ? rec.level2 : rec.level3;
+                        const val = rec[d.dataKey];
                         const x = getX(idx);
                         const y = getY(val);
                         if (idx === 0) pathD = `M ${x} ${y}`;
@@ -800,54 +991,62 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
 
                       return (
                         <path
+                          key={`path-${d.level}`}
                           d={pathD}
                           fill="transparent"
-                          stroke="#0284c7" // sky-600
+                          stroke={d.color}
                           strokeWidth="2.5"
                           className="transition-all"
                         />
                       );
-                    })()}
+                    })}
 
-                    {/* Plot data points */}
-                    {filteredChartRecords.map((rec, idx) => {
-                      const val = selectedChartLevel === 1 ? rec.level1 : selectedChartLevel === 2 ? rec.level2 : rec.level3;
-                      const x = getX(idx);
-                      const y = getY(val);
-                      const isOut = val < target - 3 * sd || val > target + 3 * sd;
+                    {/* Plot data points for each active level */}
+                    {activeLevelDefs.map(d => {
+                      const target = d.stats.mean;
+                      const sd = d.stats.sd || 1;
 
-                      return (
-                        <g key={rec.id} className="group cursor-pointer">
-                          <circle
-                            cx={x}
-                            cy={y}
-                            r={isOut ? '6' : '4.5'}
-                            fill={isOut ? '#ef4444' : '#0284c7'}
-                            stroke="white"
-                            strokeWidth="1.5"
-                          />
-                          {/* Tooltip Hover Area */}
-                          <title>
-                            {`วันที่: ${rec.date}\nวอร์ด: ${rec.ward}\nเครื่อง: ${rec.serialNumber}\nค่าวิเคราะห์: ${val}\nสถานะ: ${isOut ? 'หลุดเกณฑ์ 3SD (Out of Control!)' : 'ปกติ'}`}
-                          </title>
+                      return filteredChartRecords.map((rec, idx) => {
+                        const val = rec[d.dataKey];
+                        const x = getX(idx);
+                        const y = getY(val);
+                        const isOut = val < target - 3 * sd || val > target + 3 * sd;
 
-                          {/* X-axis date labels */}
-                          <text
-                            x={x}
-                            y={height - paddingBottom + 18}
-                            textAnchor="middle"
-                            fill="#64748b"
-                            transform={`rotate(15 ${x} ${height - paddingBottom + 18})`}
-                            className="text-[8px] font-mono font-medium"
-                          >
-                            {rec.date.substring(5)}
-                          </text>
-                        </g>
-                      );
+                        return (
+                          <g key={`pt-${d.level}-${rec.id}`} className="group cursor-pointer">
+                            <circle
+                              cx={x}
+                              cy={y}
+                              r={isOut ? '6' : '4.5'}
+                              fill={isOut ? '#ef4444' : d.color}
+                              stroke="white"
+                              strokeWidth="1.5"
+                            />
+                            {/* Tooltip Hover Area */}
+                            <title>
+                              {`ระดับ: ${d.label}\nวันที่: ${rec.date}\nวอร์ด: ${rec.ward}\nเครื่อง: ${rec.serialNumber}\nค่าวิเคราะห์: ${val}\nสถานะ: ${isOut ? 'หลุดเกณฑ์ 3SD (Out of Control!)' : 'ปกติ'}`}
+                            </title>
+
+                            {/* X-axis date labels (only once) */}
+                            {d.level === activeLevelDefs[0].level && (
+                              <text
+                                x={x}
+                                y={height - paddingBottom + 20}
+                                textAnchor="middle"
+                                fill="#64748b"
+                                transform={`rotate(15 ${x} ${height - paddingBottom + 20})`}
+                                className="text-[8px] font-mono font-medium"
+                              >
+                                {rec.date.substring(5)}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      });
                     })}
                   </svg>
                 </div>
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-[11px] text-slate-500 leading-relaxed">
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200/90 shadow-2xs text-[11px] text-slate-600 leading-relaxed">
                   <span className="font-bold text-slate-700 flex items-center space-x-1 mb-1">
                     <Lightbulb size={13} className="text-amber-500 shrink-0" />
                     <span>การอ่านผลและควบคุมระดับห้องปฏิบัติการ (Rule Interpretation):</span>
@@ -867,7 +1066,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
             <div>
               <h3 className="font-bold text-slate-800 text-sm flex items-center space-x-1.5">
                 <Settings size={16} className="text-sky-600" />
-                <span>กำหนดค่าเป้าหมายจำแนกตามล็อต (Target & Range Configuration)</span>
+                <span>กำหนดค่าเป้าหมายจำแนกตาม LOT (Target & Range Configuration)</span>
               </h3>
               <p className="text-xs text-slate-400 mt-1">ระบุค่าควบคุม Target, Min/Max Limit, และ Standard Deviation (SD) เพื่อป้อนให้ระบบคำนวณกราฟและสถานะโดยอัตโนมัติ</p>
             </div>

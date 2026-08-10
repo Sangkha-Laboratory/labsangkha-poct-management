@@ -276,13 +276,17 @@ export default function LandingPage({
         </div>
       )}
 
-      {/* Hero Welcome Banner - Soft Light Mode / Deep Dark Mode */}
-      <div className="bg-gradient-to-br from-slate-50 via-sky-50/40 to-white dark:bg-gradient-to-r dark:from-slate-900 dark:via-sky-950 dark:to-indigo-950 text-slate-800 dark:text-white p-7 md:p-10 rounded-3xl border border-slate-200/80 dark:border-sky-800/40 shadow-xs relative overflow-hidden animate-fade-in" id="hero-banner">
-        <div className="absolute -top-12 -right-12 w-80 h-80 bg-sky-300/10 dark:bg-sky-400/20 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="absolute -bottom-12 -left-12 w-80 h-80 bg-indigo-300/10 dark:bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+      {/* Hero Welcome Banner - Prominent & High Contrast */}
+      <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs text-slate-800 dark:text-white p-7 md:p-10 rounded-3xl border-2 border-sky-200/90 dark:border-sky-800/80 shadow-lg shadow-sky-900/5 relative overflow-hidden animate-fade-in" id="hero-banner">
+        <div className="absolute -top-12 -right-12 w-80 h-80 bg-sky-300/20 dark:bg-sky-400/20 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute -bottom-12 -left-12 w-80 h-80 bg-indigo-300/20 dark:bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
         
         <div className="relative z-10 md:flex items-center justify-between gap-6">
           <div className="space-y-3.5 max-w-xl text-center md:text-left">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 bg-sky-50 dark:bg-sky-950/80 border border-sky-200/80 dark:border-sky-800/80 rounded-full text-xs font-bold text-sky-700 dark:text-sky-300 mb-1 shadow-2xs">
+              <Sparkles size={13} className="text-sky-600" />
+              <span>บริการ POCT งานเทคนิคการแพทย์ โรงพยาบาลสังขะ</span>
+            </div>
             <h1 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight whitespace-nowrap">
               ระบบบริหารจัดการเครื่อง POCT ครบวงจร
             </h1>
@@ -294,25 +298,27 @@ export default function LandingPage({
             </p>
             <div className="flex flex-wrap gap-3 pt-2 justify-center md:justify-start">
               <button
+                type="button"
                 onClick={() => { 
                   setActiveTab('repair'); 
                   setTimeout(() => {
                     document.getElementById('landing-workspace')?.scrollIntoView({ behavior: 'smooth' });
                   }, 50);
                 }}
-                className="bg-sky-600 hover:bg-sky-500 text-white text-xs md:text-sm font-extrabold px-6 py-3 rounded-xl transition-all shadow-md shadow-sky-600/15 cursor-pointer flex items-center space-x-2"
+                className="bg-sky-600 hover:bg-sky-500 text-white text-xs md:text-sm font-extrabold px-6 py-3 rounded-xl transition-all shadow-md shadow-sky-600/20 cursor-pointer flex items-center space-x-2"
               >
                 <Wrench size={16} />
                 <span>เริ่มแจ้งส่งซ่อมเครื่อง</span>
               </button>
               <button
+                type="button"
                 onClick={() => { 
                   setActiveTab('track'); 
                   setTimeout(() => {
                     document.getElementById('landing-workspace')?.scrollIntoView({ behavior: 'smooth' });
                   }, 50);
                 }}
-                className="bg-white hover:bg-slate-50 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-100 text-xs md:text-sm font-bold px-6 py-3 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-3xs cursor-pointer flex items-center space-x-2"
+                className="bg-white hover:bg-slate-50 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-100 text-xs md:text-sm font-bold px-6 py-3 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-xs cursor-pointer flex items-center space-x-2"
               >
                 <Search size={16} className="text-sky-600 dark:text-sky-300" />
                 <span>ตรวจสอบสถานะล่าสุด</span>
@@ -370,7 +376,7 @@ export default function LandingPage({
 
           {/* Form Content 1: Repair Request */}
           {activeTab === 'repair' && (
-            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="repair-form-container">
+            <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-6" id="repair-form-container">
               <div className="border-b border-slate-100 pb-4 mb-5">
                 <h2 className="text-lg md:text-xl font-bold text-slate-800">กรอกข้อมูลเพื่อส่งเครื่องซ่อมบำรุง</h2>
                 <p className="text-xs md:text-sm text-slate-400">ระบบจะทำการจัดบันทึกข้อมูลและแปลงข้อมูลเป็นเอกสารรายงาน เพื่อให้ท่านปริ้นใช้งานภายหลังได้</p>
@@ -532,7 +538,7 @@ export default function LandingPage({
 
           {/* Form Content 2: Supply Request */}
           {activeTab === 'supply' && (
-            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="supply-form-container">
+            <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-6" id="supply-form-container">
               <div className="border-b border-slate-100 pb-4">
                 <div className="flex items-center space-x-2 text-sky-600 mb-1">
                   <Package size={22} />
@@ -644,7 +650,7 @@ export default function LandingPage({
                   <label className="text-xs md:text-sm font-bold text-slate-700">เหตุผลประกอบการเบิก / อธิบายความจำเป็น (ไม่บังคับ)</label>
                   <textarea
                     rows={3}
-                    placeholder="ระบุเหตุผลประกอบการเบิก เช่น เพื่อทดแทนตัวเดิมที่ส่งซ่อม/เคลม, แถบวัดหมดสต็อกล่วงหน้าก่อนสิ้นเดือน, หรือเปิดหน่วยงานใหม่..."
+                    placeholder="ระบุเหตุผลประกอบการเบิก เช่น เพื่อทดแทนตัวเดิมที่ส่งซ่อม/เคลม, แถบวัดหมดคลังล่วงหน้าก่อนสิ้นเดือน, หรือเปิดหน่วยงานใหม่..."
                     value={supplyReason}
                     onChange={(e) => setSupplyReason(e.target.value)}
                     className="w-full text-xs md:text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
@@ -675,7 +681,7 @@ export default function LandingPage({
 
           {/* Form Content 3: Track Status */}
           {activeTab === 'track' && (
-            <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="track-status-container">
+            <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-6" id="track-status-container">
               <div className="border-b border-slate-100 pb-4">
                 <h2 className="text-lg md:text-xl font-bold text-slate-800">ติดตามสถานะคำขอและประวัติเครื่อง</h2>
                 <p className="text-xs md:text-sm text-slate-400">ระบุรหัสเครื่องตรวจ (เช่น BGM-009) หรือหมายเลขคำขอส่งซ่อม (เช่น REP-748) เพื่อตรวจสอบสถานะ</p>
@@ -812,7 +818,7 @@ export default function LandingPage({
 
           {/* Tab Content 4: Guides and Manuals */}
           {activeTab === 'guide' && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6" id="manuals-tab-container">
+            <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-6" id="manuals-tab-container">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
                   <h2 className="text-lg font-bold text-slate-800">ข้อมูลและคู่มือการดูแลรักษาเครื่องตรวจน้ำตาลปลายนิ้ว (DTX)</h2>
@@ -885,7 +891,7 @@ export default function LandingPage({
               {/* Sub-Tab 1: Maintenance Guidelines */}
               {guideSubTab === 'maintenance' && (
                 <div className="space-y-4 animate-scale-up" id="subtab-maintenance">
-                  <div className="bg-sky-50/40 border border-sky-100 p-4 rounded-xl flex items-start space-x-3 text-xs">
+                  <div className="bg-white border border-slate-200/90 p-4 rounded-2xl shadow-2xs flex items-start space-x-3 text-xs">
                     <Info className="text-sky-600 shrink-0 mt-0.5" size={16} />
                     <div className="space-y-1 text-sky-950">
                       <span className="font-bold">คำแนะนำทั่วไปสำหรับการดูแลเครื่องตรวจ (งานชันสูตรสาธารณสุข กลุ่มงานเทคนิคการแพทย์)</span>
@@ -1242,7 +1248,7 @@ export default function LandingPage({
             </div>
 
             {/* Section: Troubleshooting Guide Accordion */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4" id="interactive-troubleshoot-panel">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-4" id="interactive-troubleshoot-panel">
               <div className="border-b border-slate-100 pb-3">
                 <h3 className="font-bold text-slate-800 text-xs md:text-sm flex items-center space-x-1.5">
                   <BookOpen size={16} className="text-sky-600" />
