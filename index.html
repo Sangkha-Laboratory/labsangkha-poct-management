@@ -26,11 +26,17 @@
 
         window.addEventListener('error', function(e) {
           var msg = e.message || (e.target && e.target.src ? 'ไม่สามารถโหลดไฟล์สคริปต์ได้: ' + e.target.src : 'เกิดข้อผิดพลาดในการรันระบบ');
+          if (msg && (msg.indexOf('WebSocket') !== -1 || msg.indexOf('vite') !== -1 || msg.indexOf('ws://') !== -1)) {
+            return;
+          }
           showGlobalError('JS Runtime Error / Script Load Failure', msg + '\n' + (e.error && e.error.stack ? e.error.stack : ''));
         }, true);
 
         window.addEventListener('unhandledrejection', function(e) {
-          var reason = e.reason ? (e.reason.stack || e.reason.message || JSON.stringify(e.reason)) : 'Unhandled Promise Rejection';
+          var reason = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : 'Unhandled Promise Rejection';
+          if (reason && (reason.indexOf('WebSocket') !== -1 || reason.indexOf('vite') !== -1 || reason.indexOf('ws://') !== -1 || reason.indexOf('wss://') !== -1)) {
+            return;
+          }
           showGlobalError('Unhandled Rejection', reason);
         });
       })();

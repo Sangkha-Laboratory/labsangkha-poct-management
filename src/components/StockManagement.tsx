@@ -7,7 +7,6 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
-import { INITIAL_LOT_CONFIGS } from '../mockData';
 import { Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle } from 'lucide-react';
 
 interface StockManagementProps {
@@ -29,6 +28,35 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);
 
+  // Compute distinct Brands dynamically from dtx_machines (machines prop)
+  const distinctBrands = React.useMemo(() => {
+    const brandsSet = new Set<string>();
+    // Always include VivaChek first
+    brandsSet.add('VivaChek');
+
+    machines.forEach((m) => {
+      if (m.brand && m.brand.trim()) {
+        const cleaned = m.brand.replace(/\(หลัก\)/g, '').trim();
+        if (cleaned) brandsSet.add(cleaned);
+      }
+    });
+
+    return Array.from(brandsSet);
+  }, [machines]);
+
+  // Compute distinct Lot numbers dynamically from dtx_machines (machines prop) ONLY
+  const distinctLots = React.useMemo(() => {
+    const lotSet = new Set<string>();
+
+    machines.forEach((m) => {
+      if (m.lotNumber && m.lotNumber.trim()) {
+        lotSet.add(m.lotNumber.trim());
+      }
+    });
+
+    return Array.from(lotSet);
+  }, [machines]);
+
   // Add/Edit Modal state
   const [isOpenModal, setIsOpenModal] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
@@ -38,23 +66,44 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
   const [serialNumber, setSerialNumber] = useState('');
   const [machineSerial, setMachineSerial] = useState('');
   const [brand, setBrand] = useState('VivaChek');
+  const [isCustomBrand, setIsCustomBrand] = useState(false);
+  const [customBrand, setCustomBrand] = useState('');
   const [model, setModel] = useState('Fad');
   const [ward, setWard] = useState('');
   const [status, setStatus] = useState<DtxMachine['status']>('active');
   const [receiveDate, setReceiveDate] = useState('');
   const [lotNumber, setLotNumber] = useState('');
+  const [isCustomLot, setIsCustomLot] = useState(false);
+  const [customLot, setCustomLot] = useState('');
   const [remark, setRemark] = useState('');
+
+  // Check if current typed CODE is duplicate
+  const trimmedCode = serialNumber.trim().toUpperCase();
+  const isCodeDuplicate = !!trimmedCode && machines.some(m =>
+    m.serialNumber.trim().toUpperCase() === trimmedCode &&
+    (modalMode === 'add' || m.id !== currentMachineId)
+  );
 
   const openAddModal = () => {
     setModalMode('add');
     setSerialNumber('');
     setMachineSerial('');
     setBrand('VivaChek');
+    setIsCustomBrand(false);
+    setCustomBrand('');
     setModel('Fad');
     setWard('');
     setStatus('active');
     setReceiveDate(new Date().toISOString().split('T')[0]);
-    setLotNumber('235080');
+    if (distinctLots.length > 0) {
+      setLotNumber(distinctLots[0]);
+      setIsCustomLot(false);
+      setCustomLot('');
+    } else {
+      setLotNumber('__custom__');
+      setIsCustomLot(true);
+      setCustomLot('');
+    }
     setRemark('');
     setIsOpenModal(true);
   };
@@ -64,20 +113,50 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
     setCurrentMachineId(machine.id);
     setSerialNumber(machine.serialNumber);
     setMachineSerial(machine.machineSerial || '');
-    setBrand(machine.brand);
+
+    const cleanedBrand = machine.brand ? machine.brand.replace(/\(หลัก\)/g, '').trim() : 'VivaChek';
+    if (distinctBrands.includes(cleanedBrand)) {
+      setBrand(cleanedBrand);
+      setIsCustomBrand(false);
+      setCustomBrand('');
+    } else {
+      setBrand('__custom__');
+      setIsCustomBrand(true);
+      setCustomBrand(cleanedBrand);
+    }
+
     setModel(machine.model);
     setWard(machine.ward);
     setStatus(machine.status);
     setReceiveDate(machine.receiveDate);
-    setLotNumber(machine.lotNumber);
+
+    if (distinctLots.includes(machine.lotNumber)) {
+      setLotNumber(machine.lotNumber);
+      setIsCustomLot(false);
+      setCustomLot('');
+    } else {
+      setLotNumber('__custom__');
+      setIsCustomLot(true);
+      setCustomLot(machine.lotNumber);
+    }
+
     setRemark(machine.remark || '');
     setIsOpenModal(true);
   };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!serialNumber.trim() || !machineSerial.trim() || !ward || !lotNumber) {
-      alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (รวมถึงหมายเลขซีเรียลเครื่อง S/N ด้วย)');
+
+    const finalBrand = isCustomBrand ? customBrand.trim() : brand;
+    const finalLot = isCustomLot ? customLot.trim() : lotNumber;
+
+    if (!serialNumber.trim() || !machineSerial.trim() || !ward || !finalBrand || !finalLot) {
+      alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (รวมถึงรหัสเครื่อง, หมายเลขซีเรียล S/N, แบรนด์, หน่วยงาน และ LOT)');
+      return;
+    }
+
+    if (isCodeDuplicate) {
+      alert(`ข้อผิดพลาด: รหัสเครื่อง (CODE) "${trimmedCode}" ซ้ำกับเครื่องอื่นในคลัง! กรุณาตรวจสอบรหัสเครื่องใหม่อีกครั้ง`);
       return;
     }
 
@@ -85,22 +164,16 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
       id: modalMode === 'add' ? String(Date.now()) : currentMachineId,
       serialNumber: serialNumber.trim().toUpperCase(),
       machineSerial: machineSerial.trim().toUpperCase(),
-      brand,
+      brand: finalBrand,
       model,
       ward,
       status,
       receiveDate,
-      lotNumber,
+      lotNumber: finalLot,
       remark: remark.trim(),
     };
 
     if (modalMode === 'add') {
-      // Check duplicate serial/code
-      const duplicate = machines.some(m => m.serialNumber.toLowerCase() === serialNumber.trim().toLowerCase());
-      if (duplicate) {
-        alert('รหัสเครื่อง (CODE) ซ้ำในคลัง! กรุณาตรวจสอบรหัสเครื่องใหม่อีกครั้ง');
-        return;
-      }
       onAddMachine(machineData);
     } else {
       onUpdateMachine(machineData);
@@ -218,8 +291,8 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
               <th className="p-4">หมายเลขซีเรียล (S/N)</th>
               <th className="p-4">แบรนด์/รุ่น</th>
               <th className="p-4">หน่วยงานประจำการ</th>
-              <th className="p-4">ล็อตเครื่อง (LOT)</th>
-              <th className="p-4">วันที่รับมา</th>
+              <th className="p-4">LOT</th>
+              <th className="p-4">วันที่จ่ายเครื่อง</th>
               <th className="p-4 text-center">สถานะ</th>
               <th className="p-4">หมายเหตุ</th>
               <th className="p-4 text-center">จัดการ</th>
@@ -305,32 +378,44 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
 
       {/* Create / Edit Modal */}
       {isOpenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4" id="stock-modal">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-100 animate-scale-up">
-            <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto" id="stock-modal">
+          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl border border-slate-100 animate-scale-up my-auto">
+            <div className="bg-slate-900 text-white p-4 rounded-t-2xl flex items-center justify-between">
               <h3 className="font-bold text-sm">
-                {modalMode === 'add' ? 'เพิ่มเครื่องตรวจวัดน้ำตาล (DTX) เข้าสต็อก' : 'แก้ไขข้อมูลเครื่องตรวจวัดน้ำตาล (DTX)'}
+                {modalMode === 'add' ? 'เพิ่มเครื่องตรวจวัดน้ำตาลเข้าคลัง' : 'แก้ไขข้อมูลเครื่องตรวจวัดน้ำตาล (DTX)'}
               </h3>
               <button
+                type="button"
                 onClick={() => setIsOpenModal(false)}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-5 space-y-4">
+            <form onSubmit={handleSave} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 {/* CODE */}
                 <div className="space-y-1.5 col-span-2">
-                  <label className="text-[11px] font-bold text-slate-700">รหัสเครื่อง (CODE) *</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-700">รหัสเครื่อง (CODE) *</label>
+                    {isCodeDuplicate && (
+                      <span className="text-[11px] font-bold text-rose-600 animate-pulse">
+                        ⚠️ รหัสเครื่องซ้ำในระบบ!
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     placeholder="เช่น BGM-016"
                     value={serialNumber}
                     onChange={(e) => setSerialNumber(e.target.value)}
                     disabled={modalMode === 'edit'}
-                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 font-bold disabled:bg-slate-50 disabled:text-slate-400"
+                    className={`w-full text-xs p-2.5 rounded-lg border font-bold disabled:bg-slate-50 disabled:text-slate-400 ${
+                      isCodeDuplicate
+                        ? 'border-rose-500 bg-rose-50/60 focus:border-rose-600 text-rose-900 focus:outline-none'
+                        : 'border-slate-200 focus:outline-hidden focus:border-sky-500'
+                    }`}
                     required
                   />
                 </div>
@@ -353,17 +438,33 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                   <label className="text-[11px] font-bold text-slate-700">แบรนด์ *</label>
                   <CustomSelect
                     value={brand}
-                    onChange={(e) => setBrand(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setBrand(val);
+                      if (val === '__custom__') {
+                        setIsCustomBrand(true);
+                      } else {
+                        setIsCustomBrand(false);
+                      }
+                    }}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
                     required
                   >
-                    <option value="VivaChek">VivaChek (หลัก)</option>
-                    <option value="Accu-Chek">Accu-Chek</option>
-                    <option value="Contour">Contour</option>
-                    <option value="Roche">Roche</option>
-                    <option value="Abbott">Abbott</option>
-                    <option value="Lifescan">Lifescan</option>
+                    {distinctBrands.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                    <option value="__custom__">+ เพิ่มแบรนด์ใหม่ (พิมพ์เอง)</option>
                   </CustomSelect>
+                  {isCustomBrand && (
+                    <input
+                      type="text"
+                      placeholder="พิมพ์ชื่อแบรนด์ใหม่..."
+                      value={customBrand}
+                      onChange={(e) => setCustomBrand(e.target.value)}
+                      className="w-full text-xs p-2.5 mt-1 rounded-lg border border-sky-300 focus:outline-hidden focus:border-sky-500 bg-sky-50/40 font-semibold"
+                      required
+                    />
+                  )}
                 </div>
 
                 {/* Model */}
@@ -383,14 +484,14 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
               <div className="grid grid-cols-2 gap-3">
                 {/* Ward */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">วอร์ด / ตึกประจำการ *</label>
+                  <label className="text-[11px] font-bold text-slate-700">หน่วยงาน *</label>
                   <CustomSelect
                     value={ward}
                     onChange={(e) => setWard(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
                     required
                   >
-                    <option value="">-- เลือกวอร์ด --</option>
+                    <option value="">-- เลือกหน่วยงาน --</option>
                     {wards.map((w, idx) => (
                       <option key={idx} value={w.thai_name}>{w.thai_name}</option>
                     ))}
@@ -399,24 +500,43 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
 
                 {/* Lot Configuration mapping */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">ล็อตของเครื่อง (LOT) *</label>
+                  <label className="text-[11px] font-bold text-slate-700">LOT *</label>
                   <CustomSelect
                     value={lotNumber}
-                    onChange={(e) => setLotNumber(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLotNumber(val);
+                      if (val === '__custom__') {
+                        setIsCustomLot(true);
+                      } else {
+                        setIsCustomLot(false);
+                      }
+                    }}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
                     required
                   >
-                    {INITIAL_LOT_CONFIGS.map((cfg, idx) => (
-                      <option key={idx} value={cfg.lotNumber}>{cfg.lotNumber}</option>
+                    {distinctLots.map((lot, idx) => (
+                      <option key={idx} value={lot}>{lot}</option>
                     ))}
+                    <option value="__custom__">+ เพิ่ม LOT ใหม่ (พิมพ์เอง)</option>
                   </CustomSelect>
+                  {isCustomLot && (
+                    <input
+                      type="text"
+                      placeholder="พิมพ์ LOT ใหม่..."
+                      value={customLot}
+                      onChange={(e) => setCustomLot(e.target.value)}
+                      className="w-full text-xs p-2.5 mt-1 rounded-lg border border-sky-300 focus:outline-hidden focus:border-sky-500 bg-sky-50/40 font-mono font-bold"
+                      required
+                    />
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 {/* Receive Date */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">วันที่รับมาประจำการ</label>
+                  <label className="text-[11px] font-bold text-slate-700">วันที่จ่ายเครื่อง</label>
                   <input
                     type="date"
                     value={receiveDate}

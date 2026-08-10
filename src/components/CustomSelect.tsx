@@ -49,11 +49,11 @@ export default function CustomSelect({ value, onChange, children, className, req
       </div>
       
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-72 overflow-y-auto">
+        <div className="absolute z-50 w-full min-w-max max-w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
           {options.map((opt, idx) => (
             <div
               key={idx}
-              className={`px-3 py-2 text-sm cursor-pointer hover:bg-sky-50 ${String(value) === String(opt.value) ? 'bg-sky-50 text-sky-700 font-medium' : 'text-slate-700'}`}
+              className={`px-3 py-2 text-xs cursor-pointer hover:bg-sky-50 whitespace-normal break-words ${String(value) === String(opt.value) ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-700'}`}
               onClick={() => {
                 onChange({ target: { value: opt.value } });
                 setIsOpen(false);
