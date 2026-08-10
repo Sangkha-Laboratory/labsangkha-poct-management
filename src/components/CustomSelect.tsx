@@ -17,10 +17,10 @@ export default function CustomSelect({ value, onChange, children, className, req
 
   // Parse children to extract options
   const options = React.Children.toArray(children).reduce((acc: any[], child: any) => {
-    if (React.isValidElement(child) && child.type === 'option') {
+    if (React.isValidElement(child) && (child.type === 'option' || (child.props && (child.props as any).value !== undefined))) {
       acc.push({
-        value: child.props.value,
-        label: child.props.children
+        value: (child.props as any).value,
+        label: (child.props as any).children
       });
     }
     return acc;

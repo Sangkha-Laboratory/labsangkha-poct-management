@@ -51,9 +51,18 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
   const [actionDate, setActionDate] = useState(new Date().toISOString().split('T')[0]);
   const [testDate, setTestDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Machine Count & Tested Machines (SN + Ward)
+  // Machine Count & Tested Machines (SN + Ward + Optional Level Values)
   const [machineCount, setMachineCount] = useState<number>(1);
-  const [testedMachines, setTestedMachines] = useState<{ serialNumber: string; ward: string }[]>([]);
+  const [testedMachines, setTestedMachines] = useState<{
+    serialNumber: string;
+    ward: string;
+    level1Value?: string | number;
+    level1Target?: string | number;
+    level2Value?: string | number;
+    level2Target?: string | number;
+    level3Value?: string | number;
+    level3Target?: string | number;
+  }[]>([]);
   const [customSerialInput, setCustomSerialInput] = useState('');
   const [customWardInput, setCustomWardInput] = useState('');
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
@@ -246,7 +255,16 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
       testDate,
       dueDate: dueDate || undefined,
       machineCount: machineCount || (testedMachines.length > 0 ? testedMachines.length : 1),
-      testedMachines: testedMachines.length > 0 ? testedMachines : undefined,
+      testedMachines: testedMachines.length > 0 ? testedMachines.map(m => ({
+        serialNumber: m.serialNumber,
+        ward: m.ward,
+        level1Value: m.level1Value ? Number(m.level1Value) : undefined,
+        level1Target: m.level1Target ? Number(m.level1Target) : undefined,
+        level2Value: m.level2Value ? Number(m.level2Value) : undefined,
+        level2Target: m.level2Target ? Number(m.level2Target) : undefined,
+        level3Value: m.level3Value ? Number(m.level3Value) : undefined,
+        level3Target: m.level3Target ? Number(m.level3Target) : undefined,
+      })) : undefined,
       testedSerials: testedMachines.length > 0 ? testedMachines.map(m => m.serialNumber) : undefined,
       level1Value: l1Val ? Number(l1Val) : undefined,
       level1Target: l1Target ? Number(l1Target) : undefined,

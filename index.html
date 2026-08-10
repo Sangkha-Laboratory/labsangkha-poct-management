@@ -4,6 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ระบบบริหารจัดการเครื่องตรวจน้ำตาล DTX (Point of Care Testing)</title>
+    <script>
+      // Global Native Error Catcher for White Screen Debugging
+      (function() {
+        function showGlobalError(title, detail) {
+          var errorBox = document.getElementById('debug-error-overlay');
+          if (!errorBox) {
+            errorBox = document.createElement('div');
+            errorBox.id = 'debug-error-overlay';
+            errorBox.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#0f172a;color:#f87171;padding:24px;z-index:999999;font-family:sans-serif;overflow:auto;box-sizing:border-box;';
+            document.body ? document.body.appendChild(errorBox) : document.addEventListener('DOMContentLoaded', function() { document.body.appendChild(errorBox); });
+          }
+          errorBox.innerHTML = '<div style="max-width:800px;margin:0 auto;background:#1e293b;border:1px solid #ef4444;border-radius:12px;padding:20px;">' +
+            '<h3 style="margin-0 0 10px 0;color:#f87171;font-size:18px;">⚠️ ระบบตรวจพบข้อผิดพลาด (Debug Mode)</h3>' +
+            '<p style="color:#e2e8f0;font-size:14px;margin-bottom:12px;"><strong>' + title + '</strong></p>' +
+            '<pre style="background:#0f172a;color:#cbd5e1;padding:12px;border-radius:8px;font-size:12px;white-space:pre-wrap;word-break:break-all;">' + (detail || 'ไม่มีข้อมูลรายละเอียดเพิ่มเติม') + '</pre>' +
+            '<p style="color:#94a3b8;font-size:12px;margin-top:12px;">URL: ' + window.location.href + '</p>' +
+            '<button onclick="location.reload()" style="margin-top:10px;padding:8px 16px;background:#ef4444;color:white;border:none;border-radius:6px;cursor:pointer;">รีโหลดหน้าเว็บ</button>' +
+            '</div>';
+        }
+
+        window.addEventListener('error', function(e) {
+          var msg = e.message || (e.target && e.target.src ? 'ไม่สามารถโหลดไฟล์สคริปต์ได้: ' + e.target.src : 'เกิดข้อผิดพลาดในการรันระบบ');
+          showGlobalError('JS Runtime Error / Script Load Failure', msg + '\n' + (e.error && e.error.stack ? e.error.stack : ''));
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e.reason ? (e.reason.stack || e.reason.message || JSON.stringify(e.reason)) : 'Unhandled Promise Rejection';
+          showGlobalError('Unhandled Rejection', reason);
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
