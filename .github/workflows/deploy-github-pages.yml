@@ -32,6 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Build project
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -40,11 +45,6 @@ jobs:
           npm run build
           touch dist/.nojekyll
           cp dist/index.html dist/404.html
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
