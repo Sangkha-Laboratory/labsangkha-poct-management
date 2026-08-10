@@ -504,6 +504,10 @@ app.get("/api/wards", checkDbConfig, async (req, res) => {
 // ==========================================================================
 
 async function startServer() {
+  // API routes must be defined before Vite/Static middleware
+  // (All current app.get/post/put/delete routes are already defined above)
+
+  // Vite middleware for development or Static for production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

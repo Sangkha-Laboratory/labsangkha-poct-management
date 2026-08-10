@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { RepairRequest } from '../types';
+import { dbService } from '../lib/supabase';
 import PrintForm from './PrintForm';
 import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck } from 'lucide-react';
 import { formatToThaiDate } from '../lib/dateUtils';
@@ -24,8 +25,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
 
   useEffect(() => {
-    fetch('/api/wards')
-      .then(res => res.json())
+    dbService.getWards()
       .then(setWards)
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);

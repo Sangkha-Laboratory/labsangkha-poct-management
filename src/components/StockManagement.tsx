@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine } from '../types';
+import { dbService } from '../lib/supabase';
 import { INITIAL_LOT_CONFIGS } from '../mockData';
 import { Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle } from 'lucide-react';
 
@@ -23,8 +24,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
 
   useEffect(() => {
-    fetch('/api/wards')
-      .then(res => res.json())
+    dbService.getWards()
       .then(setWards)
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);

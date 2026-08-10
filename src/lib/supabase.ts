@@ -1,25 +1,47 @@
 /// <reference types="vite/client" />
+import { createClient } from '@supabase/supabase-js';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
+import { INITIAL_WARDS } from '../mockData';
 
-// Since we proxy all calls to our local backend server securely,
-// we return true by default so that the UI can call our secure /api endpoints.
-// The backend server will verify if it is connected to Supabase using server-side keys.
+// 1. Read Supabase environment variables for direct client-side integration
+// (For Cloudflare Pages, GitHub Pages, Vercel, Netlify SPA)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+export const supabase = (supabaseUrl && supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
+
 export const isSupabaseConfigured = (): boolean => {
   return true;
 };
 
-// We will fetch the actual status asynchronously in components
 export const getSupabaseConfigInfo = async () => {
+  if (supabase) {
+    return { configured: true, url: supabaseUrl };
+  }
   try {
     const res = await fetch('/api/supabase/status');
-    if (res.ok) {
+    const contentType = res.headers.get('content-type');
+    if (res.ok && contentType && contentType.includes('application/json')) {
       return await res.json() as { configured: boolean; url: string };
     }
   } catch (err) {
-    console.error('Failed to fetch backend database status:', err);
+    console.warn('Backend database status check failed or skipped:', err);
   }
   return { configured: false, url: '' };
 };
+
+// Safe API Fetch helper to prevent "Unexpected token '<', '<!doctype...'" crashes
+async function safeApiFetch(url: string, options?: RequestInit) {
+  const res = await fetch(url, options);
+  const contentType = res.headers.get('content-type');
+  if (!res.ok || !contentType || !contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(`API error on ${url} (${res.status}): ${text.slice(0, 80)}`);
+  }
+  return await res.json();
+}
 
 // ==========================================================================
 // 1. Data Mappers: Convert CamelCase (Frontend) <-> snake_case (Supabase)
@@ -28,10 +50,10 @@ export const getSupabaseConfigInfo = async () => {
 // --- dtx_machines ---
 export const mapDbToMachine = (db: any): DtxMachine => ({
   id: db.id,
-  serialNumber: db.bgm_code, // Serial number in front-end represents the hospital BGM code (e.g. BGM-000)
-  machineSerial: db.serial_number, // Manufacturer real S/N
+  serialNumber: db.bgm_code,
+  machineSerial: db.serial_number,
   brand: db.brand,
-  model: 'Instant', // model is removed in DB, hardcoded for frontend compatibility
+  model: 'Instant',
   ward: db.ward,
   status: db.status as any,
   receiveDate: db.rec_date,
@@ -61,7 +83,7 @@ export const mapDbToRepair = (db: any): RepairRequest => ({
   reporterName: db.reporter,
   reporterPhone: db.phone,
   reportedProblem: db.problem,
-  requestDate: db.created_at,
+  requestDate: db.created_at || db.req_date,
   status: db.status as any,
   diagnosedProblem: db.diagnosis || undefined,
   actionTaken: db.action || undefined,
@@ -90,7 +112,6 @@ export const mapRepairToDb = (r: RepairRequest) => ({
   reporter: r.reporterName,
   phone: r.reporterPhone,
   problem: r.reportedProblem,
-  // req_date: r.requestDate,
   status: r.status,
   diagnosis: r.diagnosedProblem || null,
   action: r.actionTaken || null,
@@ -109,7 +130,7 @@ export const mapDbToSupply = (db: any): SupplyRequest => ({
   itemType: db.item as any,
   quantity: db.qty,
   reason: db.reason,
-  requestDate: db.created_at,
+  requestDate: db.created_at || db.req_date,
   status: db.status as any
 });
 
@@ -119,7 +140,6 @@ export const mapSupplyToDb = (s: SupplyRequest) => ({
   item: s.itemType,
   qty: s.quantity,
   reason: s.reason,
-  // req_date: s.requestDate,
   status: s.status
 });
 
@@ -283,27 +303,48 @@ export const mapAnnouncementToDb = (a: Announcement) => ({
 });
 
 // ==========================================================================
-// 2. Database API: Fetch, Insert, Update, Delete via secure server-side proxy
+// 2. Database Service: Hybrid Direct Supabase Client + API Proxy
 // ==========================================================================
 
 export const dbService = {
+  // --- master_wards ---
+  async getWards(): Promise<{ en_name: string; thai_name: string }[]> {
+    if (supabase) {
+      const { data, error } = await supabase.from('master_wards').select('en_name, thai_name');
+      if (!error && data) return data;
+    }
+    try {
+      const data = await safeApiFetch('/api/wards');
+      if (Array.isArray(data)) return data;
+    } catch {
+      // Fallback
+    }
+    return INITIAL_WARDS.map(w => ({ en_name: w, thai_name: w }));
+  },
+
   // --- dtx_machines ---
   async getMachines(): Promise<DtxMachine[]> {
-    const res = await fetch('/api/machines');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('dtx_machines').select('*');
+      if (error) throw error;
+      return (data || []).map(mapDbToMachine);
+    }
+    const data = await safeApiFetch('/api/machines');
     return (data || []).map(mapDbToMachine);
   },
 
   async insertMachine(machine: DtxMachine): Promise<DtxMachine> {
     const dbPayload = mapMachineToDb(machine);
-    const res = await fetch('/api/machines', {
+    if (supabase) {
+      const { data, error } = await supabase.from('dtx_machines').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToMachine(data);
+    }
+    const data = await safeApiFetch('/api/machines', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToMachine(data);
   },
 
@@ -319,42 +360,52 @@ export const dbService = {
     if (machine.lotNumber !== undefined) dbPayload.lot_number = machine.lotNumber;
     if (machine.remark !== undefined) dbPayload.remark = machine.remark || null;
 
-    const res = await fetch(`/api/machines/${id}`, {
+    if (supabase) {
+      const { data, error } = await supabase.from('dtx_machines').update(dbPayload).eq('id', id).select().single();
+      if (error) throw error;
+      return mapDbToMachine(data);
+    }
+    const data = await safeApiFetch(`/api/machines/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToMachine(data);
   },
 
   async deleteMachine(id: string): Promise<void> {
-    const res = await fetch(`/api/machines/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('dtx_machines').delete().eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/machines/${id}`, { method: 'DELETE' });
   },
 
   // --- repair_requests ---
   async getRepairs(): Promise<RepairRequest[]> {
-    const res = await fetch('/api/repairs');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('repair_requests').select('*');
+      if (error) throw error;
+      return (data || []).map(mapDbToRepair);
+    }
+    const data = await safeApiFetch('/api/repairs');
     return (data || []).map(mapDbToRepair);
   },
 
   async insertRepair(repair: RepairRequest): Promise<RepairRequest> {
     const dbPayload = mapRepairToDb(repair);
     const payloadWithId = repair.id ? { ...dbPayload, id: repair.id } : dbPayload;
-    
-    const res = await fetch('/api/repairs', {
+    if (supabase) {
+      const { data, error } = await supabase.from('repair_requests').insert(payloadWithId).select().single();
+      if (error) throw error;
+      return mapDbToRepair(data);
+    }
+    const data = await safeApiFetch('/api/repairs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadWithId)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToRepair(data);
   },
 
@@ -376,40 +427,51 @@ export const dbService = {
     if (repair.needsBackup !== undefined) dbPayload.need_backup = repair.needsBackup;
     if (repair.checklist !== undefined) dbPayload.checklist = repair.checklist;
 
-    const res = await fetch(`/api/repairs/${id}`, {
+    if (supabase) {
+      const { data, error } = await supabase.from('repair_requests').update(dbPayload).eq('id', id).select().single();
+      if (error) throw error;
+      return mapDbToRepair(data);
+    }
+    const data = await safeApiFetch(`/api/repairs/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToRepair(data);
   },
 
   async deleteRepair(id: string): Promise<void> {
-    const res = await fetch(`/api/repairs/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('repair_requests').delete().eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/repairs/${id}`, { method: 'DELETE' });
   },
 
   // --- supply_requests ---
   async getSupplies(): Promise<SupplyRequest[]> {
-    const res = await fetch('/api/supplies');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('supply_requests').select('*');
+      if (error) throw error;
+      return (data || []).map(mapDbToSupply);
+    }
+    const data = await safeApiFetch('/api/supplies');
     return (data || []).map(mapDbToSupply);
   },
 
   async insertSupply(supply: SupplyRequest): Promise<SupplyRequest> {
     const dbPayload = mapSupplyToDb(supply);
-    const res = await fetch('/api/supplies', {
+    if (supabase) {
+      const { data, error } = await supabase.from('supply_requests').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToSupply(data);
+    }
+    const data = await safeApiFetch('/api/supplies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToSupply(data);
   },
 
@@ -423,40 +485,51 @@ export const dbService = {
     if (supply.requestDate !== undefined) dbPayload.req_date = supply.requestDate;
     if (supply.status !== undefined) dbPayload.status = supply.status;
 
-    const res = await fetch(`/api/supplies/${id}`, {
+    if (supabase) {
+      const { data, error } = await supabase.from('supply_requests').update(dbPayload).eq('id', id).select().single();
+      if (error) throw error;
+      return mapDbToSupply(data);
+    }
+    const data = await safeApiFetch(`/api/supplies/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToSupply(data);
   },
 
   async deleteSupply(id: string): Promise<void> {
-    const res = await fetch(`/api/supplies/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('supply_requests').delete().eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/supplies/${id}`, { method: 'DELETE' });
   },
 
   // --- qc_records ---
   async getQcRecords(): Promise<QcRecord[]> {
-    const res = await fetch('/api/qc-records');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('qc_records').select('*');
+      if (error) throw error;
+      return (data || []).map(mapDbToQcRecord);
+    }
+    const data = await safeApiFetch('/api/qc-records');
     return (data || []).map(mapDbToQcRecord);
   },
 
   async insertQcRecord(qc: QcRecord): Promise<QcRecord> {
     const dbPayload = mapQcRecordToDb(qc);
-    const res = await fetch('/api/qc-records', {
+    if (supabase) {
+      const { data, error } = await supabase.from('qc_records').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToQcRecord(data);
+    }
+    const data = await safeApiFetch('/api/qc-records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToQcRecord(data);
   },
 
@@ -476,40 +549,51 @@ export const dbService = {
     if (qc.level2Status !== undefined) dbPayload.l2_status = qc.level2Status;
     if (qc.level3Status !== undefined) dbPayload.l3_status = qc.level3Status;
 
-    const res = await fetch(`/api/qc-records/${id}`, {
+    if (supabase) {
+      const { data, error } = await supabase.from('qc_records').update(dbPayload).eq('id', id).select().single();
+      if (error) throw error;
+      return mapDbToQcRecord(data);
+    }
+    const data = await safeApiFetch(`/api/qc-records/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToQcRecord(data);
   },
 
   async deleteQcRecord(id: string): Promise<void> {
-    const res = await fetch(`/api/qc-records/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('qc_records').delete().eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/qc-records/${id}`, { method: 'DELETE' });
   },
 
   // --- qc_lot_configs ---
   async getLotConfigs(): Promise<QcLotConfig[]> {
-    const res = await fetch('/api/lot-configs');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('qc_lot_configs').select('*');
+      if (error) throw error;
+      return (data || []).map(mapDbToLotConfig);
+    }
+    const data = await safeApiFetch('/api/lot-configs');
     return (data || []).map(mapDbToLotConfig);
   },
 
   async insertLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
     const dbPayload = mapLotConfigToDb(lot);
-    const res = await fetch('/api/lot-configs', {
+    if (supabase) {
+      const { data, error } = await supabase.from('qc_lot_configs').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToLotConfig(data);
+    }
+    const data = await safeApiFetch('/api/lot-configs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToLotConfig(data);
   },
 
@@ -528,40 +612,51 @@ export const dbService = {
     if (lot.level3Max !== undefined) dbPayload.l3_max = lot.level3Max;
     if (lot.level3SD !== undefined) dbPayload.l3_sd = lot.level3SD;
 
-    const res = await fetch(`/api/lot-configs/${lotNumber}`, {
+    if (supabase) {
+      const { data, error } = await supabase.from('qc_lot_configs').update(dbPayload).eq('lot_number', lotNumber).select().single();
+      if (error) throw error;
+      return mapDbToLotConfig(data);
+    }
+    const data = await safeApiFetch(`/api/lot-configs/${lotNumber}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToLotConfig(data);
   },
 
   async deleteLotConfig(lotNumber: string): Promise<void> {
-    const res = await fetch(`/api/lot-configs/${lotNumber}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('qc_lot_configs').delete().eq('lot_number', lotNumber);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/lot-configs/${lotNumber}`, { method: 'DELETE' });
   },
 
   // --- eqa_records ---
   async getEqaRecords(): Promise<EqaRecord[]> {
-    const res = await fetch('/api/eqa-records');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('eqa_records').select('*');
+      if (error) throw error;
+      return (data || []).map(mapDbToEqaRecord);
+    }
+    const data = await safeApiFetch('/api/eqa-records');
     return (data || []).map(mapDbToEqaRecord);
   },
 
   async insertEqaRecord(eqa: EqaRecord): Promise<EqaRecord> {
     const dbPayload = mapEqaRecordToDb(eqa);
-    const res = await fetch('/api/eqa-records', {
+    if (supabase) {
+      const { data, error } = await supabase.from('eqa_records').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToEqaRecord(data);
+    }
+    const data = await safeApiFetch('/api/eqa-records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToEqaRecord(data);
   },
 
@@ -579,74 +674,95 @@ export const dbService = {
     if (eqa.status !== undefined) dbPayload.status = eqa.status;
     if (eqa.feedback !== undefined) dbPayload.feedback = eqa.feedback || null;
 
-    const res = await fetch(`/api/eqa-records/${id}`, {
+    if (supabase) {
+      const { data, error } = await supabase.from('eqa_records').update(dbPayload).eq('id', id).select().single();
+      if (error) throw error;
+      return mapDbToEqaRecord(data);
+    }
+    const data = await safeApiFetch(`/api/eqa-records/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToEqaRecord(data);
   },
 
   async deleteEqaRecord(id: string): Promise<void> {
-    const res = await fetch(`/api/eqa-records/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('eqa_records').delete().eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/eqa-records/${id}`, { method: 'DELETE' });
   },
 
   // --- user_manuals ---
   async getManuals(): Promise<UserManual[]> {
-    const res = await fetch('/api/manuals');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('user_manuals').select('*').eq('is_deleted', false);
+      if (error) throw error;
+      return (data || []).map(mapDbToManual);
+    }
+    const data = await safeApiFetch('/api/manuals');
     return (data || []).map(mapDbToManual);
   },
 
   async insertManual(manual: UserManual): Promise<UserManual> {
     const dbPayload = mapManualToDb(manual);
-    const res = await fetch('/api/manuals', {
+    if (supabase) {
+      const { data, error } = await supabase.from('user_manuals').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToManual(data);
+    }
+    const data = await safeApiFetch('/api/manuals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToManual(data);
   },
 
   async deleteManual(id: string): Promise<void> {
-    const res = await fetch(`/api/manuals/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('user_manuals').update({ is_deleted: true }).eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/manuals/${id}`, { method: 'DELETE' });
   },
 
   // --- announcements ---
   async getAnnouncements(): Promise<Announcement[]> {
-    const res = await fetch('/api/announcements');
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
+    if (supabase) {
+      const { data, error } = await supabase.from('announcements').select('*').eq('is_deleted', false);
+      if (error) throw error;
+      return (data || []).map(mapDbToAnnouncement);
+    }
+    const data = await safeApiFetch('/api/announcements');
     return (data || []).map(mapDbToAnnouncement);
   },
 
   async insertAnnouncement(ann: Announcement): Promise<Announcement> {
     const dbPayload = mapAnnouncementToDb(ann);
-    const res = await fetch('/api/announcements', {
+    if (supabase) {
+      const { data, error } = await supabase.from('announcements').insert(dbPayload).select().single();
+      if (error) throw error;
+      return mapDbToAnnouncement(data);
+    }
+    const data = await safeApiFetch('/api/announcements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(dbPayload)
     });
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
     return mapDbToAnnouncement(data);
   },
 
   async deleteAnnouncement(id: string): Promise<void> {
-    const res = await fetch(`/api/announcements/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(await res.text());
+    if (supabase) {
+      const { error } = await supabase.from('announcements').update({ is_deleted: true }).eq('id', id);
+      if (error) throw error;
+      return;
+    }
+    await safeApiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
   }
 };

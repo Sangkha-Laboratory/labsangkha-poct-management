@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine, RepairRequest, SupplyRequest, UserManual, Announcement } from '../types';
+import { dbService } from '../lib/supabase';
 import { TROUBLESHOOTING_GUIDE, MANUALS_LIST, INITIAL_ANNOUNCEMENTS, DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES } from '../mockData';
 import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers } from 'lucide-react';
 
@@ -39,8 +40,7 @@ export default function LandingPage({
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
 
   useEffect(() => {
-    fetch('/api/wards')
-      .then(res => res.json())
+    dbService.getWards()
       .then(setWards)
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);

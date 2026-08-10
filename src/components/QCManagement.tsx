@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { QcRecord, QcLotConfig, DtxMachine } from '../types';
+import { dbService } from '../lib/supabase';
 import { INITIAL_LOT_CONFIGS } from '../mockData';
 import { Plus, Settings, BarChart2, CheckCircle, AlertTriangle, FileText, Download, Sliders, Calendar, User, Eye, Lightbulb } from 'lucide-react';
 
@@ -23,8 +24,7 @@ export default function QCManagement({ machines, qcRecords, lotConfigs, onAddQcR
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
 
   useEffect(() => {
-    fetch('/api/wards')
-      .then(res => res.json())
+    dbService.getWards()
       .then(setWards)
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);

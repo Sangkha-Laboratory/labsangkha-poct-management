@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { EqaRecord, EqaAttachment, DtxMachine } from '../types';
+import { dbService } from '../lib/supabase';
 import { 
   Plus, CheckCircle, Shield, Award, AlertTriangle, MessageSquare, 
   FileText, ExternalLink, Eye, Upload, Calendar, Building2, Clock, 
@@ -65,8 +66,7 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
   });
 
   useEffect(() => {
-    fetch('/api/wards')
-      .then(res => res.json())
+    dbService.getWards()
       .then(setWards)
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);
