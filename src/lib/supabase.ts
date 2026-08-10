@@ -3,17 +3,33 @@ import { createClient } from '@supabase/supabase-js';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
 import { INITIAL_WARDS } from '../mockData';
 
-// 1. Read Supabase environment variables for direct client-side integration
-// (For Cloudflare Pages, GitHub Pages, Vercel, Netlify SPA)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// 1. Read Supabase environment variables for client-side deployment safely
+const getEnvVar = (name: string): string => {
+  try {
+    return (import.meta.env && import.meta.env[name]) || '';
+  } catch (e) {
+    return '';
+  }
+};
 
-export const supabase = (supabaseUrl && supabaseAnonKey)
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+const supabaseUrl = getEnvVar('VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnvVar('VITE_SUPABASE_ANON_KEY');
+
+function createSafeSupabaseClient() {
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+  if (!supabaseUrl.startsWith('http://') && !supabaseUrl.startsWith('https://')) return null;
+  try {
+    return createClient(supabaseUrl, supabaseAnonKey);
+  } catch (err) {
+    console.warn('Failed to initialize Supabase client:', err);
+    return null;
+  }
+}
+
+export const supabase = createSafeSupabaseClient();
 
 export const isSupabaseConfigured = (): boolean => {
-  return true;
+  return supabase !== null;
 };
 
 export const getSupabaseConfigInfo = async () => {
@@ -32,7 +48,7 @@ export const getSupabaseConfigInfo = async () => {
   return { configured: false, url: '' };
 };
 
-// Safe API Fetch helper to prevent "Unexpected token '<', '<!doctype...'" crashes
+// Safe API Fetch helper to prevent HTML response crashes
 async function safeApiFetch(url: string, options?: RequestInit) {
   const res = await fetch(url, options);
   const contentType = res.headers.get('content-type');
@@ -43,11 +59,40 @@ async function safeApiFetch(url: string, options?: RequestInit) {
   return await res.json();
 }
 
+/**
+ * Smart query runner:
+ * Tries `poct_system` schema first. If that throws an error or table is missing,
+ * falls back to `public` schema automatically.
+ */
+async function querySupabaseClient<T>(
+  fn: (client: any) => Promise<{ data: T | null; error: any }>
+): Promise<{ data: T | null; error: any }> {
+  if (!supabase) return { data: null, error: new Error('Supabase not initialized') };
+
+  // Attempt 1: poct_system schema
+  try {
+    const poctClient = supabase.schema('poct_system');
+    const resPoct = await fn(poctClient);
+    if (!resPoct.error && resPoct.data !== null) {
+      return resPoct;
+    }
+  } catch (err) {
+    // Ignore and proceed to public schema fallback
+  }
+
+  // Attempt 2: public schema fallback
+  try {
+    const resPublic = await fn(supabase);
+    return resPublic;
+  } catch (err: any) {
+    return { data: null, error: err };
+  }
+}
+
 // ==========================================================================
-// 1. Data Mappers: Convert CamelCase (Frontend) <-> snake_case (Supabase)
+// Data Mappers: Convert CamelCase (Frontend) <-> snake_case (Supabase)
 // ==========================================================================
 
-// --- dtx_machines ---
 export const mapDbToMachine = (db: any): DtxMachine => ({
   id: db.id,
   serialNumber: db.bgm_code,
@@ -74,7 +119,6 @@ export const mapMachineToDb = (m: DtxMachine) => ({
   remark: m.remark || null
 });
 
-// --- repair_requests ---
 export const mapDbToRepair = (db: any): RepairRequest => ({
   id: db.id,
   serialNumber: db.bgm_code,
@@ -122,7 +166,6 @@ export const mapRepairToDb = (r: RepairRequest) => ({
   checklist: r.checklist
 });
 
-// --- supply_requests ---
 export const mapDbToSupply = (db: any): SupplyRequest => ({
   id: db.id,
   ward: db.ward,
@@ -143,7 +186,6 @@ export const mapSupplyToDb = (s: SupplyRequest) => ({
   status: s.status
 });
 
-// --- qc_records ---
 export const mapDbToQcRecord = (db: any): QcRecord => ({
   id: db.id,
   date: db.date,
@@ -177,7 +219,6 @@ export const mapQcRecordToDb = (q: QcRecord) => ({
   l3_status: q.level3Status
 });
 
-// --- qc_lot_configs ---
 export const mapDbToLotConfig = (db: any): QcLotConfig => ({
   lotNumber: db.lot_number,
   level1Target: Number(db.l1_target),
@@ -210,7 +251,6 @@ export const mapLotConfigToDb = (l: QcLotConfig) => ({
   l3_sd: l.level3SD
 });
 
-// --- eqa_records ---
 export const mapDbToEqaRecord = (db: any): EqaRecord => ({
   id: db.id,
   organizer: db.organizer || '',
@@ -250,7 +290,6 @@ export const mapEqaRecordToDb = (e: EqaRecord) => ({
   attachment_file: e.attachmentFile ? JSON.stringify(e.attachmentFile) : null
 });
 
-// --- user_manuals ---
 export const mapDbToManual = (db: any): UserManual => ({
   id: db.id,
   title: db.title,
@@ -275,7 +314,6 @@ export const mapManualToDb = (m: UserManual) => ({
   is_deleted: m.isDeleted || false
 });
 
-// --- announcements ---
 export const mapDbToAnnouncement = (db: any): Announcement => ({
   id: db.id,
   title: db.title,
@@ -303,31 +341,28 @@ export const mapAnnouncementToDb = (a: Announcement) => ({
 });
 
 // ==========================================================================
-// 2. Database Service: Hybrid Direct Supabase Client + API Proxy
+// Database Service: Dual-Schema (poct_system -> public) + API Proxy Fallback
 // ==========================================================================
 
 export const dbService = {
   // --- master_wards ---
   async getWards(): Promise<{ en_name: string; thai_name: string }[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('master_wards').select('en_name, thai_name');
-      if (!error && data) return data;
+      const { data, error } = await querySupabaseClient((c) => c.from('master_wards').select('en_name, thai_name'));
+      if (!error && data) return data as any;
     }
     try {
       const data = await safeApiFetch('/api/wards');
       if (Array.isArray(data)) return data;
-    } catch {
-      // Fallback
-    }
-    return INITIAL_WARDS.map(w => ({ en_name: w, thai_name: w }));
+    } catch {}
+    return [];
   },
 
   // --- dtx_machines ---
   async getMachines(): Promise<DtxMachine[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('dtx_machines').select('*');
-      if (error) throw error;
-      return (data || []).map(mapDbToMachine);
+      const { data, error } = await querySupabaseClient((c) => c.from('dtx_machines').select('*'));
+      if (!error && data) return (data as any[]).map(mapDbToMachine);
     }
     const data = await safeApiFetch('/api/machines');
     return (data || []).map(mapDbToMachine);
@@ -336,9 +371,8 @@ export const dbService = {
   async insertMachine(machine: DtxMachine): Promise<DtxMachine> {
     const dbPayload = mapMachineToDb(machine);
     if (supabase) {
-      const { data, error } = await supabase.from('dtx_machines').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToMachine(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('dtx_machines').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToMachine(data);
     }
     const data = await safeApiFetch('/api/machines', {
       method: 'POST',
@@ -361,9 +395,8 @@ export const dbService = {
     if (machine.remark !== undefined) dbPayload.remark = machine.remark || null;
 
     if (supabase) {
-      const { data, error } = await supabase.from('dtx_machines').update(dbPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return mapDbToMachine(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('dtx_machines').update(dbPayload).eq('id', id).select().single());
+      if (!error && data) return mapDbToMachine(data);
     }
     const data = await safeApiFetch(`/api/machines/${id}`, {
       method: 'PUT',
@@ -375,9 +408,8 @@ export const dbService = {
 
   async deleteMachine(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('dtx_machines').delete().eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('dtx_machines').delete().eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/machines/${id}`, { method: 'DELETE' });
   },
@@ -385,9 +417,8 @@ export const dbService = {
   // --- repair_requests ---
   async getRepairs(): Promise<RepairRequest[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('repair_requests').select('*');
-      if (error) throw error;
-      return (data || []).map(mapDbToRepair);
+      const { data, error } = await querySupabaseClient((c) => c.from('repair_requests').select('*'));
+      if (!error && data) return (data as any[]).map(mapDbToRepair);
     }
     const data = await safeApiFetch('/api/repairs');
     return (data || []).map(mapDbToRepair);
@@ -397,9 +428,8 @@ export const dbService = {
     const dbPayload = mapRepairToDb(repair);
     const payloadWithId = repair.id ? { ...dbPayload, id: repair.id } : dbPayload;
     if (supabase) {
-      const { data, error } = await supabase.from('repair_requests').insert(payloadWithId).select().single();
-      if (error) throw error;
-      return mapDbToRepair(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('repair_requests').insert(payloadWithId).select().single());
+      if (!error && data) return mapDbToRepair(data);
     }
     const data = await safeApiFetch('/api/repairs', {
       method: 'POST',
@@ -428,9 +458,8 @@ export const dbService = {
     if (repair.checklist !== undefined) dbPayload.checklist = repair.checklist;
 
     if (supabase) {
-      const { data, error } = await supabase.from('repair_requests').update(dbPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return mapDbToRepair(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('repair_requests').update(dbPayload).eq('id', id).select().single());
+      if (!error && data) return mapDbToRepair(data);
     }
     const data = await safeApiFetch(`/api/repairs/${id}`, {
       method: 'PUT',
@@ -442,9 +471,8 @@ export const dbService = {
 
   async deleteRepair(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('repair_requests').delete().eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('repair_requests').delete().eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/repairs/${id}`, { method: 'DELETE' });
   },
@@ -452,9 +480,8 @@ export const dbService = {
   // --- supply_requests ---
   async getSupplies(): Promise<SupplyRequest[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('supply_requests').select('*');
-      if (error) throw error;
-      return (data || []).map(mapDbToSupply);
+      const { data, error } = await querySupabaseClient((c) => c.from('supply_requests').select('*'));
+      if (!error && data) return (data as any[]).map(mapDbToSupply);
     }
     const data = await safeApiFetch('/api/supplies');
     return (data || []).map(mapDbToSupply);
@@ -463,9 +490,8 @@ export const dbService = {
   async insertSupply(supply: SupplyRequest): Promise<SupplyRequest> {
     const dbPayload = mapSupplyToDb(supply);
     if (supabase) {
-      const { data, error } = await supabase.from('supply_requests').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToSupply(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('supply_requests').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToSupply(data);
     }
     const data = await safeApiFetch('/api/supplies', {
       method: 'POST',
@@ -486,9 +512,8 @@ export const dbService = {
     if (supply.status !== undefined) dbPayload.status = supply.status;
 
     if (supabase) {
-      const { data, error } = await supabase.from('supply_requests').update(dbPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return mapDbToSupply(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('supply_requests').update(dbPayload).eq('id', id).select().single());
+      if (!error && data) return mapDbToSupply(data);
     }
     const data = await safeApiFetch(`/api/supplies/${id}`, {
       method: 'PUT',
@@ -500,9 +525,8 @@ export const dbService = {
 
   async deleteSupply(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('supply_requests').delete().eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('supply_requests').delete().eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/supplies/${id}`, { method: 'DELETE' });
   },
@@ -510,9 +534,8 @@ export const dbService = {
   // --- qc_records ---
   async getQcRecords(): Promise<QcRecord[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('qc_records').select('*');
-      if (error) throw error;
-      return (data || []).map(mapDbToQcRecord);
+      const { data, error } = await querySupabaseClient((c) => c.from('qc_records').select('*'));
+      if (!error && data) return (data as any[]).map(mapDbToQcRecord);
     }
     const data = await safeApiFetch('/api/qc-records');
     return (data || []).map(mapDbToQcRecord);
@@ -521,9 +544,8 @@ export const dbService = {
   async insertQcRecord(qc: QcRecord): Promise<QcRecord> {
     const dbPayload = mapQcRecordToDb(qc);
     if (supabase) {
-      const { data, error } = await supabase.from('qc_records').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToQcRecord(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('qc_records').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToQcRecord(data);
     }
     const data = await safeApiFetch('/api/qc-records', {
       method: 'POST',
@@ -550,9 +572,8 @@ export const dbService = {
     if (qc.level3Status !== undefined) dbPayload.l3_status = qc.level3Status;
 
     if (supabase) {
-      const { data, error } = await supabase.from('qc_records').update(dbPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return mapDbToQcRecord(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('qc_records').update(dbPayload).eq('id', id).select().single());
+      if (!error && data) return mapDbToQcRecord(data);
     }
     const data = await safeApiFetch(`/api/qc-records/${id}`, {
       method: 'PUT',
@@ -564,9 +585,8 @@ export const dbService = {
 
   async deleteQcRecord(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('qc_records').delete().eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('qc_records').delete().eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/qc-records/${id}`, { method: 'DELETE' });
   },
@@ -574,9 +594,8 @@ export const dbService = {
   // --- qc_lot_configs ---
   async getLotConfigs(): Promise<QcLotConfig[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('qc_lot_configs').select('*');
-      if (error) throw error;
-      return (data || []).map(mapDbToLotConfig);
+      const { data, error } = await querySupabaseClient((c) => c.from('qc_lot_configs').select('*'));
+      if (!error && data) return (data as any[]).map(mapDbToLotConfig);
     }
     const data = await safeApiFetch('/api/lot-configs');
     return (data || []).map(mapDbToLotConfig);
@@ -585,9 +604,8 @@ export const dbService = {
   async insertLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
     const dbPayload = mapLotConfigToDb(lot);
     if (supabase) {
-      const { data, error } = await supabase.from('qc_lot_configs').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToLotConfig(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('qc_lot_configs').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToLotConfig(data);
     }
     const data = await safeApiFetch('/api/lot-configs', {
       method: 'POST',
@@ -613,9 +631,8 @@ export const dbService = {
     if (lot.level3SD !== undefined) dbPayload.l3_sd = lot.level3SD;
 
     if (supabase) {
-      const { data, error } = await supabase.from('qc_lot_configs').update(dbPayload).eq('lot_number', lotNumber).select().single();
-      if (error) throw error;
-      return mapDbToLotConfig(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('qc_lot_configs').update(dbPayload).eq('lot_number', lotNumber).select().single());
+      if (!error && data) return mapDbToLotConfig(data);
     }
     const data = await safeApiFetch(`/api/lot-configs/${lotNumber}`, {
       method: 'PUT',
@@ -627,9 +644,8 @@ export const dbService = {
 
   async deleteLotConfig(lotNumber: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('qc_lot_configs').delete().eq('lot_number', lotNumber);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('qc_lot_configs').delete().eq('lot_number', lotNumber));
+      if (!error) return;
     }
     await safeApiFetch(`/api/lot-configs/${lotNumber}`, { method: 'DELETE' });
   },
@@ -637,9 +653,8 @@ export const dbService = {
   // --- eqa_records ---
   async getEqaRecords(): Promise<EqaRecord[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('eqa_records').select('*');
-      if (error) throw error;
-      return (data || []).map(mapDbToEqaRecord);
+      const { data, error } = await querySupabaseClient((c) => c.from('eqa_records').select('*'));
+      if (!error && data) return (data as any[]).map(mapDbToEqaRecord);
     }
     const data = await safeApiFetch('/api/eqa-records');
     return (data || []).map(mapDbToEqaRecord);
@@ -648,9 +663,8 @@ export const dbService = {
   async insertEqaRecord(eqa: EqaRecord): Promise<EqaRecord> {
     const dbPayload = mapEqaRecordToDb(eqa);
     if (supabase) {
-      const { data, error } = await supabase.from('eqa_records').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToEqaRecord(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('eqa_records').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToEqaRecord(data);
     }
     const data = await safeApiFetch('/api/eqa-records', {
       method: 'POST',
@@ -675,9 +689,8 @@ export const dbService = {
     if (eqa.feedback !== undefined) dbPayload.feedback = eqa.feedback || null;
 
     if (supabase) {
-      const { data, error } = await supabase.from('eqa_records').update(dbPayload).eq('id', id).select().single();
-      if (error) throw error;
-      return mapDbToEqaRecord(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('eqa_records').update(dbPayload).eq('id', id).select().single());
+      if (!error && data) return mapDbToEqaRecord(data);
     }
     const data = await safeApiFetch(`/api/eqa-records/${id}`, {
       method: 'PUT',
@@ -689,9 +702,8 @@ export const dbService = {
 
   async deleteEqaRecord(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('eqa_records').delete().eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('eqa_records').delete().eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/eqa-records/${id}`, { method: 'DELETE' });
   },
@@ -699,9 +711,8 @@ export const dbService = {
   // --- user_manuals ---
   async getManuals(): Promise<UserManual[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('user_manuals').select('*').eq('is_deleted', false);
-      if (error) throw error;
-      return (data || []).map(mapDbToManual);
+      const { data, error } = await querySupabaseClient((c) => c.from('user_manuals').select('*').eq('is_deleted', false));
+      if (!error && data) return (data as any[]).map(mapDbToManual);
     }
     const data = await safeApiFetch('/api/manuals');
     return (data || []).map(mapDbToManual);
@@ -710,9 +721,8 @@ export const dbService = {
   async insertManual(manual: UserManual): Promise<UserManual> {
     const dbPayload = mapManualToDb(manual);
     if (supabase) {
-      const { data, error } = await supabase.from('user_manuals').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToManual(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('user_manuals').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToManual(data);
     }
     const data = await safeApiFetch('/api/manuals', {
       method: 'POST',
@@ -724,9 +734,8 @@ export const dbService = {
 
   async deleteManual(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('user_manuals').update({ is_deleted: true }).eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('user_manuals').update({ is_deleted: true }).eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/manuals/${id}`, { method: 'DELETE' });
   },
@@ -734,9 +743,8 @@ export const dbService = {
   // --- announcements ---
   async getAnnouncements(): Promise<Announcement[]> {
     if (supabase) {
-      const { data, error } = await supabase.from('announcements').select('*').eq('is_deleted', false);
-      if (error) throw error;
-      return (data || []).map(mapDbToAnnouncement);
+      const { data, error } = await querySupabaseClient((c) => c.from('announcements').select('*').eq('is_deleted', false));
+      if (!error && data) return (data as any[]).map(mapDbToAnnouncement);
     }
     const data = await safeApiFetch('/api/announcements');
     return (data || []).map(mapDbToAnnouncement);
@@ -745,9 +753,8 @@ export const dbService = {
   async insertAnnouncement(ann: Announcement): Promise<Announcement> {
     const dbPayload = mapAnnouncementToDb(ann);
     if (supabase) {
-      const { data, error } = await supabase.from('announcements').insert(dbPayload).select().single();
-      if (error) throw error;
-      return mapDbToAnnouncement(data);
+      const { data, error } = await querySupabaseClient((c) => c.from('announcements').insert(dbPayload).select().single());
+      if (!error && data) return mapDbToAnnouncement(data);
     }
     const data = await safeApiFetch('/api/announcements', {
       method: 'POST',
@@ -759,9 +766,8 @@ export const dbService = {
 
   async deleteAnnouncement(id: string): Promise<void> {
     if (supabase) {
-      const { error } = await supabase.from('announcements').update({ is_deleted: true }).eq('id', id);
-      if (error) throw error;
-      return;
+      const { error } = await querySupabaseClient((c) => c.from('announcements').update({ is_deleted: true }).eq('id', id));
+      if (!error) return;
     }
     await safeApiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
   }

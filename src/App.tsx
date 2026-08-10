@@ -36,7 +36,7 @@ import { isSupabaseConfigured, getSupabaseConfigInfo } from './lib/supabase';
 
 export default function App() {
 
-  // Global States loaded from Supabase or fallback to initial mocks
+  // Global States loaded from Supabase
   const [machines, setMachines] = useState<DtxMachine[]>([]);
   const [repairs, setRepairs] = useState<RepairRequest[]>([]);
   const [supplies, setSupplies] = useState<SupplyRequest[]>([]);
@@ -45,12 +45,33 @@ export default function App() {
   const [eqaRecords, setEqaRecords] = useState<EqaRecord[]>([]);
   const [lineNotifyToken, setLineNotifyToken] = useState<string>('');
 
-  // Fetch initial data
+  // Fetch initial data from Supabase / API
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log('Fetching data from API...');
-        const [machines, repairs, supplies, qc, lot, eqa, remoteManuals, remoteAnnouncements] = await Promise.all([
+        const config = await getSupabaseConfigInfo();
+        if (!config.configured) {
+          console.log('Database not configured. Setting empty states.');
+          setMachines([]);
+          setRepairs([]);
+          setSupplies([]);
+          setQcRecords([]);
+          setLotConfigs([]);
+          setEqaRecords([]);
+          return;
+        }
+
+        console.log('Fetching data from API/Supabase...');
+        const [
+          remoteMachines,
+          remoteRepairs,
+          remoteSupplies,
+          remoteQc,
+          remoteLot,
+          remoteEqa,
+          remoteManuals,
+          remoteAnnouncements
+        ] = await Promise.all([
           dbService.getMachines().catch(() => []),
           dbService.getRepairs().catch(() => []),
           dbService.getSupplies().catch(() => []),
@@ -60,17 +81,19 @@ export default function App() {
           dbService.getManuals().catch(() => []),
           dbService.getAnnouncements().catch(() => [])
         ]);
-        console.log('Data fetched from database:', { machines, repairs, supplies, qc, lot, eqa, remoteManuals, remoteAnnouncements });
-        setMachines(machines || []);
-        setRepairs(repairs || []);
-        setSupplies(supplies || []);
-        setQcRecords(qc || []);
-        setLotConfigs(lot || []);
-        setEqaRecords(eqa || []);
-        if (remoteManuals && remoteManuals.length > 0) setManuals(remoteManuals);
-        if (remoteAnnouncements && remoteAnnouncements.length > 0) setAnnouncements(remoteAnnouncements);
+
+        setMachines(remoteMachines || []);
+        setRepairs(remoteRepairs || []);
+        setSupplies(remoteSupplies || []);
+        setQcRecords(remoteQc || []);
+        setLotConfigs(remoteLot || []);
+        setEqaRecords(remoteEqa || []);
+        if (remoteManuals) setManuals(remoteManuals);
+        if (remoteAnnouncements) setAnnouncements(remoteAnnouncements);
+
+        setShowToast('เชื่อมต่อและดึงข้อมูลจากระบบ Supabase Cloud เรียบร้อยแล้ว');
       } catch (err) {
-        console.warn('DB Fetch failed, initializing with empty tables:', err);
+        console.warn('DB Fetch failed, setting empty states:', err);
         setMachines([]);
         setRepairs([]);
         setSupplies([]);
@@ -187,57 +210,6 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [showToast]);
-
-  // Initial Load from Supabase (if configured)
-  useEffect(() => {
-    const loadDataFromSupabase = async () => {
-      try {
-        const config = await getSupabaseConfigInfo();
-        if (!config.configured) {
-          console.log('Database not configured. Running in local offline mode.');
-          setShowToast('ทำงานแบบออฟไลน์ (Local Storage) - ยังไม่ได้ต่อระบบคลาวด์');
-          return;
-        }
-
-        let fetchErrorOccurred = false;
-        const [
-          remoteMachines,
-          remoteRepairs,
-          remoteSupplies,
-          remoteQcRecords,
-          remoteLotConfigs,
-          remoteEqaRecords
-        ] = await Promise.all([
-          dbService.getMachines().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as DtxMachine[]; }),
-          dbService.getRepairs().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as RepairRequest[]; }),
-          dbService.getSupplies().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as SupplyRequest[]; }),
-          dbService.getQcRecords().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as QcRecord[]; }),
-          dbService.getLotConfigs().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as QcLotConfig[]; }),
-          dbService.getEqaRecords().catch((err) => { fetchErrorOccurred = true; console.error(err); return [] as EqaRecord[]; })
-        ]);
-
-        if (fetchErrorOccurred) {
-          setShowToast('ไม่สามารถดึงข้อมูลคลาวด์ได้ครบถ้วน (กรุณาตรวจสอบโครงสร้างตารางหรือสิทธิ์ RLS)');
-          return;
-        }
-
-        // Apply remote data if we got any records
-        if (remoteMachines.length > 0) setMachines(remoteMachines);
-        if (remoteRepairs.length > 0) setRepairs(remoteRepairs);
-        if (remoteSupplies.length > 0) setSupplies(remoteSupplies);
-        if (remoteQcRecords.length > 0) setQcRecords(remoteQcRecords);
-        if (remoteLotConfigs.length > 0) setLotConfigs(remoteLotConfigs);
-        if (remoteEqaRecords.length > 0) setEqaRecords(remoteEqaRecords);
-
-        setShowToast('เชื่อมต่อและดึงข้อมูลจากระบบ Supabase Cloud เรียบร้อยแล้ว');
-      } catch (err: any) {
-        console.error('Failed to load initial data from Supabase:', err);
-        setShowToast(`ทำงานแบบออฟไลน์ชั่วคราว: ไม่สามารถดึงข้อมูลจากคลาวด์ได้`);
-      }
-    };
-
-    loadDataFromSupabase();
-  }, []);
 
   const toggleDarkMode = () => {
     const nextVal = !isDarkMode;
