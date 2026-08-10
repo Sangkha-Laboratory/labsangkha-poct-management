@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { isSupabaseConfigured, getSupabaseConfigInfo, dbService } from '../lib/supabase';
+import { isSupabaseConfigured, getSupabaseConfigInfo, dbService, getSupabaseUrl, getSupabaseAnonKey, saveSupabaseCredentials } from '../lib/supabase';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
-import { Database, ShieldCheck, RefreshCw, CloudUpload, CheckCircle, AlertTriangle, HelpCircle, Code, Server, Lock } from 'lucide-react';
+import { Database, ShieldCheck, RefreshCw, CloudUpload, CheckCircle, AlertTriangle, HelpCircle, Code, Server, Lock, Key, Save } from 'lucide-react';
 
 interface SupabaseConfigProps {
   machines: DtxMachine[];
@@ -36,6 +36,20 @@ export default function SupabaseConfig({
   const [isSeeding, setIsSeeding] = useState(false);
   const [connectionTestStatus, setConnectionTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testError, setTestError] = useState('');
+
+  const [supabaseUrlInput, setSupabaseUrlInput] = useState(getSupabaseUrl());
+  const [supabaseKeyInput, setSupabaseKeyInput] = useState(getSupabaseAnonKey());
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const handleSaveCredentials = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveSupabaseCredentials(supabaseUrlInput, supabaseKeyInput);
+    setSaveSuccess(true);
+    onShowToast('บันทึกการตั้งค่าการเชื่อมต่อ Supabase เรียบร้อยแล้ว!');
+    fetchServerConfig();
+    setTimeout(() => setSaveSuccess(false), 3000);
+    handleTestConnection();
+  };
 
   const fetchServerConfig = async () => {
     setIsLoadingConfig(true);
@@ -237,7 +251,7 @@ export default function SupabaseConfig({
           ) : (
             <div className="inline-flex items-center space-x-2 bg-amber-50 text-amber-800 border border-amber-150 px-4 py-2 rounded-xl text-xs font-bold shadow-3xs">
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span>รันแบบ Local Offline (เนื่องจากยังไม่พบ .env หลังบ้าน)</span>
+              <span>รันแบบ Local Offline (หรือใช้ Direct Client)</span>
             </div>
           )}
 
@@ -250,6 +264,59 @@ export default function SupabaseConfig({
             <span>{connectionTestStatus === 'testing' ? 'กำลังตรวจเช็ค...' : 'ทดสอบ Connection'}</span>
           </button>
         </div>
+      </div>
+
+      {/* Direct Credentials Setting (Browser/Local Override) */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center space-x-2">
+            <div className="p-1.5 bg-indigo-100 rounded-lg text-indigo-700">
+              <Key size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800">ตั้งค่าการเชื่อมต่อ Supabase บนหน้าเว็บ (Direct Client Credentials)</h3>
+              <p className="text-[11px] text-slate-500">ป้อน Supabase URL และ Anon Key ได้ที่นี่โดยตรงเพื่อทดสอบหรือเปิดใช้งานทันทีในเบราว์เซอร์</p>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveCredentials} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">Supabase Project URL (VITE_SUPABASE_URL)</label>
+              <input
+                type="text"
+                placeholder="https://xxxxxxxxxxxx.supabase.co"
+                value={supabaseUrlInput}
+                onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all bg-slate-50/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">Supabase Anon Key (VITE_SUPABASE_ANON_KEY)</label>
+              <input
+                type="password"
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                value={supabaseKeyInput}
+                onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all bg-slate-50/50"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            <div className="text-[11px] text-slate-500">
+              {saveSuccess && <span className="text-emerald-600 font-bold flex items-center gap-1"><CheckCircle size={13} /> บันทึกลงเบราว์เซอร์เรียบร้อยแล้ว</span>}
+            </div>
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-3xs cursor-pointer flex items-center space-x-1.5"
+            >
+              <Save size={14} />
+              <span>บันทึกและทดสอบการเชื่อมต่อ</span>
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* Connection Test Diagnostics */}
