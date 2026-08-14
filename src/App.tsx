@@ -1224,13 +1224,13 @@ export default function App() {
           {/* Left Side: Logo | Vertical Line | Text aligned left in 3 exact lines */}
           <div className="flex items-center space-x-4 sm:space-x-5 text-left">
             <img 
-              src={hospitalLogo || hospitalLogoImg || "/SKH.png"} 
+              src={hospitalLogo || hospitalLogoImg || "./SKH.png"} 
               alt="โรงพยาบาลสังขะ SANGKHA HOSPITAL" 
               className="h-10 sm:h-11 w-auto object-contain shrink-0" 
               onError={(e) => {
                 const target = e.currentTarget;
-                if (!target.src.endsWith('/SKH.png')) {
-                  target.src = '/SKH.png';
+                if (target.src !== hospitalLogoImg) {
+                  target.src = hospitalLogoImg;
                 }
               }}
             />
