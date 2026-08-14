@@ -19,8 +19,7 @@ import {
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from './types';
 import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin } from 'lucide-react';
 
-import hospitalLogoImg from './assets/images/SKH.png';
-import departmentLogoImg from './assets/images/SKH.png';
+import { DEFAULT_HOSPITAL_LOGO_BASE64 } from './assets/hospitalLogoBase64';
 
 // Component Imports
 import LandingPage from './components/LandingPage';
@@ -218,15 +217,25 @@ export default function App() {
   });
   const [showToast, setShowToast] = useState<string>('');
 
-  // Logo States
+  // Logo States with safe storage sanitization (Embedded Base64 Data URL)
   const [hospitalLogo, setHospitalLogo] = useState<string>(() => {
-    return localStorage.getItem('dtx_hospital_logo') || hospitalLogoImg;
+    const saved = localStorage.getItem('dtx_hospital_logo');
+    // If saved is a legacy broken relative path, fallback to embedded Base64
+    if (!saved || saved === '/SKH.png' || saved === './SKH.png' || saved === 'SKH.png' || !saved.startsWith('data:')) {
+      return DEFAULT_HOSPITAL_LOGO_BASE64;
+    }
+    return saved;
   });
   const [deptLogo, setDeptLogo] = useState<string>(() => {
-    return localStorage.getItem('dtx_dept_logo') || departmentLogoImg;
+    const saved = localStorage.getItem('dtx_dept_logo');
+    if (!saved || saved === '/SKH.png' || saved === './SKH.png' || saved === 'SKH.png' || !saved.startsWith('data:')) {
+      return DEFAULT_HOSPITAL_LOGO_BASE64;
+    }
+    return saved;
   });
   const [showLogoModal, setShowLogoModal] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [footerLogoError, setFooterLogoError] = useState<boolean>(false);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -1223,17 +1232,24 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-6">
           {/* Left Side: Logo | Vertical Line | Text aligned left in 3 exact lines */}
           <div className="flex items-center space-x-4 sm:space-x-5 text-left">
-            <img 
-              src={hospitalLogo || hospitalLogoImg || "./SKH.png"} 
-              alt="โรงพยาบาลสังขะ SANGKHA HOSPITAL" 
-              className="h-10 sm:h-11 w-auto object-contain shrink-0" 
-              onError={(e) => {
-                const target = e.currentTarget;
-                if (target.src !== hospitalLogoImg) {
-                  target.src = hospitalLogoImg;
-                }
-              }}
-            />
+            {footerLogoError ? (
+              <div 
+                className="h-10 w-10 rounded-xl bg-gradient-to-tr from-sky-600 to-sky-500 flex items-center justify-center text-white shadow-xs shrink-0" 
+                title="โรงพยาบาลสังขะ SANGKHA HOSPITAL"
+                id="footer-fallback-emblem"
+              >
+                <Microscope size={20} className="text-white" />
+              </div>
+            ) : (
+              <img 
+                src={hospitalLogo || DEFAULT_HOSPITAL_LOGO_BASE64} 
+                alt="โรงพยาบาลสังขะ SANGKHA HOSPITAL" 
+                className="h-10 sm:h-11 w-auto object-contain shrink-0" 
+                onError={() => {
+                  setFooterLogoError(true);
+                }}
+              />
+            )}
             <div className="h-10 w-px bg-slate-200 dark:bg-slate-800 shrink-0" />
             <div className="flex flex-col text-[11px] sm:text-xs font-light leading-relaxed text-slate-500 dark:text-slate-400 text-left">
               <span>© 2026 Medical Technology Department, Sangkha Hospital. All rights reserved.</span>
