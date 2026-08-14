@@ -740,6 +740,40 @@ GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role, postgre
 GRANT ALL ON public.eqa_records TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.user_manuals TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.announcements TO anon, authenticated, service_role, postgres;
+
+-- 4. เปิด RLS Policy บนตาราง poct_system เพื่อให้เข้าถึงได้
+ALTER TABLE IF EXISTS poct_system.master_wards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.dtx_machines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.repair_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.supply_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.qc_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.eqa_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.user_manuals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS poct_system.announcements ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "wards_all_policy" ON poct_system.master_wards;
+DROP POLICY IF EXISTS "machines_all_policy" ON poct_system.dtx_machines;
+DROP POLICY IF EXISTS "repairs_all_policy" ON poct_system.repair_requests;
+DROP POLICY IF EXISTS "supplies_all_policy" ON poct_system.supply_requests;
+DROP POLICY IF EXISTS "qc_records_all_policy" ON poct_system.qc_records;
+DROP POLICY IF EXISTS "qc_configs_all_policy" ON poct_system.qc_lot_configs;
+DROP POLICY IF EXISTS "eqa_all_policy" ON poct_system.eqa_records;
+DROP POLICY IF EXISTS "manuals_all_policy" ON poct_system.user_manuals;
+DROP POLICY IF EXISTS "announcements_all_policy" ON poct_system.announcements;
+
+CREATE POLICY "wards_all_policy" ON poct_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "machines_all_policy" ON poct_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "repairs_all_policy" ON poct_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "supplies_all_policy" ON poct_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_records_all_policy" ON poct_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_configs_all_policy" ON poct_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "eqa_all_policy" ON poct_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "manuals_all_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "announcements_all_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+-- 5. สั่ง PostgREST รีโหลดแคช Schema ทันที
+NOTIFY pgrst, 'reload schema';
 `;
 
 const POCT_SCHEMA_SQL = `-- ==========================================================================

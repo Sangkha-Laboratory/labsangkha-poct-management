@@ -66,6 +66,7 @@ export function saveSupabaseCredentials(url: string, key: string) {
   }
   cachedClient = null;
   cachedKey = '';
+  resetSupabaseCache();
 }
 
 export const supabase = getSupabaseClient();
@@ -218,10 +219,21 @@ async function safeApiFetch(url: string, options?: RequestInit) {
   }
 }
 
+let poctSchemaSupported: boolean | null = null;
+const missingTablesCache = new Set<string>();
+
+/**
+ * Reset schema cache (e.g. when config changes)
+ */
+export function resetSupabaseCache() {
+  poctSchemaSupported = null;
+  missingTablesCache.clear();
+}
+
 /**
  * Smart query runner:
- * Tries `poct_system` schema first. If that throws an error or table is missing,
- * falls back to `public` schema automatically, and checks aliases if applicable.
+ * Only attempts `poct_system` if it is supported (avoids 406 error spam).
+ * Falls back to `public` schema cleanly.
  */
 async function querySupabaseClient<T>(
   fn: (client: any, tableName: string) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>,
@@ -235,16 +247,35 @@ async function querySupabaseClient<T>(
   let lastError: any = null;
 
   for (const table of tableCandidates) {
-    // Attempt 1: poct_system schema
-    try {
-      const poctClient = client.schema('poct_system');
-      const resPoct = (await fn(poctClient, table)) as { data: T | null; error: any };
-      if (!resPoct.error && resPoct.data !== null && resPoct.data !== undefined) {
-        return resPoct;
+    // Skip if we already know this table doesn't exist in public and poct is unsupported
+    if (table && missingTablesCache.has(table) && poctSchemaSupported === false) {
+      return { data: null, error: new Error(`Table ${table} not found in schema`), isMissingTable: true };
+    }
+
+    // Attempt 1: poct_system schema (only if not known to be unsupported)
+    if (poctSchemaSupported !== false) {
+      try {
+        const poctClient = client.schema('poct_system');
+        const resPoct = (await fn(poctClient, table)) as { data: T | null; error: any };
+        if (!resPoct.error && resPoct.data !== null && resPoct.data !== undefined) {
+          poctSchemaSupported = true;
+          return resPoct;
+        }
+        
+        if (resPoct.error) {
+          lastError = resPoct.error;
+          const msg = resPoct.error.message || '';
+          if (msg.includes('PGRST106') || msg.includes('The schema must be one of the following') || resPoct.error.code === 'PGRST106') {
+            // poct_system is not in Supabase Exposed Schemas
+            poctSchemaSupported = false;
+          }
+        }
+      } catch (err: any) {
+        lastError = err;
+        if (err?.message?.includes('PGRST106')) {
+          poctSchemaSupported = false;
+        }
       }
-      lastError = resPoct.error;
-    } catch (err: any) {
-      lastError = err;
     }
 
     // Attempt 2: public schema fallback
@@ -254,6 +285,15 @@ async function querySupabaseClient<T>(
         return resPublic;
       }
       lastError = resPublic.error || lastError;
+      if (resPublic.error) {
+        const isMissing = resPublic.error.code === 'PGRST205' || 
+                          resPublic.error.code === '42P01' || 
+                          resPublic.error.message?.includes('Could not find the table') || 
+                          resPublic.error.message?.includes('does not exist');
+        if (isMissing && table) {
+          missingTablesCache.add(table);
+        }
+      }
     } catch (err: any) {
       lastError = err || lastError;
     }
