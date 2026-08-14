@@ -63,6 +63,69 @@ export const isSupabaseConfigured = (): boolean => {
   return getSupabaseClient() !== null;
 };
 
+export async function loginWithSupabaseAuth(identifier: string, password: string) {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase' };
+
+  let email = identifier.trim();
+  if (!email.includes('@')) {
+    email = `${email.toLowerCase()}@sangkha-hospital.com`;
+  }
+
+  try {
+    const { data, error } = await client.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) {
+      let msg = error.message;
+      if (msg.includes('Invalid login credentials')) {
+        msg = 'ชื่อผู้ใช้/อีเมล หรือรหัสผ่านไม่ถูกต้อง';
+      } else if (msg.includes('Email not confirmed')) {
+        msg = 'บัญชีนี้ยังไม่ได้ยืนยันตัวตนทางอีเมล';
+      }
+      return { success: false, error: msg };
+    }
+
+    if (data.user) {
+      const userMeta = data.user.user_metadata || {};
+      let role = userMeta.role || 'user';
+
+      try {
+        const { data: profile } = await querySupabaseClient((c) => 
+          c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${identifier}`).single()
+        );
+        const userProfile = profile as { role?: string; name?: string; ward?: string } | null;
+        if (userProfile && userProfile.role) {
+          role = userProfile.role;
+        }
+      } catch (e) {
+        // Ignore table check if missing
+      }
+
+      if (identifier.toLowerCase() === 'admin' || email.toLowerCase().startsWith('admin@')) {
+        role = 'admin';
+      }
+
+      return {
+        success: true,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          role: role,
+          name: userMeta.name || data.user.email?.split('@')[0] || 'User',
+          token: data.session?.access_token
+        }
+      };
+    }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ Supabase Auth' };
+  }
+
+  return { success: false, error: 'ไม่พบข้อมูลผู้ใช้งาน' };
+}
+
 export const getSupabaseConfigInfo = async () => {
   const client = getSupabaseClient();
   const url = getSupabaseUrl();

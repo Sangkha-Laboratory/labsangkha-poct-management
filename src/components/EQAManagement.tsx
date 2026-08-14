@@ -11,7 +11,7 @@ import {
   Plus, CheckCircle, Shield, Award, AlertTriangle, MessageSquare, 
   FileText, ExternalLink, Eye, Upload, Calendar, Building2, Clock, 
   FolderKanban, CheckSquare, Search, Filter, X, Trash2, Edit3, Image as ImageIcon,
-  Sparkles, Link2, Smartphone, Send, Laptop, Hash, Check, BellRing
+  Sparkles, Link2, Smartphone, Send, Laptop, Hash, Check, BellRing, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { formatToThaiDate } from '../lib/dateUtils';
 
@@ -19,6 +19,7 @@ interface EQAManagementProps {
   machines?: DtxMachine[];
   eqaRecords: EqaRecord[];
   onAddEqaRecord: (record: EqaRecord) => void;
+  role?: string;
 }
 
 const COMMON_ORGANIZERS = [
@@ -29,11 +30,20 @@ const COMMON_ORGANIZERS = [
   'ศูนย์วิทยาศาสตร์การแพทย์ (กรมวิทยาศาสตร์การแพทย์)',
 ];
 
-export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecord }: EQAManagementProps) {
+export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecord, role = 'admin' }: EQAManagementProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  // Reset page when filter/search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
   
   // Document Preview Modal State
   const [previewDoc, setPreviewDoc] = useState<{
@@ -172,7 +182,7 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
       : rec.testedSerials?.length ? rec.testedSerials.join(', ') : 'ไม่ได้ระบุ';
 
     const messageText = 
-      `🔔 [แจ้งเตือน EQA ใกล้ครบกำหนดส่ง]\n` +
+      `[แจ้งเตือน EQA ใกล้ครบกำหนดส่ง]\n` +
       `• โครงการ: ${rec.organizer || '-'}\n` +
       `• รอบการประเมิน: ${rec.round}\n` +
       `• จำนวนเครื่องที่ทำ: ${rec.machineCount || rec.testedMachines?.length || rec.testedSerials?.length || 1} เครื่อง\n` +
@@ -185,7 +195,7 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
     const token = localStorage.getItem('dtx_line_token') || 'demo_token';
     console.log('Sending LINE Notification:', { token, messageText });
     
-    showToast(`📲 ส่งการแจ้งเตือน LINE เตือนกำหนดส่ง EQA รอบ "${rec.round}" ให้ผู้เกี่ยวข้องเรียบร้อยแล้ว!`);
+    showToast(`ส่งการแจ้งเตือน LINE เตือนกำหนดส่ง EQA รอบ "${rec.round}" ให้ผู้เกี่ยวข้องเรียบร้อยแล้ว!`);
   };
 
   // File Upload Handler (Image / PDF)
@@ -361,6 +371,12 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
     return matchesSearch && (rec.actionStatus === statusFilter || (statusFilter === 'completed' && !rec.actionStatus));
   });
 
+  const totalPages = Math.ceil(filteredRecords.length / itemsPerPage);
+  const paginatedEqa = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredRecords.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredRecords, currentPage]);
+
   return (
     <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-6 relative" id="eqa-management-panel">
       {/* Toast Notification Alert */}
@@ -384,13 +400,20 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
             ติดตามโครงการ EQA บันทึกรอบการประเมิน ผลการตรวจสอบ และรายงานผลพร้อมลิงก์จัดเก็บ OneDrive & ภาพพรีวิวหน้าเว็บ
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-2 transition-all shadow-md shadow-sky-600/20 shrink-0"
-        >
-          <Plus size={15} />
-          <span>เพิ่มโครงการ/รอบ EQA ใหม่</span>
-        </button>
+        {role === 'admin' ? (
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-2 transition-all shadow-md shadow-sky-600/20 shrink-0 cursor-pointer"
+          >
+            <Plus size={15} />
+            <span>เพิ่มโครงการ/รอบ EQA ใหม่</span>
+          </button>
+        ) : (
+          <span className="text-[11px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-lg flex items-center space-x-1 shrink-0">
+            <Eye size={13} className="text-sky-600" />
+            <span>สิทธิ์เจ้าหน้าที่: เข้าดูรายงานผล (Read-Only)</span>
+          </span>
+        )}
       </div>
 
       {/* Info Notice Box: OneDrive & File Preview */}
@@ -911,13 +934,13 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
 
       {/* EQA Records List */}
       <div className="space-y-4" id="eqa-cards-list">
-        {filteredRecords.length === 0 ? (
+        {paginatedEqa.length === 0 ? (
           <div className="text-center py-12 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 space-y-2">
             <Shield size={32} className="mx-auto text-slate-300" />
             <p className="text-slate-500 font-medium text-xs">ยังไม่มีข้อมูลรายการการทดสอบ EQA</p>
           </div>
         ) : (
-          filteredRecords.map((rec) => (
+          paginatedEqa.map((rec) => (
             <div key={rec.id} className="border border-slate-200/80 p-5 rounded-2xl hover:border-sky-300 hover:shadow-md transition-all space-y-4 bg-white relative">
               
               {/* Header Info */}
@@ -1114,6 +1137,71 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
           ))
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border border-slate-100 px-4 py-3 bg-white text-xs rounded-xl shadow-2xs">
+          <div className="flex flex-1 justify-between sm:hidden">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ก่อนหน้า
+            </button>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ถัดไป
+            </button>
+          </div>
+          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div>
+              <p className="text-slate-500 font-medium">
+                แสดงรอบที่ <span className="font-bold text-slate-800">{Math.min(filteredRecords.length, (currentPage - 1) * itemsPerPage + 1)}</span> ถึง{' '}
+                <span className="font-bold text-slate-800">{Math.min(filteredRecords.length, currentPage * itemsPerPage)}</span> จากทั้งหมด{' '}
+                <span className="font-bold text-slate-800">{filteredRecords.length}</span> รายการประเมิน
+              </p>
+            </div>
+            <div>
+              <nav className="isolate inline-flex -space-x-px rounded-md shadow-2xs" aria-label="Pagination">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="sr-only">Previous</span>
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    aria-current={currentPage === page ? 'page' : undefined}
+                    className={`relative inline-flex items-center px-3 py-2 text-xs font-extrabold ring-1 ring-inset focus:z-20 focus:outline-offset-0 ${
+                      currentPage === page
+                        ? 'z-10 bg-sky-600 text-white ring-sky-600'
+                        : 'text-slate-700 ring-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="sr-only">Next</span>
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Full Document & File Preview Modal */}
       {previewDoc && (

@@ -8,7 +8,7 @@ import CustomSelect from "./CustomSelect";
 import { RepairRequest } from '../types';
 import { dbService } from '../lib/supabase';
 import PrintForm from './PrintForm';
-import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck } from 'lucide-react';
+import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatToThaiDate } from '../lib/dateUtils';
 
 interface RepairManagementProps {
@@ -21,6 +21,15 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterWard, setFilterWard] = useState('');
+  
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(15);
+
+  // Reset page when filter/search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterStatus, filterWard]);
   
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
 
@@ -137,6 +146,12 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
     return matchesSearch && matchesStatus && matchesWard;
   });
 
+  const totalPages = Math.ceil(filteredRepairs.length / itemsPerPage);
+  const paginatedRepairs = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredRepairs.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredRepairs, currentPage]);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
@@ -235,14 +250,14 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredRepairs.length === 0 ? (
+            {paginatedRepairs.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center p-8 text-slate-400">
                   ยังไม่มีข้อมูลประวัติการแจ้งซ่อมบำรุง
                 </td>
               </tr>
             ) : (
-              filteredRepairs.map((rep) => (
+              paginatedRepairs.map((rep) => (
                 <tr key={rep.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="p-4 font-bold text-slate-800">{rep.id}</td>
                   <td className="p-4 font-bold text-sky-600 font-mono">{rep.serialNumber}</td>
@@ -286,6 +301,88 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border border-slate-200/80 px-4 py-3 bg-white text-xs rounded-2xl shadow-2xs">
+          <div className="flex flex-1 justify-between sm:hidden">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ก่อนหน้า
+            </button>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ถัดไป
+            </button>
+          </div>
+          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-4">
+              <p className="text-slate-500 font-medium">
+                แสดงรายการที่ <span className="font-bold text-slate-800">{Math.min(filteredRepairs.length, (currentPage - 1) * itemsPerPage + 1)}</span> ถึง{' '}
+                <span className="font-bold text-slate-800">{Math.min(filteredRepairs.length, currentPage * itemsPerPage)}</span> จากทั้งหมด{' '}
+                <span className="font-bold text-slate-800">{filteredRepairs.length}</span> รายการ
+              </p>
+              <div className="flex items-center space-x-1.5 text-slate-500 font-medium">
+                <span>แสดง:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500/25 text-[11px] font-bold"
+                >
+                  <option value={10}>10 รายการ</option>
+                  <option value={15}>15 รายการ</option>
+                  <option value={25}>25 รายการ</option>
+                  <option value={50}>50 รายการ</option>
+                  <option value={100}>100 รายการ</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <nav className="isolate inline-flex -space-x-px rounded-md shadow-2xs" aria-label="Pagination">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="sr-only">Previous</span>
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    aria-current={currentPage === page ? 'page' : undefined}
+                    className={`relative inline-flex items-center px-3 py-2 text-xs font-extrabold ring-1 ring-inset focus:z-20 focus:outline-offset-0 ${
+                      currentPage === page
+                        ? 'z-10 bg-sky-600 text-white ring-sky-600'
+                        : 'text-slate-700 ring-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="sr-only">Next</span>
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Repair Management Dialog / Form Editor (Floating screen when edit) */}
       {editingRepair && (

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import CustomSelect from "./CustomSelect";
 import { UserManual, Announcement } from '../types';
 import { dbService } from '../lib/supabase';
-import { FileText, Plus, Trash2, Link as LinkIcon, Megaphone, Bell, Calendar, User, CheckCircle, AlertCircle, FileCheck, Download, ExternalLink, AlertTriangle, QrCode, Upload, Image as ImageIcon, RotateCcw, Check } from 'lucide-react';
+import { FileText, Plus, Trash2, Link as LinkIcon, Megaphone, Bell, Calendar, User, CheckCircle, AlertCircle, FileCheck, Download, ExternalLink, AlertTriangle, QrCode, Upload, Image as ImageIcon, RotateCcw, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface DocumentsAndAnnouncementsManagerProps {
   manuals: UserManual[];
@@ -176,9 +176,26 @@ export default function DocumentsAndAnnouncementsManager({
     showToast('เผยแพร่ข่าวประชาสัมพันธ์สำเร็จ');
   };
 
+  // Pagination States
+  const [manualsPage, setManualsPage] = useState(1);
+  const [announcementsPage, setAnnouncementsPage] = useState(1);
+  const itemsPerPage = 5;
+
   // Visible active items (Soft Delete support)
   const visibleManuals = manuals.filter(m => !m.isDeleted);
   const visibleAnnouncements = announcements.filter(a => !a.isDeleted);
+
+  const totalManualsPages = Math.ceil(visibleManuals.length / itemsPerPage);
+  const paginatedManuals = React.useMemo(() => {
+    const startIndex = (manualsPage - 1) * itemsPerPage;
+    return visibleManuals.slice(startIndex, startIndex + itemsPerPage);
+  }, [visibleManuals, manualsPage]);
+
+  const totalAnnouncementsPages = Math.ceil(visibleAnnouncements.length / itemsPerPage);
+  const paginatedAnnouncements = React.useMemo(() => {
+    const startIndex = (announcementsPage - 1) * itemsPerPage;
+    return visibleAnnouncements.slice(startIndex, startIndex + itemsPerPage);
+  }, [visibleAnnouncements, announcementsPage]);
 
   // Perform Delete after Modal Confirmation
   const handleConfirmDelete = async () => {
@@ -365,7 +382,7 @@ export default function DocumentsAndAnnouncementsManager({
               </div>
             ) : (
               <div className="space-y-3">
-                {visibleManuals.map((manual) => (
+                {paginatedManuals.map((manual) => (
                   <div key={manual.id} className="border border-slate-100 p-4 rounded-xl hover:border-sky-200 transition-all flex items-start justify-between gap-4 bg-white shadow-2xs">
                     <div className="space-y-1.5 flex-1">
                       <div className="flex items-center space-x-2">
@@ -421,6 +438,33 @@ export default function DocumentsAndAnnouncementsManager({
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {totalManualsPages > 1 && (
+              <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] bg-white">
+                <span className="text-slate-500">
+                  หน้า {manualsPage} จาก {totalManualsPages} ({visibleManuals.length} รายการ)
+                </span>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setManualsPage(prev => Math.max(prev - 1, 1))}
+                    disabled={manualsPage === 1}
+                    className="p-1 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer animate-none"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualsPage(prev => Math.min(prev + 1, totalManualsPages))}
+                    disabled={manualsPage === totalManualsPages}
+                    className="p-1 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer animate-none"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -543,7 +587,7 @@ export default function DocumentsAndAnnouncementsManager({
               </div>
             ) : (
               <div className="space-y-3">
-                {visibleAnnouncements.map((ann) => (
+                {paginatedAnnouncements.map((ann) => (
                   <div key={ann.id} className={`border p-4.5 rounded-xl space-y-2 bg-white shadow-2xs ${ann.pinned ? 'border-sky-300 bg-sky-50/15' : 'border-slate-100'}`}>
                     <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                       <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${ann.category === 'alert' ? 'bg-rose-50 text-rose-700' : ann.category === 'event' ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700'}`}>
@@ -592,6 +636,33 @@ export default function DocumentsAndAnnouncementsManager({
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {totalAnnouncementsPages > 1 && (
+              <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-[11px] bg-white">
+                <span className="text-slate-500">
+                  หน้า {announcementsPage} จาก {totalAnnouncementsPages} ({visibleAnnouncements.length} รายการ)
+                </span>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setAnnouncementsPage(prev => Math.max(prev - 1, 1))}
+                    disabled={announcementsPage === 1}
+                    className="p-1 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer animate-none"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnnouncementsPage(prev => Math.min(prev + 1, totalAnnouncementsPages))}
+                    disabled={announcementsPage === totalAnnouncementsPages}
+                    className="p-1 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer animate-none"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
             )}
           </div>

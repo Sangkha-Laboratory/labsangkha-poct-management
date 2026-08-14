@@ -91,6 +91,7 @@ export default function LandingPage({
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [latestSubmittedRepair, setLatestSubmittedRepair] = useState<RepairRequest | null>(null);
+  const [latestSubmittedSupply, setLatestSubmittedSupply] = useState<SupplyRequest | null>(null);
   const [showLinePhoneSimulation, setShowLinePhoneSimulation] = useState(false);
 
   // Guide and troubleshooting states
@@ -148,6 +149,7 @@ export default function LandingPage({
 
     onAddRepair(newRepair);
     setLatestSubmittedRepair(newRepair);
+    setLatestSubmittedSupply(null);
     
     // Clear form
     setRepairSerial('');
@@ -189,6 +191,8 @@ export default function LandingPage({
     };
 
     onAddSupply(newSupply);
+    setLatestSubmittedSupply(newSupply);
+    setLatestSubmittedRepair(null);
 
     // Clear form
     setRequesterName('');
@@ -197,6 +201,7 @@ export default function LandingPage({
 
     setSuccessMsg(`ส่งคำขอเบิกอุปกรณ์สำเร็จ! หมายเลขคำขอของคุณคือ: ${newSupplyId}`);
     setShowSuccessToast(true);
+    setShowLinePhoneSimulation(true);
     
     setTimeout(() => {
       setShowSuccessToast(false);
@@ -283,10 +288,6 @@ export default function LandingPage({
         
         <div className="relative z-10 md:flex items-center justify-between gap-6">
           <div className="space-y-3.5 max-w-xl text-center md:text-left">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 bg-sky-50 dark:bg-sky-950/80 border border-sky-200/80 dark:border-sky-800/80 rounded-full text-xs font-bold text-sky-700 dark:text-sky-300 mb-1 shadow-2xs">
-              <Sparkles size={13} className="text-sky-600" />
-              <span>บริการ POCT งานเทคนิคการแพทย์ โรงพยาบาลสังขะ</span>
-            </div>
             <h1 className="text-2xl md:text-3xl lg:text-4xl font-black tracking-tight text-slate-900 dark:text-white leading-tight whitespace-nowrap">
               ระบบบริหารจัดการเครื่อง POCT ครบวงจร
             </h1>
@@ -1212,79 +1213,106 @@ export default function LandingPage({
           )}
         </div>
 
-        {/* Right Side: POCT Contact & LINE Simulation */}
+        {/* Right Side: POCT Contact & Troubleshooting Guide (2 Separate Cards, Proportionally Balanced) */}
         {(activeTab === 'repair' || activeTab === 'supply') && (
-          <div className="space-y-6 lg:sticky lg:top-20 self-start">
-            {/* Section: POCT Lab Contact & Status */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4" id="poct-contact-card">
-              <div className="border-b border-slate-100 pb-3">
-                <h3 className="font-bold text-slate-800 text-xs md:text-sm flex items-center space-x-1.5">
+          <div className="space-y-4 lg:sticky lg:top-20 self-start" id="sidebar-right-column">
+            {/* Card 1: POCT Lab Contact & Status */}
+            <div className="bg-white dark:bg-slate-900 p-4 md:p-5 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-3.5" id="poct-contact-card">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-xs md:text-sm flex items-center space-x-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
                   <span>สถานะห้องปฏิบัติการ POCT</span>
                 </h3>
-                <p className="text-[10px] text-slate-400">กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</p>
+                <p className="text-[10.5px] text-slate-400 dark:text-slate-500">กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</p>
               </div>
 
-              <div className="space-y-3 text-xs">
-                <div className="bg-sky-50/40 p-3 rounded-xl border border-sky-100 text-slate-600 leading-relaxed text-[11px] space-y-1">
-                  <p className="font-bold text-sky-800 flex items-center space-x-1.5 mb-1.5">
-                    <Clock size={14} className="text-sky-600 shrink-0" />
+              <div className="space-y-2.5 text-xs">
+                {/* Operating Hours */}
+                <div className="bg-sky-50/50 dark:bg-sky-950/30 p-3 rounded-2xl border border-sky-100 dark:border-sky-900/40 text-slate-600 dark:text-slate-300 leading-relaxed text-[11px] space-y-1.5">
+                  <p className="font-bold text-sky-800 dark:text-sky-300 flex items-center space-x-1.5">
+                    <Clock size={13.5} className="text-sky-600 dark:text-sky-400 shrink-0" />
                     <span>เวลาทำการตรวจสอบและจัดส่ง:</span>
                   </p>
-                  <p>• วันทำการปกติ: 08:00 น. - 16:00 น.</p>
-                  <p>• นอกเวลาราชการ: สามารถส่งคำขอผ่านระบบและนำส่งเครื่องที่งานชันสูตรได้ตลอด 24 ชั่วโมง ทั้งนี้ สามารถรับเครื่องคืนได้ในวันและเวลาราชการ</p>
+                  <ul className="space-y-1 text-slate-600 dark:text-slate-300 text-[10.5px] pl-1">
+                    <li className="flex items-start space-x-1.5">
+                      <span className="text-sky-500 font-bold">•</span>
+                      <span><strong>วันทำการปกติ:</strong> 08:00 น. - 16:00 น.</span>
+                    </li>
+                    <li className="flex items-start space-x-1.5">
+                      <span className="text-sky-500 font-bold shrink-0">•</span>
+                      <span><strong>นอกเวลาราชการ:</strong> สามารถส่งคำขอผ่านระบบและนำส่งเครื่องที่งานชันสูตรได้ตลอด 24 ชั่วโมง ทั้งนี้ สามารถรับเครื่องคืนได้ในวันและเวลาราชการ</span>
+                    </li>
+                  </ul>
                 </div>
 
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-500 space-y-1.5">
-                  <p className="font-bold text-slate-700 flex items-center space-x-1.5 mb-1.5">
-                    <Phone size={14} className="text-sky-600 shrink-0" />
+                {/* Staff Contact Information */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
+                  <p className="font-bold text-slate-700 dark:text-slate-200 flex items-center space-x-1.5">
+                    <Phone size={13.5} className="text-sky-600 dark:text-sky-400 shrink-0" />
                     <span>ช่องทางติดต่อเจ้าหน้าที่:</span>
                   </p>
-                  <p>• เบอร์ติดต่อภายในห้อง Lab: <span className="font-mono font-bold text-slate-800">กด 115</span></p>
-                  <p>• ผู้ประสานงานหลัก: <span className="font-bold text-slate-700">ทนพญ.สมิตา สิงห์สาด</span></p>
-                  <p>• หัวหน้างานชันสูตร: <span className="font-bold text-slate-700">ทนพ. ไพศาล มุมทอง</span></p>
+                  <ul className="space-y-1 text-slate-600 dark:text-slate-300 text-[10.5px] pl-1">
+                    <li className="flex items-center justify-between">
+                      <span className="flex items-center space-x-1.5">
+                        <span className="text-slate-400 font-bold">•</span>
+                        <span>เบอร์ติดต่อภายในห้อง Lab:</span>
+                      </span>
+                      <span className="font-mono font-bold text-sky-600 dark:text-sky-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-xs">
+                        กด 115
+                      </span>
+                    </li>
+                    <li className="flex items-start space-x-1.5">
+                      <span className="text-slate-400 font-bold">•</span>
+                      <span>ผู้ประสานงานหลัก: <strong className="text-slate-700 dark:text-slate-200 font-medium">ทนพญ.สมิตา สิงห์สาด</strong></span>
+                    </li>
+                    <li className="flex items-start space-x-1.5">
+                      <span className="text-slate-400 font-bold">•</span>
+                      <span>หัวหน้างานชันสูตร: <strong className="text-slate-700 dark:text-slate-200 font-medium">ทนพ. ไพศาล มุมทอง</strong></span>
+                    </li>
+                  </ul>
                 </div>
               </div>
             </div>
 
-            {/* Section: Troubleshooting Guide Accordion */}
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-4" id="interactive-troubleshoot-panel">
-              <div className="border-b border-slate-100 pb-3">
-                <h3 className="font-bold text-slate-800 text-xs md:text-sm flex items-center space-x-1.5">
-                  <BookOpen size={16} className="text-sky-600" />
+            {/* Card 2: Troubleshooting Guide Accordion */}
+            <div className="bg-white dark:bg-slate-900 p-4 md:p-5 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-3" id="interactive-troubleshoot-panel">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+                <h3 className="font-bold text-slate-800 dark:text-slate-100 text-xs md:text-sm flex items-center space-x-1.5">
+                  <BookOpen size={15} className="text-sky-600 dark:text-sky-400 shrink-0" />
                   <span>แนวทางการดูแลเครื่องเบื้องต้น</span>
                 </h3>
-                <p className="text-[11px] text-slate-400">ตรวจสอบอาการง่าย ๆ ด้วยตัวคุณเองเพื่อลดการส่งซ่อมซ้ำซ้อน</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500">ตรวจสอบและแก้ไขด่วนได้ทันทีเพื่อลดการส่งซ่อม</p>
               </div>
 
-              <div className="space-y-2.5" id="troubleshoot-accordion">
+              {/* Scrollable Accordion Container - fits neatly without stretching the page */}
+              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scroll-smooth" id="troubleshoot-accordion">
                 {TROUBLESHOOTING_GUIDE.map((ts) => {
                   const isOpen = openTsId === ts.id;
                   return (
-                    <div key={ts.id} className="border border-slate-100 rounded-xl overflow-hidden transition-all bg-slate-50/40">
+                    <div key={ts.id} className="border border-slate-100 dark:border-slate-800/80 rounded-xl overflow-hidden transition-all bg-slate-50/40 dark:bg-slate-800/30">
                       <button
                         type="button"
                         onClick={() => setOpenTsId(isOpen ? null : ts.id)}
-                        className="w-full p-3.5 text-left flex items-center justify-between hover:bg-slate-50 transition-colors"
+                        className="w-full p-2.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
                       >
-                        <span className="text-xs font-bold text-slate-700 leading-tight">{ts.problem}</span>
-                        <span className="text-slate-400 text-xs">{isOpen ? '▲' : '▼'}</span>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-tight">{ts.problem}</span>
+                        <span className="text-slate-400 text-xs shrink-0 ml-1.5">{isOpen ? '▲' : '▼'}</span>
                       </button>
                       {isOpen && (
-                        <div className="p-4 bg-white border-t border-slate-100 space-y-3 animate-fade-in text-xs">
+                        <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-2 text-xs">
                           {/* Symptoms */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-rose-600 block">อาการติดขัดที่พบบ่อย:</span>
-                            <ul className="list-disc list-inside space-y-0.5 text-slate-500 text-[11px]">
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block">อาการติดขัด:</span>
+                            <ul className="list-disc list-inside space-y-0.5 text-slate-500 dark:text-slate-400 text-[10.5px]">
                               {ts.symptoms.map((s, idx) => (
                                 <li key={idx}>{s}</li>
                               ))}
                             </ul>
                           </div>
                           {/* Solution */}
-                          <div className="space-y-1">
-                            <span className="text-[10px] font-bold text-emerald-600 block">วิธีแก้ไขเบื้องต้น:</span>
-                            <p className="text-slate-700 leading-relaxed text-[11px] whitespace-pre-line bg-emerald-50/40 p-2.5 rounded-lg border border-emerald-50 font-medium">
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block">วิธีแก้ไขเบื้องต้น:</span>
+                            <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-[10.5px] whitespace-pre-line bg-emerald-50/40 dark:bg-emerald-950/20 p-2 rounded-lg border border-emerald-50 dark:border-emerald-900/30 font-medium">
                               {ts.solution}
                             </p>
                           </div>
@@ -1297,7 +1325,7 @@ export default function LandingPage({
             </div>
 
             {/* Section: Line Notification Simulation Phone */}
-            {showLinePhoneSimulation && latestSubmittedRepair && (
+            {showLinePhoneSimulation && (latestSubmittedRepair || latestSubmittedSupply) && (
               <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-xl space-y-4 animate-fade-in" id="line-notify-sim">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                   <div className="flex items-center space-x-2">
@@ -1322,23 +1350,45 @@ export default function LandingPage({
                     </div>
                   </div>
                   
-                  <div className="bg-[#1e293b] p-3 rounded-lg border border-slate-700/50 space-y-2 text-xs">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 border-b border-slate-700/60 pb-1">
-                      <span>แจ้งซ่อมเครื่อง DTX ด่วน!</span>
-                      <span className="text-[9px] bg-emerald-950/50 text-emerald-400 border border-emerald-900 px-1 py-0.5 rounded">{latestSubmittedRepair.id}</span>
+                  {latestSubmittedRepair ? (
+                    <div className="bg-[#1e293b] p-3 rounded-lg border border-slate-700/50 space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 border-b border-slate-700/60 pb-1">
+                        <span>แจ้งซ่อมเครื่อง DTX ด่วน!</span>
+                        <span className="text-[9px] bg-emerald-950/50 text-emerald-400 border border-emerald-900 px-1 py-0.5 rounded">{latestSubmittedRepair.id}</span>
+                      </div>
+                      <div className="space-y-1 font-mono text-[10px] text-slate-300 leading-snug">
+                        <p><span className="text-slate-400">รหัสเครื่อง:</span> <span className="text-sky-400 font-bold">{latestSubmittedRepair.serialNumber}</span></p>
+                        <p><span className="text-slate-400">หน่วยงาน:</span> {latestSubmittedRepair.ward}</p>
+                        <p><span className="text-slate-400">อาการเสีย:</span> <span className="text-amber-400">{latestSubmittedRepair.reportedProblem}</span></p>
+                        <p><span className="text-slate-400">เครื่องสำรอง:</span> <span className={latestSubmittedRepair.needsBackup ? "text-amber-400 font-bold" : "text-slate-450"}>{latestSubmittedRepair.needsBackup ? "✓ ต้องการ" : "✗ ไม่ต้องการ"}</span></p>
+                        <p><span className="text-slate-400">ผู้แจ้งซ่อม:</span> {latestSubmittedRepair.reporterName}</p>
+                        <p><span className="text-slate-400">สถานะ:</span> <span className="text-amber-500 font-bold">● รอดำเนินการ (Pending)</span></p>
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-700/60 text-[8px] text-slate-400">
+                        * ข้อความจะถูกส่งไปกลุ่มผู้รับผิดชอบงานตรวจวิเคราะห์ POCT
+                      </div>
                     </div>
-                    <div className="space-y-1 font-mono text-[10px] text-slate-300 leading-snug">
-                      <p><span className="text-slate-400">รหัสเครื่อง:</span> <span className="text-sky-400 font-bold">{latestSubmittedRepair.serialNumber}</span></p>
-                      <p><span className="text-slate-400">หน่วยงาน:</span> {latestSubmittedRepair.ward}</p>
-                      <p><span className="text-slate-400">อาการเสีย:</span> <span className="text-amber-400">{latestSubmittedRepair.reportedProblem}</span></p>
-                      <p><span className="text-slate-400">เครื่องสำรอง:</span> <span className={latestSubmittedRepair.needsBackup ? "text-amber-400 font-bold" : "text-slate-450"}>{latestSubmittedRepair.needsBackup ? "✓ ต้องการ" : "✗ ไม่ต้องการ"}</span></p>
-                      <p><span className="text-slate-400">ผู้แจ้งซ่อม:</span> {latestSubmittedRepair.reporterName}</p>
-                      <p><span className="text-slate-400">สถานะ:</span> <span className="text-amber-500 font-bold">● รอดำเนินการ (Pending)</span></p>
+                  ) : latestSubmittedSupply ? (
+                    <div className="bg-[#1e293b] p-3 rounded-lg border border-slate-700/50 space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 border-b border-slate-700/60 pb-1">
+                        <span>คำขอเบิกเครื่องตรวจ DTX!</span>
+                        <span className="text-[9px] bg-emerald-950/50 text-emerald-400 border border-emerald-900 px-1 py-0.5 rounded">{latestSubmittedSupply.id}</span>
+                      </div>
+                      <div className="space-y-1 font-mono text-[10px] text-slate-300 leading-snug">
+                        <p><span className="text-slate-400">รายการ:</span> <span className="text-sky-400 font-bold">{translateItemType(latestSubmittedSupply.itemType)}</span></p>
+                        <p><span className="text-slate-400">จำนวนที่ขอเบิก:</span> <span className="text-emerald-400 font-bold">{latestSubmittedSupply.quantity} เครื่อง</span></p>
+                        <p><span className="text-slate-400">หน่วยงาน:</span> {latestSubmittedSupply.ward}</p>
+                        <p><span className="text-slate-400">ผู้ขอเบิก:</span> {latestSubmittedSupply.requesterName}</p>
+                        {latestSubmittedSupply.reason && (
+                          <p><span className="text-slate-400">เหตุผล:</span> <span className="text-slate-300">{latestSubmittedSupply.reason}</span></p>
+                        )}
+                        <p><span className="text-slate-400">สถานะ:</span> <span className="text-amber-500 font-bold">● รอดำเนินการ (Pending)</span></p>
+                      </div>
+                      <div className="pt-1.5 border-t border-slate-700/60 text-[8px] text-slate-400">
+                        * ข้อความส่งตรงถึงแผนกคลังพัสดุและเจ้าหน้าที่ห้อง Lab POCT
+                      </div>
                     </div>
-                    <div className="pt-1.5 border-t border-slate-700/60 text-[8px] text-slate-400">
-                      * ข้อความจะถูกส่งไปกลุ่มผู้รับผิดชอบงานตรวจวิเคราะห์ POCT
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 <p className="text-[10px] text-slate-400 leading-relaxed text-center">

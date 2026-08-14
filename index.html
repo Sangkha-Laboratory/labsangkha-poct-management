@@ -25,6 +25,10 @@
         }
 
         window.addEventListener('error', function(e) {
+          // Ignore image/media asset loading failures to prevent benign 404s from blocking the app
+          if (e.target && (e.target.tagName === 'IMG' || e.target.tagName === 'AUDIO' || e.target.tagName === 'VIDEO')) {
+            return;
+          }
           var msg = e.message || (e.target && e.target.src ? 'ไม่สามารถโหลดไฟล์สคริปต์ได้: ' + e.target.src : 'เกิดข้อผิดพลาดในการรันระบบ');
           if (msg && (msg.indexOf('WebSocket') !== -1 || msg.indexOf('vite') !== -1 || msg.indexOf('ws://') !== -1)) {
             return;

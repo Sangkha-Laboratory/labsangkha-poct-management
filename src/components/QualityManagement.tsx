@@ -18,6 +18,7 @@ interface QualityManagementProps {
   eqaRecords: EqaRecord[];
   onAddEqaRecord: (record: EqaRecord) => void;
   initialSubTab?: 'iqc' | 'eqa';
+  role?: string;
 }
 
 export default function QualityManagement({
@@ -28,7 +29,8 @@ export default function QualityManagement({
   onUpdateLotConfigs,
   eqaRecords,
   onAddEqaRecord,
-  initialSubTab = 'iqc'
+  initialSubTab = 'iqc',
+  role = 'admin'
 }: QualityManagementProps) {
   const [activeSubTab, setActiveSubTab] = useState<'iqc' | 'eqa'>(initialSubTab);
 
@@ -89,12 +91,14 @@ export default function QualityManagement({
           lotConfigs={lotConfigs}
           onAddQcRecord={onAddQcRecord}
           onUpdateLotConfigs={onUpdateLotConfigs}
+          role={role}
         />
       ) : (
         <EQAManagement
           machines={machines}
           eqaRecords={eqaRecords}
           onAddEqaRecord={onAddEqaRecord}
+          role={role}
         />
       )}
     </div>

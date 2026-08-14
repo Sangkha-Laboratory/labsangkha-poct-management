@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
-import { Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface StockManagementProps {
   machines: DtxMachine[];
@@ -21,6 +21,15 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
   const [filterWard, setFilterWard] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(15);
+
+  // Reset page when filter/search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterWard, filterStatus]);
 
   useEffect(() => {
     dbService.getWards()
@@ -188,6 +197,10 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
     }
   };
 
+  // Sorting states - Default sorting to serialNumber (CODE) asc
+  const [sortField, setSortField] = useState<keyof DtxMachine>('serialNumber');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
   // Filtered machines
   const filteredMachines = machines.filter(m => {
     const matchesSearch = m.serialNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -198,6 +211,51 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
     const matchesStatus = filterStatus === '' || m.status === filterStatus;
     return matchesSearch && matchesWard && matchesStatus;
   });
+
+  // Sort machines
+  const sortedAndFilteredMachines = React.useMemo(() => {
+    const sorted = [...filteredMachines];
+    sorted.sort((a, b) => {
+      let valA = a[sortField] || '';
+      let valB = b[sortField] || '';
+
+      if (typeof valA === 'string') {
+        valA = valA.trim().toLowerCase();
+      }
+      if (typeof valB === 'string') {
+        valB = valB.trim().toLowerCase();
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [filteredMachines, sortField, sortDirection]);
+
+  const totalPages = Math.ceil(sortedAndFilteredMachines.length / itemsPerPage);
+  const paginatedMachines = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedAndFilteredMachines.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedAndFilteredMachines, currentPage]);
+
+  const handleSort = (field: keyof DtxMachine) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortIcon = (field: keyof DtxMachine) => {
+    if (sortField !== field) {
+      return <ArrowUpDown size={12} className="inline ml-1 text-slate-400 group-hover:text-slate-600 transition-colors" />;
+    }
+    return sortDirection === 'asc' 
+      ? <ArrowUp size={12} className="inline ml-1 text-sky-600" />
+      : <ArrowDown size={12} className="inline ml-1 text-sky-600" />;
+  };
 
   const getStatusDisplay = (s: string) => {
     switch (s) {
@@ -287,26 +345,61 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
-              <th className="p-4">รหัสเครื่อง (CODE)</th>
-              <th className="p-4">หมายเลขซีเรียล (S/N)</th>
-              <th className="p-4">แบรนด์/รุ่น</th>
-              <th className="p-4">หน่วยงานประจำการ</th>
-              <th className="p-4">LOT</th>
-              <th className="p-4">วันที่จ่ายเครื่อง</th>
-              <th className="p-4 text-center">สถานะ</th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('serialNumber')}
+              >
+                รหัสเครื่อง (CODE) {renderSortIcon('serialNumber')}
+              </th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('machineSerial')}
+              >
+                หมายเลขซีเรียล (S/N) {renderSortIcon('machineSerial')}
+              </th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('brand')}
+              >
+                แบรนด์/รุ่น {renderSortIcon('brand')}
+              </th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('ward')}
+              >
+                หน่วยงานประจำการ {renderSortIcon('ward')}
+              </th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('lotNumber')}
+              >
+                LOT {renderSortIcon('lotNumber')}
+              </th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('receiveDate')}
+              >
+                วันที่จ่ายเครื่อง {renderSortIcon('receiveDate')}
+              </th>
+              <th 
+                className="p-4 text-center cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('status')}
+              >
+                สถานะ {renderSortIcon('status')}
+              </th>
               <th className="p-4">หมายเหตุ</th>
               <th className="p-4 text-center">จัดการ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredMachines.length === 0 ? (
+            {paginatedMachines.length === 0 ? (
               <tr>
                 <td colSpan={9} className="text-center p-8 text-slate-400">
                   ยังไม่มีข้อมูลรายการเครื่องตรวจวัดน้ำตาล
                 </td>
               </tr>
             ) : (
-              filteredMachines.map((m) => (
+              paginatedMachines.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="p-4 font-bold text-slate-800">{m.serialNumber}</td>
                   <td className="p-4 font-mono text-slate-600 font-semibold">{m.machineSerial || '-'}</td>
@@ -348,6 +441,88 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border border-slate-100 px-4 py-3 bg-white text-xs rounded-xl shadow-2xs">
+          <div className="flex flex-1 justify-between sm:hidden">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ก่อนหน้า
+            </button>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ถัดไป
+            </button>
+          </div>
+          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div className="flex items-center space-x-4">
+              <p className="text-slate-500 font-medium">
+                แสดงรายการที่ <span className="font-bold text-slate-800">{Math.min(filteredMachines.length, (currentPage - 1) * itemsPerPage + 1)}</span> ถึง{' '}
+                <span className="font-bold text-slate-800">{Math.min(filteredMachines.length, currentPage * itemsPerPage)}</span> จากทั้งหมด{' '}
+                <span className="font-bold text-slate-800">{filteredMachines.length}</span> รายการ
+              </p>
+              <div className="flex items-center space-x-1.5 text-slate-500 font-medium">
+                <span>แสดง:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500/25 text-[11px] font-bold"
+                >
+                  <option value={10}>10 รายการ</option>
+                  <option value={15}>15 รายการ</option>
+                  <option value={25}>25 รายการ</option>
+                  <option value={50}>50 รายการ</option>
+                  <option value={100}>100 รายการ</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <nav className="isolate inline-flex -space-x-px rounded-md shadow-2xs" aria-label="Pagination">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="sr-only">Previous</span>
+                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    aria-current={currentPage === page ? 'page' : undefined}
+                    className={`relative inline-flex items-center px-3 py-2 text-xs font-extrabold ring-1 ring-inset focus:z-20 focus:outline-offset-0 ${
+                      currentPage === page
+                        ? 'z-10 bg-sky-600 text-white ring-sky-600'
+                        : 'text-slate-700 ring-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="sr-only">Next</span>
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stock Summary Metrics Footer */}
       <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 flex flex-wrap justify-between items-center gap-3 text-xs text-slate-500">
