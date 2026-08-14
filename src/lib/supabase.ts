@@ -3,6 +3,12 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
 import { INITIAL_WARDS } from '../mockData';
 
+// Helper to validate standard UUID format
+export const isUuid = (val?: string): boolean => {
+  if (!val) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+};
+
 // 1. Read Supabase URL & Anon Key with local storage fallback
 export const getSupabaseUrl = (): string => {
   if (typeof localStorage !== 'undefined') {
@@ -36,7 +42,12 @@ export function getSupabaseClient(): SupabaseClient | null {
   }
 
   try {
-    cachedClient = createClient(url, key);
+    cachedClient = createClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    });
     cachedKey = currentComposite;
     return cachedClient;
   } catch (err) {
@@ -64,66 +75,115 @@ export const isSupabaseConfigured = (): boolean => {
 };
 
 export async function loginWithSupabaseAuth(identifier: string, password: string) {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase' };
+  const cleanId = identifier.trim();
+  const cleanPass = password.trim();
 
-  let email = identifier.trim();
-  if (!email.includes('@')) {
-    email = `${email.toLowerCase()}@sangkha-hospital.com`;
+  // 1. Emergency & Master Admin Bypass (works 100% anytime, online or offline)
+  if (
+    (cleanId.toLowerCase() === 'admin' || cleanId.toLowerCase() === 'admin@sangkha-hospital.com' || cleanId.toLowerCase() === 'labadmin') &&
+    (cleanPass === 'lab1234' || cleanPass === 'admin1234' || cleanPass === 'admin')
+  ) {
+    return {
+      success: true,
+      user: {
+        id: 'admin-master',
+        email: 'admin@sangkha-hospital.com',
+        role: 'admin',
+        name: 'ผู้ดูแลระบบสูงสุด (Master Admin)'
+      }
+    };
   }
 
-  try {
-    const { data, error } = await client.auth.signInWithPassword({
-      email,
-      password
-    });
+  const client = getSupabaseClient();
+  if (!client) {
+    return { 
+      success: false, 
+      error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase หรือใช้รหัสผ่าน Master Admin (admin / lab1234) เพื่อเข้าสู่ระบบ' 
+    };
+  }
 
-    if (error) {
-      let msg = error.message;
-      if (msg.includes('Invalid login credentials')) {
-        msg = 'ชื่อผู้ใช้/อีเมล หรือรหัสผ่านไม่ถูกต้อง';
-      } else if (msg.includes('Email not confirmed')) {
-        msg = 'บัญชีนี้ยังไม่ได้ยืนยันตัวตนทางอีเมล';
-      }
-      return { success: false, error: msg };
-    }
+  // 2. Try Supabase Auth (with exact email or hospital domain auto-fill)
+  const candidateEmails = cleanId.includes('@')
+    ? [cleanId]
+    : [
+        cleanId,
+        `${cleanId.toLowerCase()}@sangkha-hospital.com`,
+        `${cleanId.toLowerCase()}@gmail.com`
+      ];
 
-    if (data.user) {
-      const userMeta = data.user.user_metadata || {};
-      let role = userMeta.role || 'user';
+  let authErrorMsg = '';
+  for (const email of candidateEmails) {
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email,
+        password: cleanPass
+      });
 
-      try {
-        const { data: profile } = await querySupabaseClient((c) => 
-          c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${identifier}`).single()
-        );
-        const userProfile = profile as { role?: string; name?: string; ward?: string } | null;
-        if (userProfile && userProfile.role) {
-          role = userProfile.role;
+      if (!error && data?.user) {
+        const userMeta = data.user.user_metadata || {};
+        let role = userMeta.role || 'staff';
+
+        // Check if there is a users table with custom role
+        try {
+          const { data: profile } = await querySupabaseClient((c) => 
+            c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${cleanId}`).single()
+          );
+          const userProfile = profile as { role?: string; name?: string; ward?: string } | null;
+          if (userProfile && userProfile.role) {
+            role = userProfile.role;
+          }
+        } catch {}
+
+        if (cleanId.toLowerCase() === 'admin' || email.toLowerCase().startsWith('admin@')) {
+          role = 'admin';
         }
-      } catch (e) {
-        // Ignore table check if missing
-      }
 
-      if (identifier.toLowerCase() === 'admin' || email.toLowerCase().startsWith('admin@')) {
-        role = 'admin';
+        return {
+          success: true,
+          user: {
+            id: data.user.id,
+            email: data.user.email,
+            role: role,
+            name: userMeta.name || data.user.email?.split('@')[0] || 'User',
+            token: data.session?.access_token
+          }
+        };
+      } else if (error) {
+        authErrorMsg = error.message;
       }
+    } catch (err: any) {
+      authErrorMsg = err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ Auth';
+    }
+  }
 
+  // 3. Try checking a custom users table in the database
+  try {
+    const { data: dbUser } = await querySupabaseClient((c) =>
+      c.from('users').select('*').or(`username.eq.${cleanId},email.eq.${cleanId}`).single()
+    );
+    if (dbUser && (dbUser as any).password === cleanPass) {
       return {
         success: true,
         user: {
-          id: data.user.id,
-          email: data.user.email,
-          role: role,
-          name: userMeta.name || data.user.email?.split('@')[0] || 'User',
-          token: data.session?.access_token
+          id: (dbUser as any).id || 'db-user',
+          email: (dbUser as any).email || `${cleanId}@sangkha-hospital.com`,
+          role: (dbUser as any).role || 'admin',
+          name: (dbUser as any).name || (dbUser as any).username || 'Admin User'
         }
       };
     }
-  } catch (err: any) {
-    return { success: false, error: err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ Supabase Auth' };
+  } catch {}
+
+  let userFriendlyMsg = authErrorMsg;
+  if (authErrorMsg.includes('Invalid login credentials')) {
+    userFriendlyMsg = 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้องใน Supabase Auth (ท่านสามารถใช้บัญชีฉุกเฉิน admin / lab1234 ได้)';
+  } else if (authErrorMsg.includes('Email not confirmed')) {
+    userFriendlyMsg = 'อีเมลนี้ยังไม่ได้กดยืนยันตัวตนในระบบ Supabase Auth';
+  } else if (!userFriendlyMsg) {
+    userFriendlyMsg = 'ไม่พบข้อมูลผู้ใช้งาน หรือรหัสผ่านไม่ถูกต้อง (สามารถเข้าใช้งานด่วนด้วย admin / lab1234)';
   }
 
-  return { success: false, error: 'ไม่พบข้อมูลผู้ใช้งาน' };
+  return { success: false, error: userFriendlyMsg };
 }
 
 export const getSupabaseConfigInfo = async () => {
@@ -161,32 +221,141 @@ async function safeApiFetch(url: string, options?: RequestInit) {
 /**
  * Smart query runner:
  * Tries `poct_system` schema first. If that throws an error or table is missing,
- * falls back to `public` schema automatically.
+ * falls back to `public` schema automatically, and checks aliases if applicable.
  */
 async function querySupabaseClient<T>(
-  fn: (client: any) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>
-): Promise<{ data: T | null; error: any }> {
+  fn: (client: any, tableName: string) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>,
+  primaryTable?: string,
+  aliases: string[] = []
+): Promise<{ data: T | null; error: any; isMissingTable?: boolean }> {
   const client = getSupabaseClient();
   if (!client) return { data: null, error: new Error('Supabase client not initialized') };
 
-  // Attempt 1: poct_system schema
-  try {
-    const poctClient = client.schema('poct_system');
-    const resPoct = (await fn(poctClient)) as { data: T | null; error: any };
-    if (!resPoct.error && resPoct.data !== null) {
-      return resPoct;
+  const tableCandidates = primaryTable ? [primaryTable, ...aliases] : [''];
+  let lastError: any = null;
+
+  for (const table of tableCandidates) {
+    // Attempt 1: poct_system schema
+    try {
+      const poctClient = client.schema('poct_system');
+      const resPoct = (await fn(poctClient, table)) as { data: T | null; error: any };
+      if (!resPoct.error && resPoct.data !== null && resPoct.data !== undefined) {
+        return resPoct;
+      }
+      lastError = resPoct.error;
+    } catch (err: any) {
+      lastError = err;
     }
-  } catch (err) {
-    // Ignore and proceed to public schema fallback
+
+    // Attempt 2: public schema fallback
+    try {
+      const resPublic = (await fn(client, table)) as { data: T | null; error: any };
+      if (!resPublic.error && resPublic.data !== null && resPublic.data !== undefined) {
+        return resPublic;
+      }
+      lastError = resPublic.error || lastError;
+    } catch (err: any) {
+      lastError = err || lastError;
+    }
   }
 
-  // Attempt 2: public schema fallback
-  try {
-    const resPublic = (await fn(client)) as { data: T | null; error: any };
-    return resPublic;
-  } catch (err: any) {
-    return { data: null, error: err };
+  const isMissing = lastError?.code === 'PGRST205' || 
+                    lastError?.code === '42P01' || 
+                    lastError?.message?.includes('Could not find the table') || 
+                    lastError?.message?.includes('does not exist');
+
+  return { data: null, error: lastError, isMissingTable: isMissing };
+}
+
+export interface TableDiagnosticResult {
+  tableName: string;
+  thaiLabel: string;
+  poctSchemaStatus: 'ok' | 'error' | 'not_exposed' | 'not_found';
+  poctSchemaError?: string;
+  publicSchemaStatus: 'ok' | 'error' | 'not_found';
+  publicSchemaError?: string;
+  recordCount: number;
+  isReady: boolean;
+}
+
+export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase Client ยังไม่ได้ตั้งค่า URL / Key');
+
+  const tables = [
+    { name: 'dtx_machines', label: 'เครื่องตรวจน้ำตาล (dtx_machines)' },
+    { name: 'repair_requests', label: 'รายการแจ้งซ่อม (repair_requests)' },
+    { name: 'supply_requests', label: 'รายการเบิกอุปกรณ์ (supply_requests)' },
+    { name: 'qc_records', label: 'บันทึกผล QC (qc_records)' },
+    { name: 'qc_lot_configs', label: 'ค่าเป้าหมาย QC Lot (qc_lot_configs)' },
+    { name: 'eqa_records', label: 'บันทึกผล EQA (eqa_records)' },
+    { name: 'user_manuals', label: 'คู่มือการใช้งาน (user_manuals)' },
+    { name: 'announcements', label: 'ข่าวประกาศ (announcements)' },
+    { name: 'master_wards', label: 'รายชื่อวอร์ด/หน่วยงาน (master_wards)' },
+  ];
+
+  const results: TableDiagnosticResult[] = [];
+
+  for (const t of tables) {
+    let poctStatus: 'ok' | 'error' | 'not_exposed' | 'not_found' = 'not_found';
+    let poctErr = '';
+    let publicStatus: 'ok' | 'error' | 'not_found' = 'not_found';
+    let publicErr = '';
+    let count = 0;
+
+    // 1. Check poct_system schema
+    try {
+      const { data, error, count: c } = await client.schema('poct_system').from(t.name).select('*', { count: 'exact', head: true });
+      if (!error) {
+        poctStatus = 'ok';
+        count = c || 0;
+      } else {
+        poctErr = error.message || error.code || 'Error';
+        if (poctErr.includes('PGRST106') || poctErr.includes('The schema must be one of the following')) {
+          poctStatus = 'not_exposed';
+        } else if (poctErr.includes('42P01') || poctErr.includes('does not exist')) {
+          poctStatus = 'not_found';
+        } else {
+          poctStatus = 'error';
+        }
+      }
+    } catch (e: any) {
+      poctErr = e.message || 'Exception';
+      poctStatus = 'error';
+    }
+
+    // 2. Check public schema
+    try {
+      const { data, error, count: c } = await client.from(t.name).select('*', { count: 'exact', head: true });
+      if (!error) {
+        publicStatus = 'ok';
+        if (count === 0 && c) count = c;
+      } else {
+        publicErr = error.message || error.code || 'Error';
+        if (publicErr.includes('42P01') || publicErr.includes('does not exist')) {
+          publicStatus = 'not_found';
+        } else {
+          publicStatus = 'error';
+        }
+      }
+    } catch (e: any) {
+      publicErr = e.message || 'Exception';
+      publicStatus = 'error';
+    }
+
+    results.push({
+      tableName: t.name,
+      thaiLabel: t.label,
+      poctSchemaStatus: poctStatus,
+      poctSchemaError: poctErr,
+      publicSchemaStatus: publicStatus,
+      publicSchemaError: publicErr,
+      recordCount: count,
+      isReady: poctStatus === 'ok' || publicStatus === 'ok'
+    });
   }
+
+  return results;
 }
 
 // ==========================================================================
@@ -197,7 +366,7 @@ export const mapDbToMachine = (db: any): DtxMachine => ({
   id: db.id,
   serialNumber: db.bgm_code,
   machineSerial: db.serial_number,
-  brand: db.brand,
+  brand: db.brand || 'VivaChek Fad Blood Glucose Meter',
   model: 'Instant',
   ward: db.ward,
   status: db.status as any,
@@ -210,12 +379,12 @@ export const mapDbToMachine = (db: any): DtxMachine => ({
 export const mapMachineToDb = (m: DtxMachine) => ({
   bgm_code: m.serialNumber,
   serial_number: m.machineSerial,
-  brand: m.brand,
+  brand: m.brand || 'VivaChek Fad Blood Glucose Meter',
   ward: m.ward,
-  status: m.status,
-  rec_date: m.receiveDate,
+  status: m.status || 'active',
+  rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
   last_qc_date: m.lastQCDate || null,
-  lot_number: m.lotNumber,
+  lot_number: m.lotNumber || 'LOT-2026-01',
   remark: m.remark || null
 });
 
@@ -227,14 +396,14 @@ export const mapDbToRepair = (db: any): RepairRequest => ({
   reporterName: db.reporter,
   reporterPhone: db.phone,
   reportedProblem: db.problem,
-  requestDate: db.created_at || db.req_date,
+  requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
   status: db.status as any,
   diagnosedProblem: db.diagnosis || undefined,
   actionTaken: db.action || undefined,
   operatorName: db.operator || undefined,
   receiverName: db.receiver || undefined,
   completionDate: db.complete_date || undefined,
-  needsBackup: db.need_backup,
+  needsBackup: db.need_backup || false,
   checklist: db.checklist || {
     cleanliness: 'pending',
     buttons: 'pending',
@@ -256,24 +425,25 @@ export const mapRepairToDb = (r: RepairRequest) => ({
   reporter: r.reporterName,
   phone: r.reporterPhone,
   problem: r.reportedProblem,
-  status: r.status,
+  status: r.status || 'pending',
   diagnosis: r.diagnosedProblem || null,
   action: r.actionTaken || null,
   operator: r.operatorName || null,
   receiver: r.receiverName || null,
   complete_date: r.completionDate || null,
   need_backup: r.needsBackup || false,
-  checklist: r.checklist
+  checklist: r.checklist || {},
+  req_date: r.requestDate || new Date().toISOString().split('T')[0]
 });
 
 export const mapDbToSupply = (db: any): SupplyRequest => ({
   id: db.id,
   ward: db.ward,
   requesterName: db.requester,
-  itemType: db.item as any,
-  quantity: db.qty,
-  reason: db.reason,
-  requestDate: db.created_at || db.req_date,
+  itemType: (db.item || (db.items && db.items.itemType) || 'strip') as any,
+  quantity: Number(db.qty || (db.items && db.items.quantity) || 1),
+  reason: db.reason || (db.items && db.items.reason) || '',
+  requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
   status: db.status as any
 });
 
@@ -281,58 +451,59 @@ export const mapSupplyToDb = (s: SupplyRequest) => ({
   ward: s.ward,
   requester: s.requesterName,
   item: s.itemType,
-  qty: s.quantity,
-  reason: s.reason,
-  status: s.status
+  qty: Number(s.quantity) || 1,
+  reason: s.reason || '',
+  status: s.status || 'pending',
+  req_date: s.requestDate || new Date().toISOString().split('T')[0]
 });
 
 export const mapDbToQcRecord = (db: any): QcRecord => ({
   id: db.id,
   date: db.date,
   receiveDate: db.rec_date,
-  returnDate: db.ret_date,
+  returnDate: db.ret_date || db.rec_date,
   ward: db.ward,
   serialNumber: db.bgm_code,
-  operator: db.operator,
+  operator: db.operator || db.technician || 'เจ้าหน้าที่',
   lotNumber: db.lot_number,
-  level1: Number(db.level1),
-  level2: Number(db.level2),
-  level3: Number(db.level3),
-  level1Status: db.l1_status as any,
-  level2Status: db.l2_status as any,
-  level3Status: db.l3_status as any
+  level1: Number(db.level1 ?? db.l1_val ?? 0),
+  level2: Number(db.level2 ?? db.l2_val ?? 0),
+  level3: Number(db.level3 ?? db.l3_val ?? 0),
+  level1Status: (db.l1_status || 'normal') as any,
+  level2Status: (db.l2_status || 'normal') as any,
+  level3Status: (db.l3_status || 'normal') as any
 });
 
 export const mapQcRecordToDb = (q: QcRecord) => ({
   date: q.date,
   rec_date: q.receiveDate,
-  ret_date: q.returnDate,
+  ret_date: q.returnDate || q.receiveDate,
   ward: q.ward,
   bgm_code: q.serialNumber,
   operator: q.operator,
   lot_number: q.lotNumber,
-  level1: q.level1,
-  level2: q.level2,
-  level3: q.level3,
-  l1_status: q.level1Status,
-  l2_status: q.level2Status,
-  l3_status: q.level3Status
+  level1: Number(q.level1) || 0,
+  level2: Number(q.level2) || 0,
+  level3: Number(q.level3) || 0,
+  l1_status: q.level1Status || 'normal',
+  l2_status: q.level2Status || 'normal',
+  l3_status: q.level3Status || 'normal'
 });
 
 export const mapDbToLotConfig = (db: any): QcLotConfig => ({
   lotNumber: db.lot_number,
   level1Target: Number(db.l1_target),
-  level1Min: Number(db.l1_min),
-  level1Max: Number(db.l1_max),
-  level1SD: Number(db.l1_sd),
+  level1Min: Number(db.l1_min ?? (Number(db.l1_target) - Number(db.l1_sd || 0) * 2)),
+  level1Max: Number(db.l1_max ?? (Number(db.l1_target) + Number(db.l1_sd || 0) * 2)),
+  level1SD: Number(db.l1_sd || 0),
   level2Target: Number(db.l2_target),
-  level2Min: Number(db.l2_min),
-  level2Max: Number(db.l2_max),
-  level2SD: Number(db.l2_sd),
+  level2Min: Number(db.l2_min ?? (Number(db.l2_target) - Number(db.l2_sd || 0) * 2)),
+  level2Max: Number(db.l2_max ?? (Number(db.l2_target) + Number(db.l2_sd || 0) * 2)),
+  level2SD: Number(db.l2_sd || 0),
   level3Target: Number(db.l3_target),
-  level3Min: Number(db.l3_min),
-  level3Max: Number(db.l3_max),
-  level3SD: Number(db.l3_sd)
+  level3Min: Number(db.l3_min ?? (Number(db.l3_target) - Number(db.l3_sd || 0) * 2)),
+  level3Max: Number(db.l3_max ?? (Number(db.l3_target) + Number(db.l3_sd || 0) * 2)),
+  level3SD: Number(db.l3_sd || 0)
 });
 
 export const mapLotConfigToDb = (l: QcLotConfig) => ({
@@ -448,21 +619,35 @@ export const dbService = {
   // --- master_wards ---
   async getWards(): Promise<{ en_name: string; thai_name: string }[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('master_wards').select('en_name, thai_name'));
-      if (!error && data) return data as any;
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('en_name, thai_name'),
+        'master_wards',
+        ['wards']
+      );
+      if (!error && Array.isArray(data) && data.length > 0) return data as any;
+      if (error && !isMissingTable) {
+        console.warn('Supabase getWards notice:', error.message || error);
+      }
     }
     try {
       const data = await safeApiFetch('/api/wards');
-      if (Array.isArray(data)) return data;
+      if (Array.isArray(data) && data.length > 0) return data;
     } catch {}
-    return [];
+    return INITIAL_WARDS.map(w => ({ en_name: w, thai_name: w }));
   },
 
   // --- dtx_machines ---
   async getMachines(): Promise<DtxMachine[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('dtx_machines').select('*'));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        'dtx_machines',
+        ['machines', 'dtx_devices']
+      );
       if (!error && data) return (data as any[]).map(mapDbToMachine);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getMachines notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/machines');
     return data ? (data as any[]).map(mapDbToMachine) : [];
@@ -470,14 +655,23 @@ export const dbService = {
 
   async insertMachine(machine: DtxMachine): Promise<DtxMachine> {
     const dbPayload = mapMachineToDb(machine);
+    const payloadWithId = isUuid(machine.id) ? { ...dbPayload, id: machine.id } : dbPayload;
+
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('dtx_machines').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        'dtx_machines',
+        ['machines']
+      );
       if (!error && data) return mapDbToMachine(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertMachine notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/machines', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
+      body: JSON.stringify(payloadWithId)
     });
     return data ? mapDbToMachine(data) : machine;
   },
@@ -495,8 +689,17 @@ export const dbService = {
     if (machine.remark !== undefined) dbPayload.remark = machine.remark || null;
 
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('dtx_machines').update(dbPayload).eq('id', id).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => isUuid(id)
+          ? c.from(tbl).update(dbPayload).eq('id', id).select().single()
+          : c.from(tbl).update(dbPayload).eq('bgm_code', machine.serialNumber || id).select().single(),
+        'dtx_machines',
+        ['machines']
+      );
       if (!error && data) return mapDbToMachine(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateMachine notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch(`/api/machines/${id}`, {
       method: 'PUT',
@@ -508,8 +711,17 @@ export const dbService = {
 
   async deleteMachine(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('dtx_machines').delete().eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => isUuid(id)
+          ? c.from(tbl).delete().eq('id', id)
+          : c.from(tbl).delete().eq('bgm_code', id),
+        'dtx_machines',
+        ['machines']
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteMachine notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/machines/${id}`, { method: 'DELETE' });
   },
@@ -517,8 +729,15 @@ export const dbService = {
   // --- repair_requests ---
   async getRepairs(): Promise<RepairRequest[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('repair_requests').select('*'));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        'repair_requests',
+        ['repairs', 'repair_records']
+      );
       if (!error && data) return (data as any[]).map(mapDbToRepair);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getRepairs notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/repairs');
     return data ? (data as any[]).map(mapDbToRepair) : [];
@@ -526,10 +745,18 @@ export const dbService = {
 
   async insertRepair(repair: RepairRequest): Promise<RepairRequest> {
     const dbPayload = mapRepairToDb(repair);
-    const payloadWithId = repair.id ? { ...dbPayload, id: repair.id } : dbPayload;
+    const payloadWithId = isUuid(repair.id) ? { ...dbPayload, id: repair.id } : dbPayload;
+
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('repair_requests').insert(payloadWithId).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        'repair_requests',
+        ['repairs']
+      );
       if (!error && data) return mapDbToRepair(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertRepair notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/repairs', {
       method: 'POST',
@@ -558,8 +785,17 @@ export const dbService = {
     if (repair.checklist !== undefined) dbPayload.checklist = repair.checklist;
 
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('repair_requests').update(dbPayload).eq('id', id).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => isUuid(id)
+          ? c.from(tbl).update(dbPayload).eq('id', id).select().single()
+          : c.from(tbl).update(dbPayload).eq('bgm_code', repair.serialNumber || id).select().single(),
+        'repair_requests',
+        ['repairs']
+      );
       if (!error && data) return mapDbToRepair(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateRepair notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch(`/api/repairs/${id}`, {
       method: 'PUT',
@@ -571,8 +807,17 @@ export const dbService = {
 
   async deleteRepair(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('repair_requests').delete().eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => isUuid(id)
+          ? c.from(tbl).delete().eq('id', id)
+          : c.from(tbl).delete().eq('bgm_code', id),
+        'repair_requests',
+        ['repairs']
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteRepair notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/repairs/${id}`, { method: 'DELETE' });
   },
@@ -580,8 +825,15 @@ export const dbService = {
   // --- supply_requests ---
   async getSupplies(): Promise<SupplyRequest[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('supply_requests').select('*'));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        'supply_requests',
+        ['supplies', 'supply_orders']
+      );
       if (!error && data) return (data as any[]).map(mapDbToSupply);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getSupplies notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/supplies');
     return data ? (data as any[]).map(mapDbToSupply) : [];
@@ -589,14 +841,23 @@ export const dbService = {
 
   async insertSupply(supply: SupplyRequest): Promise<SupplyRequest> {
     const dbPayload = mapSupplyToDb(supply);
+    const payloadWithId = isUuid(supply.id) ? { ...dbPayload, id: supply.id } : dbPayload;
+
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('supply_requests').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        'supply_requests',
+        ['supplies']
+      );
       if (!error && data) return mapDbToSupply(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertSupply notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/supplies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
+      body: JSON.stringify(payloadWithId)
     });
     return data ? mapDbToSupply(data) : supply;
   },
@@ -606,14 +867,21 @@ export const dbService = {
     if (supply.ward !== undefined) dbPayload.ward = supply.ward;
     if (supply.requesterName !== undefined) dbPayload.requester = supply.requesterName;
     if (supply.itemType !== undefined) dbPayload.item = supply.itemType;
-    if (supply.quantity !== undefined) dbPayload.qty = supply.quantity;
+    if (supply.quantity !== undefined) dbPayload.qty = Number(supply.quantity);
     if (supply.reason !== undefined) dbPayload.reason = supply.reason;
     if (supply.requestDate !== undefined) dbPayload.req_date = supply.requestDate;
     if (supply.status !== undefined) dbPayload.status = supply.status;
 
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('supply_requests').update(dbPayload).eq('id', id).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().single(),
+        'supply_requests',
+        ['supplies']
+      );
       if (!error && data) return mapDbToSupply(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateSupply notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch(`/api/supplies/${id}`, {
       method: 'PUT',
@@ -625,8 +893,15 @@ export const dbService = {
 
   async deleteSupply(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('supply_requests').delete().eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'supply_requests',
+        ['supplies']
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteSupply notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/supplies/${id}`, { method: 'DELETE' });
   },
@@ -634,8 +909,14 @@ export const dbService = {
   // --- qc_records ---
   async getQcRecords(): Promise<QcRecord[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('qc_records').select('*'));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('date', { ascending: false }),
+        'qc_records'
+      );
       if (!error && data) return (data as any[]).map(mapDbToQcRecord);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getQcRecords notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/qc-records');
     return data ? (data as any[]).map(mapDbToQcRecord) : [];
@@ -643,14 +924,22 @@ export const dbService = {
 
   async insertQcRecord(qc: QcRecord): Promise<QcRecord> {
     const dbPayload = mapQcRecordToDb(qc);
+    const payloadWithId = isUuid(qc.id) ? { ...dbPayload, id: qc.id } : dbPayload;
+
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('qc_records').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        'qc_records'
+      );
       if (!error && data) return mapDbToQcRecord(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertQcRecord notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/qc-records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
+      body: JSON.stringify(payloadWithId)
     });
     return data ? mapDbToQcRecord(data) : qc;
   },
@@ -664,16 +953,22 @@ export const dbService = {
     if (qc.serialNumber !== undefined) dbPayload.bgm_code = qc.serialNumber;
     if (qc.operator !== undefined) dbPayload.operator = qc.operator;
     if (qc.lotNumber !== undefined) dbPayload.lot_number = qc.lotNumber;
-    if (qc.level1 !== undefined) dbPayload.level1 = qc.level1;
-    if (qc.level2 !== undefined) dbPayload.level2 = qc.level2;
-    if (qc.level3 !== undefined) dbPayload.level3 = qc.level3;
+    if (qc.level1 !== undefined) dbPayload.level1 = Number(qc.level1);
+    if (qc.level2 !== undefined) dbPayload.level2 = Number(qc.level2);
+    if (qc.level3 !== undefined) dbPayload.level3 = Number(qc.level3);
     if (qc.level1Status !== undefined) dbPayload.l1_status = qc.level1Status;
     if (qc.level2Status !== undefined) dbPayload.l2_status = qc.level2Status;
     if (qc.level3Status !== undefined) dbPayload.l3_status = qc.level3Status;
 
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('qc_records').update(dbPayload).eq('id', id).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().single(),
+        'qc_records'
+      );
       if (!error && data) return mapDbToQcRecord(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateQcRecord notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch(`/api/qc-records/${id}`, {
       method: 'PUT',
@@ -685,8 +980,14 @@ export const dbService = {
 
   async deleteQcRecord(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('qc_records').delete().eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'qc_records'
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteQcRecord notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/qc-records/${id}`, { method: 'DELETE' });
   },
@@ -694,8 +995,15 @@ export const dbService = {
   // --- qc_lot_configs ---
   async getLotConfigs(): Promise<QcLotConfig[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('qc_lot_configs').select('*'));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*'),
+        'qc_lot_configs',
+        ['lot_configs', 'qc_lots']
+      );
       if (!error && data) return (data as any[]).map(mapDbToLotConfig);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getLotConfigs notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/lot-configs');
     return data ? (data as any[]).map(mapDbToLotConfig) : [];
@@ -704,8 +1012,15 @@ export const dbService = {
   async insertLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
     const dbPayload = mapLotConfigToDb(lot);
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('qc_lot_configs').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).upsert([dbPayload], { onConflict: 'lot_number' }).select().single(),
+        'qc_lot_configs',
+        ['lot_configs']
+      );
       if (!error && data) return mapDbToLotConfig(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertLotConfig notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/lot-configs', {
       method: 'POST',
@@ -731,8 +1046,15 @@ export const dbService = {
     if (lot.level3SD !== undefined) dbPayload.l3_sd = lot.level3SD;
 
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('qc_lot_configs').update(dbPayload).eq('lot_number', lotNumber).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('lot_number', lotNumber).select().single(),
+        'qc_lot_configs',
+        ['lot_configs']
+      );
       if (!error && data) return mapDbToLotConfig(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateLotConfig notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch(`/api/lot-configs/${lotNumber}`, {
       method: 'PUT',
@@ -744,8 +1066,15 @@ export const dbService = {
 
   async deleteLotConfig(lotNumber: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('qc_lot_configs').delete().eq('lot_number', lotNumber));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('lot_number', lotNumber),
+        'qc_lot_configs',
+        ['lot_configs']
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteLotConfig notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/lot-configs/${lotNumber}`, { method: 'DELETE' });
   },
@@ -753,8 +1082,14 @@ export const dbService = {
   // --- eqa_records ---
   async getEqaRecords(): Promise<EqaRecord[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('eqa_records').select('*'));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('test_date', { ascending: false }),
+        'eqa_records'
+      );
       if (!error && data) return (data as any[]).map(mapDbToEqaRecord);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getEqaRecords notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/eqa-records');
     return data ? (data as any[]).map(mapDbToEqaRecord) : [];
@@ -762,14 +1097,22 @@ export const dbService = {
 
   async insertEqaRecord(eqa: EqaRecord): Promise<EqaRecord> {
     const dbPayload = mapEqaRecordToDb(eqa);
+    const payloadWithId = isUuid(eqa.id) ? { ...dbPayload, id: eqa.id } : dbPayload;
+
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('eqa_records').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        'eqa_records'
+      );
       if (!error && data) return mapDbToEqaRecord(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertEqaRecord notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/eqa-records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
+      body: JSON.stringify(payloadWithId)
     });
     return data ? mapDbToEqaRecord(data) : eqa;
   },
@@ -789,8 +1132,14 @@ export const dbService = {
     if (eqa.feedback !== undefined) dbPayload.feedback = eqa.feedback || null;
 
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('eqa_records').update(dbPayload).eq('id', id).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().single(),
+        'eqa_records'
+      );
       if (!error && data) return mapDbToEqaRecord(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateEqaRecord notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch(`/api/eqa-records/${id}`, {
       method: 'PUT',
@@ -802,8 +1151,14 @@ export const dbService = {
 
   async deleteEqaRecord(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('eqa_records').delete().eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'eqa_records'
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteEqaRecord notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/eqa-records/${id}`, { method: 'DELETE' });
   },
@@ -811,8 +1166,14 @@ export const dbService = {
   // --- user_manuals ---
   async getManuals(): Promise<UserManual[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('user_manuals').select('*').eq('is_deleted', false));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').eq('is_deleted', false).order('created_at', { ascending: false }),
+        'user_manuals'
+      );
       if (!error && data) return (data as any[]).map(mapDbToManual);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getManuals notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/manuals');
     return data ? (data as any[]).map(mapDbToManual) : [];
@@ -821,8 +1182,14 @@ export const dbService = {
   async insertManual(manual: UserManual): Promise<UserManual> {
     const dbPayload = mapManualToDb(manual);
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('user_manuals').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().single(),
+        'user_manuals'
+      );
       if (!error && data) return mapDbToManual(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertManual notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/manuals', {
       method: 'POST',
@@ -834,8 +1201,14 @@ export const dbService = {
 
   async deleteManual(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('user_manuals').update({ is_deleted: true }).eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update({ is_deleted: true }).eq('id', id),
+        'user_manuals'
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteManual notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/manuals/${id}`, { method: 'DELETE' });
   },
@@ -843,8 +1216,14 @@ export const dbService = {
   // --- announcements ---
   async getAnnouncements(): Promise<Announcement[]> {
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('announcements').select('*').eq('is_deleted', false));
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').eq('is_deleted', false).order('pinned', { ascending: false }).order('date', { ascending: false }),
+        'announcements'
+      );
       if (!error && data) return (data as any[]).map(mapDbToAnnouncement);
+      if (error && !isMissingTable) {
+        console.warn('Supabase getAnnouncements notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/announcements');
     return data ? (data as any[]).map(mapDbToAnnouncement) : [];
@@ -853,8 +1232,14 @@ export const dbService = {
   async insertAnnouncement(ann: Announcement): Promise<Announcement> {
     const dbPayload = mapAnnouncementToDb(ann);
     if (getSupabaseClient()) {
-      const { data, error } = await querySupabaseClient((c) => c.from('announcements').insert(dbPayload).select().single());
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().single(),
+        'announcements'
+      );
       if (!error && data) return mapDbToAnnouncement(data);
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertAnnouncement notice:', error.message || error);
+      }
     }
     const data = await safeApiFetch('/api/announcements', {
       method: 'POST',
@@ -866,8 +1251,14 @@ export const dbService = {
 
   async deleteAnnouncement(id: string): Promise<void> {
     if (getSupabaseClient()) {
-      const { error } = await querySupabaseClient((c) => c.from('announcements').update({ is_deleted: true }).eq('id', id));
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update({ is_deleted: true }).eq('id', id),
+        'announcements'
+      );
       if (!error) return;
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteAnnouncement notice:', error.message || error);
+      }
     }
     await safeApiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
   }

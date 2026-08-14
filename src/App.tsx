@@ -868,12 +868,12 @@ export default function App() {
                   {isSupabaseConfigured() ? (
                     <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>เชื่อมต่อระบบ Supabase Auth แล้ว</span>
+                      <span>พร้อมเชื่อมต่อ Supabase Auth / Master Admin</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span>ยังไม่ได้เปิดใช้งาน Supabase Auth</span>
+                      <span>โหมดสแตนด์อโลน (สามารถใช้รหัส Master Admin เข้าได้ทันที)</span>
                     </span>
                   )}
                 </div>
@@ -883,12 +883,6 @@ export default function App() {
                 e.preventDefault();
                 setLoginError('');
                 setIsLoggingIn(true);
-
-                if (!isSupabaseConfigured()) {
-                  setLoginError('ระบบยังไม่ได้เชื่อมต่อฐานข้อมูล Supabase Auth กรุณาตั้งค่า URL & Anon Key');
-                  setIsLoggingIn(false);
-                  return;
-                }
 
                 const res = await loginWithSupabaseAuth(adminUsername, adminPassword);
                 if (res.success && res.user) {
@@ -901,9 +895,9 @@ export default function App() {
                   localStorage.setItem('dtx_role', assignedRole);
                   setRole(assignedRole);
                   setShowTimeoutNotice(false);
-                  setShowToast(`เข้าสู่ระบบสำเร็จในฐานะ ${assignedRole === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่ (Staff)'} (${res.user.email})`);
+                  setShowToast(`เข้าสู่ระบบสำเร็จในฐานะ ${assignedRole === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่ (Staff)'} (${res.user.name || res.user.email})`);
                 } else {
-                  setLoginError(res.error || 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง (โปรดตรวจสอบสิทธิ์ใน Supabase Auth)');
+                  setLoginError(res.error || 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง (หากยังไม่ได้สร้างบัญชีใน Supabase Auth สามารถใช้ admin / lab1234)');
                 }
                 setIsLoggingIn(false);
               }} className="space-y-4 text-xs">
@@ -917,7 +911,7 @@ export default function App() {
                   <label className="font-bold text-slate-700 dark:text-slate-300">ชื่อผู้ใช้งาน หรือ อีเมล (Username / Email) *</label>
                   <input
                     type="text"
-                    placeholder="เช่น user@sangkha-hospital.com หรือ admin@sangkha-hospital.com"
+                    placeholder="เช่น admin หรือ user@sangkha-hospital.com"
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
                     className="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-sky-500 bg-slate-50/50 dark:bg-slate-800 font-medium"
@@ -937,6 +931,20 @@ export default function App() {
                   />
                 </div>
 
+                <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">เข้าใช้งานด่วนด้วย Master Admin:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminUsername('admin');
+                      setAdminPassword('lab1234');
+                    }}
+                    className="text-sky-600 dark:text-sky-400 font-bold hover:underline cursor-pointer"
+                  >
+                    ใส่ admin / lab1234 อัตโนมัติ
+                  </button>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isLoggingIn}
@@ -945,7 +953,7 @@ export default function App() {
                   {isLoggingIn ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                      <span>กำลังตรวจสอบสิทธิ์กับ Supabase...</span>
+                      <span>กำลังตรวจสอบสิทธิ์...</span>
                     </>
                   ) : (
                     <span>เข้าสู่ระบบ (Sign In)</span>

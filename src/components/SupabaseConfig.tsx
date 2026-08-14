@@ -1,7 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { isSupabaseConfigured, getSupabaseConfigInfo, dbService, getSupabaseUrl, getSupabaseAnonKey, saveSupabaseCredentials } from '../lib/supabase';
+import { 
+  isSupabaseConfigured, 
+  getSupabaseConfigInfo, 
+  dbService, 
+  getSupabaseUrl, 
+  getSupabaseAnonKey, 
+  saveSupabaseCredentials,
+  runTableDiagnostics,
+  TableDiagnosticResult
+} from '../lib/supabase';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
-import { Database, ShieldCheck, RefreshCw, CloudUpload, CheckCircle, AlertTriangle, HelpCircle, Code, Server, Lock, Key, Save } from 'lucide-react';
+import { Database, ShieldCheck, RefreshCw, CloudUpload, CheckCircle, AlertTriangle, HelpCircle, Code, Server, Lock, Key, Save, Search, Check, AlertCircle, Copy, Info } from 'lucide-react';
 
 interface SupabaseConfigProps {
   machines: DtxMachine[];
@@ -208,6 +217,34 @@ export default function SupabaseConfig({
       onShowToast(`อัปโหลดผิดพลาด: ${err.message}`);
     } finally {
       setIsSeeding(false);
+    }
+  };
+
+  const [diagnostics, setDiagnostics] = useState<TableDiagnosticResult[] | null>(null);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [activeSqlTab, setActiveSqlTab] = useState<'bridge' | 'full'>('bridge');
+
+  const handleRunDiagnostics = async () => {
+    setIsDiagnosing(true);
+    try {
+      const results = await runTableDiagnostics();
+      setDiagnostics(results);
+      const readyCount = results.filter(r => r.isReady).length;
+      onShowToast(`ตรวจเช็คเสร็จสิ้น: พร้อมใช้งาน ${readyCount}/${results.length} ตาราง`);
+    } catch (err: any) {
+      console.error(err);
+      onShowToast(`ตรวจเช็คผิดพลาด: ${err.message || 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'}`);
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
+  const handleCopyBridgeSql = () => {
+    try {
+      navigator.clipboard.writeText(POCT_QUICK_BRIDGE_SQL);
+      onShowToast('คัดลอกสคริปต์ 1-Click Bridge สำหรับตาราง poct_system ที่มีอยู่แล้ว สำเร็จ!');
+    } catch {
+      onShowToast('คัดลอกจากกล่องข้อความด้านล่างได้เลย');
     }
   };
 
@@ -482,101 +519,317 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
         </div>
       </div>
 
+      {/* 3. Live Database & Schema Inspector Matrix */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+              <Search size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                <span>ระบบตรวจเช็คตารางและสิทธิ์แบบสด (Live Database Inspector)</span>
+                <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">Real-Time</span>
+              </h3>
+              <p className="text-[11px] text-slate-500">ตรวจสอบสถานะการเข้าถึงตารางทั้งในสกีมา poct_system และ public ทีละตาราง</p>
+            </div>
+          </div>
+          <button
+            onClick={handleRunDiagnostics}
+            disabled={isDiagnosing}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer flex items-center space-x-1.5 shrink-0"
+          >
+            <RefreshCw size={13} className={isDiagnosing ? 'animate-spin' : ''} />
+            <span>{isDiagnosing ? 'กำลังตรวจเช็ครายตาราง...' : 'ตรวจเช็คสถานะตารางทั้งหมด (Run Inspector)'}</span>
+          </button>
+        </div>
+
+        {diagnostics ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-200 text-[11px]">
+                  <th className="py-2.5 px-3">ชื่อตาราง</th>
+                  <th className="py-2.5 px-3">สกีมา poct_system</th>
+                  <th className="py-2.5 px-3">สกีมา public (Views)</th>
+                  <th className="py-2.5 px-3 text-center">จำนวนข้อมูลใน DB</th>
+                  <th className="py-2.5 px-3 text-right">สถานะพร้อมใช้</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {diagnostics.map((row) => (
+                  <tr key={row.tableName} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="py-3 px-3">
+                      <div className="font-bold text-slate-800">{row.thaiLabel}</div>
+                      <div className="text-[10px] font-mono text-slate-400">{row.tableName}</div>
+                    </td>
+                    <td className="py-3 px-3">
+                      {row.poctSchemaStatus === 'ok' ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md text-[10.5px]">
+                          <Check size={12} /> เข้าถึงได้โดยตรง
+                        </span>
+                      ) : row.poctSchemaStatus === 'not_exposed' ? (
+                        <span className="inline-flex items-center gap-1 text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-md text-[10.5px]" title={row.poctSchemaError}>
+                          <AlertCircle size={12} /> Schema ยังไม่ Exposed ใน API
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md text-[10.5px]" title={row.poctSchemaError}>
+                          <AlertTriangle size={12} /> {row.poctSchemaError ? 'ข้อผิดพลาด: ' + row.poctSchemaError.substring(0, 25) : 'ไม่พบ'}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3">
+                      {row.publicSchemaStatus === 'ok' ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md text-[10.5px]">
+                          <Check size={12} /> เข้าถึงได้
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md text-[10.5px]">
+                          - ไม่พบ View ใน public
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-center font-bold text-slate-700">
+                      {row.recordCount > 0 ? (
+                        <span className="bg-slate-100 text-slate-900 px-2.5 py-0.5 rounded-full text-[11px] font-mono">
+                          {row.recordCount} รายการ
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[10.5px]">0 รายการ</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {row.isReady ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 font-extrabold bg-emerald-100/70 text-[11px] px-2.5 py-1 rounded-lg">
+                          <CheckCircle size={13} /> พร้อมบันทึก/อ่าน
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-rose-600 font-extrabold bg-rose-100/70 text-[11px] px-2.5 py-1 rounded-lg">
+                          <AlertCircle size={13} /> ต้องเชื่อมต่อ (Bridge)
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bg-slate-50 rounded-xl p-6 text-center text-slate-500 space-y-2 border border-dashed border-slate-200">
+            <Database size={24} className="mx-auto text-slate-400" />
+            <p className="text-xs font-bold text-slate-700">กดปุ่ม "ตรวจเช็คสถานะตารางทั้งหมด" ด้านบนเพื่อดูสถานะการเชื่อมต่อแบบเรียลไทม์</p>
+            <p className="text-[11px] text-slate-400">ระบบจะทดสอบอ่านสกีมา poct_system และ public ทีละตารางเพื่อระบุสาเหตุที่แท้จริง</p>
+          </div>
+        )}
+      </div>
+
+      {/* 4. SQL Bridge & Setup Center */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div className="flex items-center space-x-2">
+            <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
+              <Code size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-slate-800">ศูนย์คำสั่ง SQL เชื่อมต่อ Supabase (SQL Hub)</h3>
+              <p className="text-[11px] text-slate-500">เลือกสคริปต์ที่ตรงกับสถานะของฐานข้อมูลของคุณ เพื่อรันใน Supabase SQL Editor</p>
+            </div>
+          </div>
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveSqlTab('bridge')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                activeSqlTab === 'bridge' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              1-Click Quick Bridge (มีตารางอยู่แล้ว)
+            </button>
+            <button
+              onClick={() => setActiveSqlTab('full')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                activeSqlTab === 'full' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              สร้างตารางใหม่ทั้งหมด (Full Schema)
+            </button>
+          </div>
+        </div>
+
+        {activeSqlTab === 'bridge' ? (
+          <div className="space-y-3.5">
+            <div className="bg-amber-50/80 border border-amber-200 text-amber-900 rounded-xl p-4 text-xs leading-relaxed space-y-2">
+              <p className="font-extrabold flex items-center gap-1.5 text-amber-950">
+                <Info size={15} className="text-amber-700 shrink-0" />
+                <span>สำหรับกรณีที่คุณสร้างตารางในสกีมา poct_system ไว้แล้ว:</span>
+              </p>
+              <p className="text-[11px] text-amber-800">
+                Supabase PostgREST API ค่าเริ่มต้นจะมองเห็นเฉพาะสกีมา <code className="bg-white px-1 rounded font-bold font-mono">public</code> คำสั่งนี้จะทำการ <strong>สร้าง Views และมอบสิทธิ์การเข้าถึงทั้งหมด (GRANT Permissions)</strong> ให้กับตารางใน <code className="bg-white px-1 rounded font-bold font-mono">poct_system</code> ของคุณทันที ทำให้แอปสามารถบันทึกและอ่านข้อมูลได้ 100% โดยไม่ต้องลบตารางเดิม
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={handleCopyBridgeSql}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
+                >
+                  <Copy size={13} />
+                  <span>คัดลอกสคริปต์ 1-Click Quick Bridge SQL</span>
+                </button>
+              </div>
+            </div>
+
+            <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
+              {POCT_QUICK_BRIDGE_SQL}
+            </pre>
+          </div>
+        ) : (
+          <div className="space-y-3.5">
+            <div className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl p-4 text-xs leading-relaxed space-y-2">
+              <p className="font-extrabold text-slate-900">
+                สคริปต์สร้างสกีมา โครงสร้างตารางทั้งหมด 9 ตาราง พร้อม RLS และข้อมูลตัวอย่างเริ่มต้น:
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={handleCopySql}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
+                >
+                  <Copy size={13} />
+                  <span>คัดลอกสคริปต์ SQL ทั้งหมด (Full Schema)</span>
+                </button>
+              </div>
+            </div>
+
+            <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
+              {POCT_SCHEMA_SQL}
+            </pre>
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
 
-const POCT_SCHEMA_SQL = `-- ==========================================================================
--- SQL Schema for Supabase (Sangkha Hospital DTX Management System)
--- Schema Namespace: poct_system
--- Description: ระบบบริหารจัดการเครื่องตรวจวัดน้ำตาลปลายนิ้ว (DTX) โรงพยาบาลสังขะ
+const POCT_QUICK_BRIDGE_SQL = `-- ==========================================================================
+-- 🚀 1-Click Quick Bridge: สำหรับกรณีที่มีสกีมา poct_system และตารางอยู่แล้ว
+-- รันคำสั่งนี้ใน Supabase SQL Editor เพื่อเปิดสิทธิ์และเชื่อมต่อ API ทันที
 -- ==========================================================================
 
--- ล้างระบบเก่าทั้งหมดเพื่อป้องกันข้อผิดพลาดจากตารางหรือความสัมพันธ์เดิม (แนะนำสำหรับสร้างระบบใหม่)
-DROP SCHEMA IF EXISTS poct_system CASCADE;
+-- 1. ให้สิทธิ์การใช้งานสกีมาและตารางแก่ anon, authenticated, service_role และ postgres
+GRANT USAGE ON SCHEMA poct_system TO anon, authenticated, service_role, postgres;
+GRANT ALL ON ALL TABLES IN SCHEMA poct_system TO anon, authenticated, service_role, postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA poct_system TO anon, authenticated, service_role, postgres;
+ALTER DEFAULT PRIVILEGES IN SCHEMA poct_system GRANT ALL ON TABLES TO anon, authenticated, service_role, postgres;
 
--- 1. Create Schema
-CREATE SCHEMA poct_system;
+-- 2. สร้าง Views ใน schema public เพื่อให้ Supabase API เรียกใช้งานได้ทันที 100%
+CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM poct_system.master_wards;
+CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM poct_system.dtx_machines;
+CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM poct_system.repair_requests;
+CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM poct_system.supply_requests;
+CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM poct_system.qc_records;
+CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM poct_system.qc_lot_configs;
+CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM poct_system.eqa_records;
+CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM poct_system.user_manuals;
+CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM poct_system.announcements;
 
--- 2. Create Tables with Short and Clean Column Names
+-- 3. ให้สิทธิ์การเข้าถึง Views ใน public
+GRANT ALL ON public.master_wards TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.repair_requests TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.supply_requests TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.qc_records TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.eqa_records TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.user_manuals TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.announcements TO anon, authenticated, service_role, postgres;
+`;
 
--- Table: dtx_machines (คลังเครื่อง DTX)
-CREATE TABLE poct_system.dtx_machines (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    bgm_code VARCHAR(100) UNIQUE NOT NULL,      -- รหัสเครื่องใน รพ. (เช่น BGM-000)
-    serial_number VARCHAR(150) UNIQUE NOT NULL, -- S/N จริงจากผู้ผลิต (เช่น 103A2002FB7)
-    brand VARCHAR(150) DEFAULT 'VivaChek Fad Blood Glucose Meter', -- ยี่ห้อ
-    ward VARCHAR(150) NOT NULL,                -- หอผู้ป่วยที่ดูแลเครื่อง
-    status VARCHAR(50) DEFAULT 'active' NOT NULL, -- สถานะ: active, lost, claim, repair, inactive
-    rec_date DATE NOT NULL,                     -- วันที่รับเครื่องเข้าคลัง
-    last_qc_date DATE,                          -- วันที่ทำ QC ล่าสุด
-    lot_number VARCHAR(100) NOT NULL,          -- LOT ของเครื่อง
-    remark TEXT,                                -- หมายเหตุ
+const POCT_SCHEMA_SQL = `-- ==========================================================================
+-- SQL Schema Setup Script for Supabase (Sangkha Hospital POCT DTX System)
+-- Compatible with both 'poct_system' and 'public' schemas
+-- ==========================================================================
+
+-- 1. Create Schema poct_system
+CREATE SCHEMA IF NOT EXISTS poct_system;
+
+-- 2. Create Tables
+CREATE TABLE IF NOT EXISTS poct_system.master_wards (
+    id SERIAL PRIMARY KEY,
+    en_name VARCHAR(100) UNIQUE NOT NULL,
+    thai_name VARCHAR(150) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: repair_requests (งานแจ้งซ่อมและวินิจฉัย)
-CREATE TABLE poct_system.repair_requests (
+CREATE TABLE IF NOT EXISTS poct_system.dtx_machines (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    bgm_code VARCHAR(100) NOT NULL,            -- รหัสเครื่อง (BGM-xxx)
-    serial_number VARCHAR(150),                 -- S/N จากผู้ผลิต
-    ward VARCHAR(150) NOT NULL,                -- หอผู้ป่วยที่ส่งซ่อม
-    reporter VARCHAR(200) NOT NULL,            -- ผู้ส่งซ่อม
-    phone VARCHAR(50) NOT NULL,                -- เบอร์ติดต่อ
-    problem TEXT NOT NULL,                      -- อาการเสียตามแจ้ง
-    req_date DATE DEFAULT CURRENT_DATE NOT NULL, -- วันที่ส่งซ่อม
-    status VARCHAR(50) DEFAULT 'pending' NOT NULL, -- สถานะ: pending, repairing, wait_claim, claimed, completed
-    diagnosis TEXT,                             -- ผลการวินิจฉัยจริง
-    action VARCHAR(100),                        -- การดำเนินการ: change_battery, return_original, provide_new, etc.
-    operator VARCHAR(200),                      -- ผู้ดำเนินการซ่อม
-    receiver VARCHAR(200),                      -- ผู้รับเครื่องกลับ
-    complete_date DATE,                         -- วันที่ซ่อมเสร็จ
-    need_backup BOOLEAN DEFAULT FALSE NOT NULL, -- ต้องการเครื่องสำรองใช้ชั่วคราวหรือไม่
-    checklist JSONB DEFAULT '{}'::jsonb NOT NULL, -- เช็คลิสต์ตรวจสอบเครื่อง (ปุ่มกด, หน้าจอ, ความสะอาด ฯลฯ)
+    bgm_code VARCHAR(100) UNIQUE NOT NULL,
+    serial_number VARCHAR(150) UNIQUE NOT NULL,
+    brand VARCHAR(150) DEFAULT 'VivaChek Fad Blood Glucose Meter',
+    ward VARCHAR(150) NOT NULL,
+    status VARCHAR(50) DEFAULT 'active' NOT NULL,
+    rec_date DATE NOT NULL,
+    last_qc_date DATE,
+    lot_number VARCHAR(100) NOT NULL,
+    remark TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: supply_requests (คำขอเบิกอุปกรณ์และวัสดุ)
-CREATE TABLE poct_system.supply_requests (
+CREATE TABLE IF NOT EXISTS poct_system.repair_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ward VARCHAR(150) NOT NULL,                -- หอผู้ป่วยที่ขอเบิก
-    requester VARCHAR(200) NOT NULL,           -- ผู้ส่งคำขอเบิก
-    item VARCHAR(100) NOT NULL,                 -- ชนิดของ: machine, strip, lancet, control, battery
-    qty INTEGER NOT NULL,                       -- จำนวนที่ขอเบิก
-    reason TEXT NOT NULL,                       -- เหตุผลความจำเป็น
-    req_date DATE DEFAULT CURRENT_DATE NOT NULL, -- วันที่ขอเบิก
-    status VARCHAR(50) DEFAULT 'pending' NOT NULL, -- สถานะ: pending, approved, rejected
+    bgm_code VARCHAR(100) NOT NULL,
+    serial_number VARCHAR(150),
+    ward VARCHAR(150) NOT NULL,
+    reporter VARCHAR(200) NOT NULL,
+    phone VARCHAR(50) NOT NULL,
+    problem TEXT NOT NULL,
+    req_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+    diagnosis TEXT,
+    action VARCHAR(100),
+    operator VARCHAR(200),
+    receiver VARCHAR(200),
+    complete_date DATE,
+    need_backup BOOLEAN DEFAULT FALSE NOT NULL,
+    checklist JSONB DEFAULT '{}'::jsonb NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: qc_records (บันทึกผลการควบคุมคุณภาพ QC 3 Level)
-CREATE TABLE poct_system.qc_records (
+CREATE TABLE IF NOT EXISTS poct_system.supply_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    date DATE DEFAULT CURRENT_DATE NOT NULL,    -- วันที่ทำ QC
-    rec_date DATE NOT NULL,                     -- วันที่รับเครื่องมาทำ QC
-    ret_date DATE NOT NULL,                     -- วันที่ส่งเครื่องคืน
-    ward VARCHAR(150) NOT NULL,                -- หอผู้ป่วย
-    bgm_code VARCHAR(100) NOT NULL,            -- รหัสเครื่อง
-    serial_number VARCHAR(150),                 -- S/N จริงจากผู้ผลิต
-    operator VARCHAR(200) NOT NULL,            -- ผู้ตรวจวิเคราะห์
-    lot_number VARCHAR(100) NOT NULL,          -- LOT ของแถบควบคุม
-    level1 NUMERIC NOT NULL,                    -- ผลทดสอบ Level 1
-    level2 NUMERIC NOT NULL,                    -- ผลทดสอบ Level 2
-    level3 NUMERIC NOT NULL,                    -- ผลทดสอบ Level 3
-    l1_status VARCHAR(50) NOT NULL,             -- สถานะ Level 1 (normal / out)
-    l2_status VARCHAR(50) NOT NULL,             -- สถานะ Level 2 (normal / out)
-    l3_status VARCHAR(50) NOT NULL,             -- สถานะ Level 3 (normal / out)
+    ward VARCHAR(150) NOT NULL,
+    requester VARCHAR(200) NOT NULL,
+    item VARCHAR(100) NOT NULL,
+    qty INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    req_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending' NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: qc_lot_configs (การตั้งค่าเกณฑ์เป้าหมายของแต่ละ LOT)
-CREATE TABLE poct_system.qc_lot_configs (
+CREATE TABLE IF NOT EXISTS poct_system.qc_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    lot_number VARCHAR(100) UNIQUE NOT NULL,    -- หมายเลข LOT
-    l1_target NUMERIC NOT NULL,                 -- Target Level 1
-    l1_min NUMERIC NOT NULL,                    -- Min Level 1
-    l1_max NUMERIC NOT NULL,                    -- Max Level 1
-    l1_sd NUMERIC NOT NULL,                     -- SD Level 1
+    date DATE DEFAULT CURRENT_DATE NOT NULL,
+    rec_date DATE NOT NULL,
+    ret_date DATE NOT NULL,
+    ward VARCHAR(150) NOT NULL,
+    bgm_code VARCHAR(100) NOT NULL,
+    serial_number VARCHAR(150),
+    operator VARCHAR(200) NOT NULL,
+    lot_number VARCHAR(100) NOT NULL,
+    level1 NUMERIC NOT NULL,
+    level2 NUMERIC NOT NULL,
+    level3 NUMERIC NOT NULL,
+    l1_status VARCHAR(50) NOT NULL,
+    l2_status VARCHAR(50) NOT NULL,
+    l3_status VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS poct_system.qc_lot_configs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lot_number VARCHAR(100) UNIQUE NOT NULL,
+    l1_target NUMERIC NOT NULL,
+    l1_min NUMERIC NOT NULL,
+    l1_max NUMERIC NOT NULL,
+    l1_sd NUMERIC NOT NULL,
     l2_target NUMERIC NOT NULL,
     l2_min NUMERIC NOT NULL,
     l2_max NUMERIC NOT NULL,
@@ -588,24 +841,27 @@ CREATE TABLE poct_system.qc_lot_configs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: eqa_records (การประเมินคุณภาพจากภายนอก EQA)
-CREATE TABLE poct_system.eqa_records (
+CREATE TABLE IF NOT EXISTS poct_system.eqa_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    round VARCHAR(100) NOT NULL,                -- รอบการประเมิน (เช่น 1/2026)
-    test_date DATE NOT NULL,                    -- วันที่ทำการทดสอบ
-    l1_val NUMERIC NOT NULL,                    -- ค่าตรวจได้ Level 1
-    l1_tgt NUMERIC NOT NULL,                    -- ค่าเป้าหมาย Level 1
+    organizer VARCHAR(150),
+    round VARCHAR(100) NOT NULL,
+    action_status VARCHAR(100),
+    action_date DATE,
+    test_date DATE NOT NULL,
+    l1_val NUMERIC NOT NULL,
+    l1_tgt NUMERIC NOT NULL,
     l2_val NUMERIC NOT NULL,
     l2_tgt NUMERIC NOT NULL,
     l3_val NUMERIC NOT NULL,
     l3_tgt NUMERIC NOT NULL,
-    score NUMERIC NOT NULL,                      -- คะแนนรวม (%)
-    status VARCHAR(50) NOT NULL,                -- excel, pass, warn, fail
-    feedback TEXT,                              -- ข้อแนะนำการตอบกลับ
+    score NUMERIC NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    feedback TEXT,
+    document_url TEXT,
+    attachment_file JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: user_manuals (เอกสารคู่มือการใช้งาน)
 CREATE TABLE IF NOT EXISTS poct_system.user_manuals (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -615,10 +871,10 @@ CREATE TABLE IF NOT EXISTS poct_system.user_manuals (
     download_url TEXT,
     file_data TEXT,
     upload_date DATE DEFAULT CURRENT_DATE,
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Table: announcements (ข่าวประชาสัมพันธ์)
 CREATE TABLE IF NOT EXISTS poct_system.announcements (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -629,10 +885,40 @@ CREATE TABLE IF NOT EXISTS poct_system.announcements (
     pinned BOOLEAN DEFAULT FALSE,
     attachment_name TEXT,
     attachment_url TEXT,
+    is_deleted BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Enable RLS
+-- 3. Seed Wards
+INSERT INTO poct_system.master_wards (en_name, thai_name) VALUES
+('OPD', 'OPD (ผู้ป่วยนอก)'),
+('ER', 'ER (อุบัติเหตุและฉุกเฉิน)'),
+('IPD_MALE', 'IPD ชาย (หอผู้ป่วยในชาย)'),
+('IPD_FEMALE', 'IPD หญิง (หอผู้ป่วยในหญิง)'),
+('LR', 'ห้องคลอด (Labor Room)'),
+('OR', 'ห้องผ่าตัด (OR)'),
+('ICU', 'ICU (หอผู้ป่วยหนัก)'),
+('CHRONIC', 'คลินิก NCD / เบาหวาน'),
+('DENTAL', 'กลุ่มงานทันตกรรม'),
+('PHYSIO', 'กลุ่มงานกายภาพบำบัด'),
+('THAI_MED', 'กลุ่มงานแพทย์แผนไทย'),
+('PHARMACY', 'กลุ่มงานเภสัชกรรม'),
+('XRAY', 'กลุ่มงานรังสีวิทยา (X-Ray)'),
+('LAB', 'ห้องปฏิบัติการเทคนิคการแพทย์ (LAB)'),
+('HEMO', 'หน่วยไตเทียม (Hemodialysis)'),
+('MED_REC', 'เวชระเบียนและสถิติ'),
+('PCU', 'PCU / ส่งเสริมสุขภาพ'),
+('ADMIN', 'กลุ่มงานบริหารทั่วไป')
+ON CONFLICT (en_name) DO NOTHING;
+
+-- 4. Grant Permissions
+GRANT USAGE ON SCHEMA poct_system TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA poct_system TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA poct_system TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA poct_system GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
+-- 5. Enable RLS and Open Policies
+ALTER TABLE poct_system.master_wards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poct_system.dtx_machines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poct_system.repair_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poct_system.supply_requests ENABLE ROW LEVEL SECURITY;
@@ -642,29 +928,44 @@ ALTER TABLE poct_system.eqa_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poct_system.user_manuals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE poct_system.announcements ENABLE ROW LEVEL SECURITY;
 
--- Policies (Public access)
-CREATE POLICY "machines_read_policy" ON poct_system.dtx_machines FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "machines_admin_policy" ON poct_system.dtx_machines FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "wards_all_policy" ON poct_system.master_wards;
+DROP POLICY IF EXISTS "machines_all_policy" ON poct_system.dtx_machines;
+DROP POLICY IF EXISTS "repairs_all_policy" ON poct_system.repair_requests;
+DROP POLICY IF EXISTS "supplies_all_policy" ON poct_system.supply_requests;
+DROP POLICY IF EXISTS "qc_records_all_policy" ON poct_system.qc_records;
+DROP POLICY IF EXISTS "qc_configs_all_policy" ON poct_system.qc_lot_configs;
+DROP POLICY IF EXISTS "eqa_all_policy" ON poct_system.eqa_records;
+DROP POLICY IF EXISTS "manuals_all_policy" ON poct_system.user_manuals;
+DROP POLICY IF EXISTS "announcements_all_policy" ON poct_system.announcements;
 
-CREATE POLICY "repairs_insert_policy" ON poct_system.repair_requests FOR INSERT TO anon, authenticated WITH CHECK (true);
-CREATE POLICY "repairs_read_policy" ON poct_system.repair_requests FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "repairs_admin_policy" ON poct_system.repair_requests FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "wards_all_policy" ON poct_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "machines_all_policy" ON poct_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "repairs_all_policy" ON poct_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "supplies_all_policy" ON poct_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_records_all_policy" ON poct_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_configs_all_policy" ON poct_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "eqa_all_policy" ON poct_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "manuals_all_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "announcements_all_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
-CREATE POLICY "supplies_insert_policy" ON poct_system.supply_requests FOR INSERT TO anon, authenticated WITH CHECK (true);
-CREATE POLICY "supplies_read_policy" ON poct_system.supply_requests FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "supplies_admin_policy" ON poct_system.supply_requests FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- 6. Create Views in public schema
+CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM poct_system.master_wards;
+CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM poct_system.dtx_machines;
+CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM poct_system.repair_requests;
+CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM poct_system.supply_requests;
+CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM poct_system.qc_records;
+CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM poct_system.qc_lot_configs;
+CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM poct_system.eqa_records;
+CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM poct_system.user_manuals;
+CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM poct_system.announcements;
 
-CREATE POLICY "qc_records_read_policy" ON poct_system.qc_records FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "qc_configs_read_policy" ON poct_system.qc_lot_configs FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "qc_records_admin_policy" ON poct_system.qc_records FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_configs_admin_policy" ON poct_system.qc_lot_configs FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "eqa_read_policy" ON poct_system.eqa_records FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "eqa_admin_policy" ON poct_system.eqa_records FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "manuals_read_policy" ON poct_system.user_manuals FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "manuals_admin_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "announcements_read_policy" ON poct_system.announcements FOR SELECT TO anon, authenticated USING (true);
-CREATE POLICY "announcements_admin_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+GRANT ALL ON public.master_wards TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role;
+GRANT ALL ON public.repair_requests TO anon, authenticated, service_role;
+GRANT ALL ON public.supply_requests TO anon, authenticated, service_role;
+GRANT ALL ON public.qc_records TO anon, authenticated, service_role;
+GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role;
+GRANT ALL ON public.eqa_records TO anon, authenticated, service_role;
+GRANT ALL ON public.user_manuals TO anon, authenticated, service_role;
+GRANT ALL ON public.announcements TO anon, authenticated, service_role;
 `;
