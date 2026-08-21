@@ -44,7 +44,7 @@ export function getSupabaseClient(): SupabaseClient<any, any, any> | null {
 
   try {
     cachedClient = createClient(url, key, {
-      db: { schema: 'dtx_system' },
+      db: { schema: 'public' },
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -53,7 +53,7 @@ export function getSupabaseClient(): SupabaseClient<any, any, any> | null {
     cachedKey = currentComposite;
     return cachedClient;
   } catch (err) {
-    console.warn('Failed to initialize Supabase client (dtx_system):', err);
+    console.warn('Failed to initialize Supabase client:', err);
     return null;
   }
 }
@@ -264,9 +264,8 @@ export function resetSupabaseCache() {
 }
 
 /**
- * Strict Schema Query Runner:
- * Primary queries `dtx_system` schema. If the custom schema is not exposed by PostgREST,
- * it seamlessly queries via the public view bridge.
+ * Robust Query Runner:
+ * Queries public schema views (or base tables in dtx_system schema) seamlessly.
  */
 async function querySupabaseClient<T>(
   fn: (client: any, tableName: string) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>,
@@ -279,34 +278,28 @@ async function querySupabaseClient<T>(
   const table = primaryTable || '';
 
   try {
-    // 1. Try querying dtx_system schema directly
+    // 1. Query public schema view/table first (always exposed and fastest)
+    const publicClient = client.schema('public');
+    const resPublic = (await fn(publicClient, table)) as { data: T | null; error: any };
+    if (!resPublic.error && resPublic.data !== null && resPublic.data !== undefined) {
+      return resPublic;
+    }
+
+    // 2. If public schema fails or table missing, try dtx_system schema directly
     const dtxClient = client.schema('dtx_system');
     const resDtx = (await fn(dtxClient, table)) as { data: T | null; error: any };
     if (!resDtx.error && resDtx.data !== null && resDtx.data !== undefined) {
       return resDtx;
     }
 
-    // If dtx_system schema is not exposed or fails, fallback to public view
-    const isSchemaError = resDtx.error?.code === 'PGRST106' || 
-                          resDtx.error?.code === 'PGRST205' || 
-                          resDtx.error?.code === '42P01' || 
-                          resDtx.error?.message?.includes('Invalid schema') ||
-                          resDtx.error?.message?.includes('Could not find the table');
+    const isMissing = resPublic.error?.code === 'PGRST205' || 
+                      resPublic.error?.code === '42P01' || 
+                      resPublic.error?.message?.includes('Could not find the table') || 
+                      resPublic.error?.message?.includes('does not exist') ||
+                      resDtx.error?.code === 'PGRST205' || 
+                      resDtx.error?.code === '42P01';
 
-    if (isSchemaError) {
-      const publicClient = client.schema('public');
-      const resPublic = (await fn(publicClient, table)) as { data: T | null; error: any };
-      if (!resPublic.error && resPublic.data !== null && resPublic.data !== undefined) {
-        return resPublic;
-      }
-    }
-    
-    const isMissing = resDtx.error?.code === 'PGRST205' || 
-                      resDtx.error?.code === '42P01' || 
-                      resDtx.error?.message?.includes('Could not find the table') || 
-                      resDtx.error?.message?.includes('does not exist');
-
-    return { data: null, error: resDtx.error, isMissingTable: isMissing };
+    return { data: null, error: resPublic.error || resDtx.error, isMissingTable: isMissing };
   } catch (err: any) {
     return { data: null, error: err, isMissingTable: false };
   }

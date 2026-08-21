@@ -57,7 +57,7 @@ const checkDbConfig = (req: express.Request, res: express.Response, next: expres
   next();
 };
 
-// Query helper for READ queries (primary dtx_system schema, with public view fallback)
+// Query helper for READ queries (primary public view, fallback dtx_system)
 async function executeSupabaseQuery<T>(
   queryFn: (client: any) => Promise<{ data: T; error: any }>,
   fallbackValue?: T
@@ -66,20 +66,7 @@ async function executeSupabaseQuery<T>(
     return (fallbackValue ?? []) as unknown as T;
   }
 
-  // 1. Try dtx_system schema directly
-  if (supabase) {
-    try {
-      const dtxClient = supabase.schema('dtx_system');
-      const { data: dtxData, error: dtxError } = await queryFn(dtxClient);
-      if (!dtxError && dtxData !== null && dtxData !== undefined) {
-        return dtxData;
-      }
-    } catch (err: any) {
-      console.warn("dtx_system query exception:", err?.message || err);
-    }
-  }
-
-  // 2. Try public schema view bridge
+  // 1. Try public schema view bridge first (always exposed and fastest)
   const pubClient = publicSupabase || (supabase ? supabase.schema('public') : null);
   if (pubClient) {
     try {
@@ -92,18 +79,7 @@ async function executeSupabaseQuery<T>(
     }
   }
 
-  return (fallbackValue ?? []) as unknown as T;
-}
-
-// Query helper for WRITE queries (primary dtx_system schema, with public view fallback)
-async function executeSupabaseWrite<T>(
-  queryFn: (client: any) => Promise<{ data: T; error: any }>
-): Promise<T> {
-  if (!supabase && !publicSupabase) {
-    throw new Error("Supabase client is not configured on server (SUPABASE_URL, SUPABASE_ANON_KEY)");
-  }
-
-  // 1. Try dtx_system schema directly
+  // 2. Try dtx_system schema directly
   if (supabase) {
     try {
       const dtxClient = supabase.schema('dtx_system');
@@ -112,11 +88,22 @@ async function executeSupabaseWrite<T>(
         return dtxData;
       }
     } catch (err: any) {
-      console.warn("dtx_system write exception:", err?.message || err);
+      console.warn("dtx_system query exception:", err?.message || err);
     }
   }
 
-  // 2. Try public schema view bridge
+  return (fallbackValue ?? []) as unknown as T;
+}
+
+// Query helper for WRITE queries (primary public view, fallback dtx_system)
+async function executeSupabaseWrite<T>(
+  queryFn: (client: any) => Promise<{ data: T; error: any }>
+): Promise<T> {
+  if (!supabase && !publicSupabase) {
+    throw new Error("Supabase client is not configured on server (SUPABASE_URL, SUPABASE_ANON_KEY)");
+  }
+
+  // 1. Try public schema view bridge first
   const pubClient = publicSupabase || (supabase ? supabase.schema('public') : null);
   if (pubClient) {
     try {
@@ -124,8 +111,21 @@ async function executeSupabaseWrite<T>(
       if (!pubError && pubData !== null && pubData !== undefined) {
         return pubData;
       }
-      if (pubError) {
-        throw pubError;
+    } catch (err: any) {
+      console.warn("public view write exception:", err?.message || err);
+    }
+  }
+
+  // 2. Try dtx_system schema directly
+  if (supabase) {
+    try {
+      const dtxClient = supabase.schema('dtx_system');
+      const { data: dtxData, error: dtxError } = await queryFn(dtxClient);
+      if (!dtxError && dtxData !== null && dtxData !== undefined) {
+        return dtxData;
+      }
+      if (dtxError) {
+        throw dtxError;
       }
     } catch (err: any) {
       throw new Error(err?.message || "Failed to execute Supabase database write operation");
