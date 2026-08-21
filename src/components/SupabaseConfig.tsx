@@ -82,7 +82,7 @@ export default function SupabaseConfig({
     setTestError('');
 
     try {
-      // Fetch a simple query to verify communication with poct_system schema
+      // Fetch a simple query to verify communication with poct schema
       await dbService.getMachines();
       setConnectionTestStatus('success');
       onShowToast('เชื่อมต่อฐานข้อมูล Supabase สำเร็จ!');
@@ -242,7 +242,7 @@ export default function SupabaseConfig({
   const handleCopyBridgeSql = () => {
     try {
       navigator.clipboard.writeText(POCT_QUICK_BRIDGE_SQL);
-      onShowToast('คัดลอกสคริปต์สิทธิ์ RLS สำหรับสกีมา poct_system สำเร็จ!');
+      onShowToast('คัดลอกสคริปต์สิทธิ์ RLS สำหรับสกีมา dtx_system สำเร็จ!');
     } catch {
       onShowToast('คัดลอกจากกล่องข้อความด้านล่างได้เลย');
     }
@@ -260,7 +260,7 @@ export default function SupabaseConfig({
   const handleCopySql = () => {
     try {
       navigator.clipboard.writeText(POCT_SCHEMA_SQL);
-      onShowToast('คัดลอกสคริปต์ SQL สำหรับสกีมา poct_system สำเร็จแล้ว! นำไปวางรันใน SQL Editor ได้เลย');
+      onShowToast('คัดลอกสคริปต์ SQL สำหรับสกีมา dtx_system สำเร็จแล้ว! นำไปวางรันใน SQL Editor ได้เลย');
     } catch (err) {
       console.error('Failed to copy text: ', err);
       onShowToast('ไม่สามารถคัดลอกอัตโนมัติได้ กรุณาคัดลอกสคริปต์จากไฟล์ /supabase_schema.sql');
@@ -371,7 +371,7 @@ export default function SupabaseConfig({
           <CheckCircle className="text-emerald-600 shrink-0 mt-0.5" size={16} />
           <div className="text-xs space-y-1 font-medium">
             <p className="font-extrabold">ทดสอบเชื่อมต่อสำเร็จ!</p>
-            <p className="text-emerald-700">ระบบหลังบ้าน Express Server สามารถแลกเปลี่ยนข้อมูลและสื่อสารกับสกีมา <code className="bg-white px-1 py-0.5 rounded border border-emerald-100 font-mono font-bold">poct_system</code> บนฐานข้อมูล Supabase ได้อย่างสมบูรณ์แบบ ทั้งในส่วนโครงสร้าง RLS และสิทธิ์การใช้งานแบบสาธารณะ</p>
+            <p className="text-emerald-700">ระบบหลังบ้าน Express Server สามารถแลกเปลี่ยนข้อมูลและสื่อสารกับสกีมา <code className="bg-white px-1 py-0.5 rounded border border-emerald-100 font-mono font-bold">dtx_system</code> บนฐานข้อมูล Supabase ได้อย่างสมบูรณ์แบบ ทั้งในส่วนโครงสร้าง RLS และสิทธิ์การใช้งานแบบสาธารณะ</p>
           </div>
         </div>
       )}
@@ -381,34 +381,34 @@ export default function SupabaseConfig({
           <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={20} />
           <div className="text-xs space-y-3 font-medium flex-1 w-full">
             <div>
-              <p className="font-black text-rose-950 text-sm">การเชื่อมต่อสกีมา poct_system ล้มเหลว (Database Schema Connection Issue)</p>
+              <p className="font-black text-rose-950 text-sm">การเชื่อมต่อสกีมา dtx_system ล้มเหลว (Database Schema Connection Issue)</p>
               <p className="text-rose-700 mt-1 leading-relaxed">ข้อผิดพลาดจาก Supabase: <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-rose-100 font-bold inline-block mt-0.5 break-all">{testError}</span></p>
             </div>
 
             <div className="bg-white/90 border border-rose-100 rounded-xl p-4 text-slate-700 space-y-3">
               <p className="font-bold text-slate-900 text-[11px] border-b pb-1.5 flex items-center gap-1">
                 <Server size={13} className="text-rose-600" />
-                <span>ขั้นตอนการเปิดใช้งานสกีมา poct_system บน Supabase (ห้ามยุ่งกับ public):</span>
+                <span>ขั้นตอนการเปิดใช้งานสกีมา dtx_system บน Supabase (ห้ามยุ่งกับ public):</span>
               </p>
               
               <div className="space-y-3.5 text-[11px] leading-relaxed">
                 <div>
                   <p className="font-extrabold text-slate-950 flex items-center gap-1.5">
                     <span className="w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-black">1</span>
-                    <span>เปิดสิทธิ์สกีมา poct_system ให้แอปเข้าถึง (Exposed schemas):</span>
+                    <span>เปิดสิทธิ์สกีมา dtx_system ให้แอปเข้าถึง (Exposed schemas):</span>
                   </p>
                   <p className="text-slate-500 pl-5.5 mt-0.5">
-                    ไปที่หน้า <strong>Supabase Dashboard</strong> {"→"} <strong>Project Settings</strong> (ไอคอนฟันเฟืองด้านล่าง) {"→"} <strong>API</strong> {"→"} ตรงหัวข้อ <strong>Exposed schemas</strong> ให้พิมพ์เพิ่มคำว่า <code className="font-mono font-bold bg-slate-100 px-1 py-0.5 rounded text-rose-600">poct_system</code> เข้าไปต่อท้าย public (เช่น <code className="font-mono font-bold text-slate-600">public, poct_system</code>) แล้วกด <strong>Save</strong> ด้านบนขวา
+                    ไปที่หน้า <strong>Supabase Dashboard</strong> {"→"} <strong>Project Settings</strong> (ไอคอนฟันเฟืองด้านล่าง) {"→"} <strong>API</strong> {"→"} ตรงหัวข้อ <strong>Exposed schemas</strong> ให้พิมพ์เพิ่มคำว่า <code className="font-mono font-bold bg-slate-100 px-1 py-0.5 rounded text-rose-600">dtx_system</code> เข้าไปต่อท้าย public (เช่น <code className="font-mono font-bold text-slate-600">public, dtx_system</code>) แล้วกด <strong>Save</strong> ด้านบนขวา
                   </p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-100/80">
                   <p className="font-extrabold text-slate-950 flex items-center gap-1.5">
                     <span className="w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-black">2</span>
-                    <span>รันสคริปต์ SQL เพื่อสร้างสกีมาและตาราง poct_system ทั้งหมด:</span>
+                    <span>รันสคริปต์ SQL เพื่อสร้างสกีมาและตาราง poct ทั้งหมด:</span>
                   </p>
                   <p className="text-slate-500 pl-5.5 mt-0.5">
-                    คัดลอกคำสั่ง SQL ดั้งเดิมสำหรับสกีมา <code className="font-mono font-bold text-slate-700">poct_system</code> โดยใช้ปุ่มสีส้มด้านล่างนี้ จากนั้นนำไปวางและกดรันในเมนู <strong>SQL Editor</strong> บนหน้าต่าง Supabase Dashboard เพื่อติดตั้งฐานข้อมูล ระบบ RLS และสิทธิ์การเข้าถึงทั้งหมด
+                    คัดลอกคำสั่ง SQL ดั้งเดิมสำหรับสกีมา <code className="font-mono font-bold text-slate-700">dtx_system</code> โดยใช้ปุ่มสีส้มด้านล่างนี้ จากนั้นนำไปวางและกดรันในเมนู <strong>SQL Editor</strong> บนหน้าต่าง Supabase Dashboard เพื่อติดตั้งฐานข้อมูล ระบบ RLS และสิทธิ์การเข้าถึงทั้งหมด
                   </p>
                   
                   <div className="flex flex-wrap gap-2 pt-2 pl-5.5">
@@ -417,7 +417,7 @@ export default function SupabaseConfig({
                       className="inline-flex items-center space-x-1 bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-3 py-1.5 rounded-lg text-[10.5px] transition-all shadow-3xs cursor-pointer"
                     >
                       <Code size={12} />
-                      <span>คัดลอกคำสั่ง SQL สำหรับสกีมา poct_system</span>
+                      <span>คัดลอกคำสั่ง SQL สำหรับสกีมา dtx_system</span>
                     </button>
                     <a
                       href="https://supabase.com/dashboard"
@@ -540,7 +540,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                 <span>ระบบตรวจเช็คตารางและสิทธิ์แบบสด (Live Database Inspector)</span>
                 <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">Real-Time</span>
               </h3>
-              <p className="text-[11px] text-slate-500">ตรวจสอบสถานะการเข้าถึงตารางทั้งในสกีมา poct_system และ public ทีละตาราง</p>
+              <p className="text-[11px] text-slate-500">ตรวจสอบสถานะการเข้าถึงตารางทั้งในสกีมา dtx_system และ public ทีละตาราง</p>
             </div>
           </div>
           <button
@@ -559,7 +559,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
               <thead>
                 <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-200 text-[11px]">
                   <th className="py-2.5 px-3">ชื่อตาราง</th>
-                  <th className="py-2.5 px-3">สกีมา poct_system</th>
+                  <th className="py-2.5 px-3">สกีมา dtx_system</th>
                   <th className="py-2.5 px-3">สกีมา public (Views)</th>
                   <th className="py-2.5 px-3 text-center">จำนวนข้อมูลใน DB</th>
                   <th className="py-2.5 px-3 text-right">สถานะพร้อมใช้</th>
@@ -627,7 +627,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
           <div className="bg-slate-50 rounded-xl p-6 text-center text-slate-500 space-y-2 border border-dashed border-slate-200">
             <Database size={24} className="mx-auto text-slate-400" />
             <p className="text-xs font-bold text-slate-700">กดปุ่ม "ตรวจเช็คสถานะตารางทั้งหมด" ด้านบนเพื่อดูสถานะการเชื่อมต่อแบบเรียลไทม์</p>
-            <p className="text-[11px] text-slate-400">ระบบจะทดสอบอ่านสกีมา poct_system และ public ทีละตารางเพื่อระบุสาเหตุที่แท้จริง</p>
+            <p className="text-[11px] text-slate-400">ระบบจะทดสอบอ่านสกีมา dtx_system และ public ทีละตารางเพื่อระบุสาเหตุที่แท้จริง</p>
           </div>
         )}
       </div>
@@ -651,7 +651,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                 activeSqlTab === 'bridge' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              สิทธิ์สกีมา poct_system (มีตารางอยู่แล้ว)
+              สิทธิ์สกีมา dtx_system (มีตารางอยู่แล้ว)
             </button>
             <button
               onClick={() => setActiveSqlTab('full')}
@@ -659,7 +659,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                 activeSqlTab === 'full' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              สร้างตารางใหม่เฉพาะใน poct_system
+              สร้างตารางใหม่เฉพาะใน dtx_system
             </button>
             <button
               onClick={() => setActiveSqlTab('cleanup')}
@@ -677,10 +677,10 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
             <div className="bg-amber-50/80 border border-amber-200 text-amber-900 rounded-xl p-4 text-xs leading-relaxed space-y-2">
               <p className="font-extrabold flex items-center gap-1.5 text-amber-950">
                 <Info size={15} className="text-amber-700 shrink-0" />
-                <span>สำหรับกรณีที่มีตารางในสกีมา poct_system อยู่แล้ว:</span>
+                <span>สำหรับกรณีที่มีตารางในสกีมา dtx_system อยู่แล้ว:</span>
               </p>
               <p className="text-[11px] text-amber-800">
-                คำสั่งนี้จะมอบสิทธิ์ <strong>GRANT USAGE, GRANT ALL และเปิด RLS Policy</strong> เฉพาะในสกีมา <code className="bg-white px-1 rounded font-bold font-mono">poct_system</code> โดยตรง <strong>ไม่มีการสร้าง Table หรือ View ใดๆ ใน schema public</strong>
+                คำสั่งนี้จะมอบสิทธิ์ <strong>GRANT USAGE, GRANT ALL และเปิด RLS Policy</strong> เฉพาะในสกีมา <code className="bg-white px-1 rounded font-bold font-mono">dtx_system</code> โดยตรง <strong>ไม่มีการสร้าง Table หรือ View ใดๆ ใน schema public</strong>
               </p>
               <div className="pt-1">
                 <button
@@ -688,7 +688,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                   className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
                 >
                   <Copy size={13} />
-                  <span>คัดลอกสคริปต์สิทธิ์ Schema poct_system SQL</span>
+                  <span>คัดลอกสคริปต์สิทธิ์ Schema dtx_system SQL</span>
                 </button>
               </div>
             </div>
@@ -701,7 +701,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
           <div className="space-y-3.5">
             <div className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl p-4 text-xs leading-relaxed space-y-2">
               <p className="font-extrabold text-slate-900">
-                สคริปต์สร้างสกีมา poct_system พร้อมโครงสร้าง 9 ตาราง และ RLS Policies (แยกสัดส่วนชัดเจน 100%):
+                สคริปต์สร้างสกีมา dtx_system พร้อมโครงสร้างตาราง และ RLS Policies (แยกสัดส่วนชัดเจน 100%):
               </p>
               <div className="pt-1">
                 <button
@@ -709,7 +709,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
                 >
                   <Copy size={13} />
-                  <span>คัดลอกสคริปต์ SQL (poct_system Schema เท่านั้น)</span>
+                  <span>คัดลอกสคริปต์ SQL (dtx_system Schema เท่านั้น)</span>
                 </button>
               </div>
             </div>
@@ -726,7 +726,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                 <span>คำสั่งลบตารางและ Views ของ POCT ใน schema public ออกทั้งหมด:</span>
               </p>
               <p className="text-[11px] text-rose-800">
-                หากก่อนหน้านี้มีตารางหรือ View ของ POCT ถูกสร้างตกค้างอยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">public</code> schema คำสั่งนี้จะทำการ <strong>DROP TABLE / DROP VIEW</strong> ออกทั้งหมดอย่างปลอดภัย โดย<strong>ไม่กระทบข้อมูลจริงที่อยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">poct_system</code></strong>
+                หากก่อนหน้านี้มีตารางหรือ View ของ POCT ถูกสร้างตกค้างอยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">public</code> schema คำสั่งนี้จะทำการ <strong>DROP TABLE / DROP VIEW</strong> ออกทั้งหมดอย่างปลอดภัย โดย<strong>ไม่กระทบข้อมูลจริงที่อยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">dtx_system</code></strong>
               </p>
               <div className="pt-1">
                 <button
@@ -751,46 +751,46 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
 }
 
 const POCT_QUICK_BRIDGE_SQL = `-- ==========================================================================
--- 🚀 สิทธิ์การใช้งาน Schema poct_system (สำหรับกรณีที่มีตารางอยู่แล้ว)
--- เปิดสิทธิ์ RLS และ API เฉพาะภายใน schema poct_system (ไม่สร้างหรือยุ่งกับ public)
+-- 🚀 สิทธิ์การใช้งาน Schema dtx_system (สำหรับกรณีที่มีตารางอยู่แล้ว)
+-- เปิดสิทธิ์ RLS และ API เฉพาะภายใน schema dtx_system (ไม่สร้างหรือยุ่งกับ public)
 -- ==========================================================================
 
 -- 1. ให้สิทธิ์การใช้งานสกีมาและตารางแก่ anon, authenticated, service_role และ postgres
-GRANT USAGE ON SCHEMA poct_system TO anon, authenticated, service_role, postgres;
-GRANT ALL ON ALL TABLES IN SCHEMA poct_system TO anon, authenticated, service_role, postgres;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA poct_system TO anon, authenticated, service_role, postgres;
-ALTER DEFAULT PRIVILEGES IN SCHEMA poct_system GRANT ALL ON TABLES TO anon, authenticated, service_role, postgres;
+GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
+GRANT ALL ON ALL TABLES IN SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
+ALTER DEFAULT PRIVILEGES IN SCHEMA dtx_system GRANT ALL ON TABLES TO anon, authenticated, service_role, postgres;
 
--- 2. เปิด RLS Policy บนตาราง poct_system เพื่อให้เข้าถึงได้
-ALTER TABLE IF EXISTS poct_system.master_wards ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.dtx_machines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.repair_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.supply_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.qc_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.eqa_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.user_manuals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS poct_system.announcements ENABLE ROW LEVEL SECURITY;
+-- 2. เปิด RLS Policy บนตาราง dtx_system เพื่อให้เข้าถึงได้
+ALTER TABLE IF EXISTS dtx_system.master_wards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.dtx_machines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.repair_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.supply_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.qc_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.eqa_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.user_manuals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.announcements ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "wards_all_policy" ON poct_system.master_wards;
-DROP POLICY IF EXISTS "machines_all_policy" ON poct_system.dtx_machines;
-DROP POLICY IF EXISTS "repairs_all_policy" ON poct_system.repair_requests;
-DROP POLICY IF EXISTS "supplies_all_policy" ON poct_system.supply_requests;
-DROP POLICY IF EXISTS "qc_records_all_policy" ON poct_system.qc_records;
-DROP POLICY IF EXISTS "qc_configs_all_policy" ON poct_system.qc_lot_configs;
-DROP POLICY IF EXISTS "eqa_all_policy" ON poct_system.eqa_records;
-DROP POLICY IF EXISTS "manuals_all_policy" ON poct_system.user_manuals;
-DROP POLICY IF EXISTS "announcements_all_policy" ON poct_system.announcements;
+DROP POLICY IF EXISTS "wards_all_policy" ON dtx_system.master_wards;
+DROP POLICY IF EXISTS "machines_all_policy" ON dtx_system.dtx_machines;
+DROP POLICY IF EXISTS "repairs_all_policy" ON dtx_system.repair_requests;
+DROP POLICY IF EXISTS "supplies_all_policy" ON dtx_system.supply_requests;
+DROP POLICY IF EXISTS "qc_records_all_policy" ON dtx_system.qc_records;
+DROP POLICY IF EXISTS "qc_configs_all_policy" ON dtx_system.qc_lot_configs;
+DROP POLICY IF EXISTS "eqa_all_policy" ON dtx_system.eqa_records;
+DROP POLICY IF EXISTS "manuals_all_policy" ON dtx_system.user_manuals;
+DROP POLICY IF EXISTS "announcements_all_policy" ON dtx_system.announcements;
 
-CREATE POLICY "wards_all_policy" ON poct_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "machines_all_policy" ON poct_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "repairs_all_policy" ON poct_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "supplies_all_policy" ON poct_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_records_all_policy" ON poct_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_configs_all_policy" ON poct_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "eqa_all_policy" ON poct_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "manuals_all_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "announcements_all_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "wards_all_policy" ON dtx_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "machines_all_policy" ON dtx_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "repairs_all_policy" ON dtx_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "supplies_all_policy" ON dtx_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_records_all_policy" ON dtx_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_configs_all_policy" ON dtx_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "eqa_all_policy" ON dtx_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- 3. สั่ง PostgREST รีโหลดแคช Schema ทันที
 NOTIFY pgrst, 'reload schema';
@@ -824,21 +824,21 @@ NOTIFY pgrst, 'reload schema';
 
 const POCT_SCHEMA_SQL = `-- ==========================================================================
 -- SQL Schema Setup Script for Supabase (Sangkha Hospital POCT DTX System)
--- Creates isolated schema 'poct_system' ONLY (Nothing in public)
+-- Creates isolated schema 'dtx_system' ONLY (Nothing in public)
 -- ==========================================================================
 
--- 1. Create Schema poct_system
-CREATE SCHEMA IF NOT EXISTS poct_system;
+-- 1. Create Schema dtx_system
+CREATE SCHEMA IF NOT EXISTS dtx_system;
 
 -- 2. Create Tables
-CREATE TABLE IF NOT EXISTS poct_system.master_wards (
+CREATE TABLE IF NOT EXISTS dtx_system.master_wards (
     id SERIAL PRIMARY KEY,
     en_name VARCHAR(100) UNIQUE NOT NULL,
     thai_name VARCHAR(150) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.dtx_machines (
+CREATE TABLE IF NOT EXISTS dtx_system.dtx_machines (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     bgm_code VARCHAR(100) UNIQUE NOT NULL,
     serial_number VARCHAR(150) UNIQUE NOT NULL,
@@ -852,7 +852,7 @@ CREATE TABLE IF NOT EXISTS poct_system.dtx_machines (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.repair_requests (
+CREATE TABLE IF NOT EXISTS dtx_system.repair_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     bgm_code VARCHAR(100) NOT NULL,
     serial_number VARCHAR(150),
@@ -872,7 +872,7 @@ CREATE TABLE IF NOT EXISTS poct_system.repair_requests (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.supply_requests (
+CREATE TABLE IF NOT EXISTS dtx_system.supply_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ward VARCHAR(150) NOT NULL,
     requester VARCHAR(200) NOT NULL,
@@ -884,7 +884,7 @@ CREATE TABLE IF NOT EXISTS poct_system.supply_requests (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.qc_records (
+CREATE TABLE IF NOT EXISTS dtx_system.qc_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     date DATE DEFAULT CURRENT_DATE NOT NULL,
     rec_date DATE NOT NULL,
@@ -903,7 +903,7 @@ CREATE TABLE IF NOT EXISTS poct_system.qc_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.qc_lot_configs (
+CREATE TABLE IF NOT EXISTS dtx_system.qc_lot_configs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     lot_number VARCHAR(100) UNIQUE NOT NULL,
     l1_target NUMERIC NOT NULL,
@@ -921,7 +921,7 @@ CREATE TABLE IF NOT EXISTS poct_system.qc_lot_configs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.eqa_records (
+CREATE TABLE IF NOT EXISTS dtx_system.eqa_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organizer VARCHAR(150),
     round VARCHAR(100) NOT NULL,
@@ -942,7 +942,7 @@ CREATE TABLE IF NOT EXISTS poct_system.eqa_records (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.user_manuals (
+CREATE TABLE IF NOT EXISTS dtx_system.user_manuals (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     category VARCHAR(50) NOT NULL,
@@ -955,7 +955,7 @@ CREATE TABLE IF NOT EXISTS poct_system.user_manuals (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS poct_system.announcements (
+CREATE TABLE IF NOT EXISTS dtx_system.announcements (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -970,7 +970,7 @@ CREATE TABLE IF NOT EXISTS poct_system.announcements (
 );
 
 -- 3. Seed Wards
-INSERT INTO poct_system.master_wards (en_name, thai_name) VALUES
+INSERT INTO dtx_system.master_wards (en_name, thai_name) VALUES
 ('OPD', 'OPD (ผู้ป่วยนอก)'),
 ('ER', 'ER (อุบัติเหตุและฉุกเฉิน)'),
 ('IPD_MALE', 'IPD ชาย (หอผู้ป่วยในชาย)'),
@@ -992,41 +992,41 @@ INSERT INTO poct_system.master_wards (en_name, thai_name) VALUES
 ON CONFLICT (en_name) DO NOTHING;
 
 -- 4. Grant Permissions
-GRANT USAGE ON SCHEMA poct_system TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA poct_system TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA poct_system TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA poct_system GRANT ALL ON TABLES TO anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA dtx_system TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA dtx_system TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA dtx_system GRANT ALL ON TABLES TO anon, authenticated, service_role;
 
 -- 5. Enable RLS and Open Policies
-ALTER TABLE poct_system.master_wards ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.dtx_machines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.repair_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.supply_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.qc_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.eqa_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.user_manuals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE poct_system.announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.master_wards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.dtx_machines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.repair_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.supply_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.qc_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.eqa_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.user_manuals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.announcements ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "wards_all_policy" ON poct_system.master_wards;
-DROP POLICY IF EXISTS "machines_all_policy" ON poct_system.dtx_machines;
-DROP POLICY IF EXISTS "repairs_all_policy" ON poct_system.repair_requests;
-DROP POLICY IF EXISTS "supplies_all_policy" ON poct_system.supply_requests;
-DROP POLICY IF EXISTS "qc_records_all_policy" ON poct_system.qc_records;
-DROP POLICY IF EXISTS "qc_configs_all_policy" ON poct_system.qc_lot_configs;
-DROP POLICY IF EXISTS "eqa_all_policy" ON poct_system.eqa_records;
-DROP POLICY IF EXISTS "manuals_all_policy" ON poct_system.user_manuals;
-DROP POLICY IF EXISTS "announcements_all_policy" ON poct_system.announcements;
+DROP POLICY IF EXISTS "wards_all_policy" ON dtx_system.master_wards;
+DROP POLICY IF EXISTS "machines_all_policy" ON dtx_system.dtx_machines;
+DROP POLICY IF EXISTS "repairs_all_policy" ON dtx_system.repair_requests;
+DROP POLICY IF EXISTS "supplies_all_policy" ON dtx_system.supply_requests;
+DROP POLICY IF EXISTS "qc_records_all_policy" ON dtx_system.qc_records;
+DROP POLICY IF EXISTS "qc_configs_all_policy" ON dtx_system.qc_lot_configs;
+DROP POLICY IF EXISTS "eqa_all_policy" ON dtx_system.eqa_records;
+DROP POLICY IF EXISTS "manuals_all_policy" ON dtx_system.user_manuals;
+DROP POLICY IF EXISTS "announcements_all_policy" ON dtx_system.announcements;
 
-CREATE POLICY "wards_all_policy" ON poct_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "machines_all_policy" ON poct_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "repairs_all_policy" ON poct_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "supplies_all_policy" ON poct_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_records_all_policy" ON poct_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_configs_all_policy" ON poct_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "eqa_all_policy" ON poct_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "manuals_all_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "announcements_all_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "wards_all_policy" ON dtx_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "machines_all_policy" ON dtx_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "repairs_all_policy" ON dtx_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "supplies_all_policy" ON dtx_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_records_all_policy" ON dtx_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "qc_configs_all_policy" ON dtx_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "eqa_all_policy" ON dtx_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- 6. Reload Data API Schema Cache
 NOTIFY pgrst, 'reload schema';

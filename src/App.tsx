@@ -6,16 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./components/CustomSelect";
 import { dbService } from './lib/supabase';
-import { 
-  INITIAL_MACHINES, 
-  INITIAL_REPAIRS, 
-  INITIAL_SUPPLIES, 
-  INITIAL_QC_RECORDS, 
-  INITIAL_LOT_CONFIGS, 
-  INITIAL_EQA_RECORDS,
-  MANUALS_LIST,
-  INITIAL_ANNOUNCEMENTS
-} from './mockData';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from './types';
 import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin } from 'lucide-react';
 

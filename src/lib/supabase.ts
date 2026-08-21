@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
-import { INITIAL_WARDS } from '../mockData';
 
 // Helper to validate standard UUID format
 export const isUuid = (val?: string): boolean => {
@@ -28,6 +27,8 @@ export const getSupabaseAnonKey = (): string => {
 
 let cachedClient: SupabaseClient<any, any, any> | null = null;
 let cachedKey = '';
+let cachedPublicClient: SupabaseClient<any, any, any> | null = null;
+let cachedPublicKey = '';
 
 export function getSupabaseClient(): SupabaseClient<any, any, any> | null {
   const url = getSupabaseUrl();
@@ -43,7 +44,7 @@ export function getSupabaseClient(): SupabaseClient<any, any, any> | null {
 
   try {
     cachedClient = createClient(url, key, {
-      db: { schema: 'poct_system' },
+      db: { schema: 'dtx_system' },
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -52,7 +53,36 @@ export function getSupabaseClient(): SupabaseClient<any, any, any> | null {
     cachedKey = currentComposite;
     return cachedClient;
   } catch (err) {
-    console.warn('Failed to initialize Supabase client:', err);
+    console.warn('Failed to initialize Supabase client (dtx_system):', err);
+    return null;
+  }
+}
+
+export function getPublicSupabaseClient(): SupabaseClient<any, any, any> | null {
+  const url = getSupabaseUrl();
+  const key = getSupabaseAnonKey();
+
+  if (!url || !key) return null;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return null;
+
+  const currentComposite = `${url}::${key}`;
+  if (cachedPublicClient && cachedPublicKey === currentComposite) {
+    return cachedPublicClient;
+  }
+
+  try {
+    cachedPublicClient = createClient(url, key, {
+      db: { schema: 'public' },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      }
+    });
+    cachedPublicKey = currentComposite;
+    return cachedPublicClient;
+  } catch (err) {
+    console.warn('Failed to initialize Public Supabase client (public schema):', err);
     return null;
   }
 }
@@ -67,6 +97,8 @@ export function saveSupabaseCredentials(url: string, key: string) {
   }
   cachedClient = null;
   cachedKey = '';
+  cachedPublicClient = null;
+  cachedPublicKey = '';
   resetSupabaseCache();
 }
 
@@ -233,7 +265,8 @@ export function resetSupabaseCache() {
 
 /**
  * Strict Schema Query Runner:
- * Strictly queries `poct_system` schema. Tables outside this schema are not accessed.
+ * Primary queries `dtx_system` schema. If the custom schema is not exposed by PostgREST,
+ * it seamlessly queries via the public view bridge.
  */
 async function querySupabaseClient<T>(
   fn: (client: any, tableName: string) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>,
@@ -246,18 +279,34 @@ async function querySupabaseClient<T>(
   const table = primaryTable || '';
 
   try {
-    const poctClient = client.schema('poct_system');
-    const resPoct = (await fn(poctClient, table)) as { data: T | null; error: any };
-    if (!resPoct.error && resPoct.data !== null && resPoct.data !== undefined) {
-      return resPoct;
+    // 1. Try querying dtx_system schema directly
+    const dtxClient = client.schema('dtx_system');
+    const resDtx = (await fn(dtxClient, table)) as { data: T | null; error: any };
+    if (!resDtx.error && resDtx.data !== null && resDtx.data !== undefined) {
+      return resDtx;
+    }
+
+    // If dtx_system schema is not exposed or fails, fallback to public view
+    const isSchemaError = resDtx.error?.code === 'PGRST106' || 
+                          resDtx.error?.code === 'PGRST205' || 
+                          resDtx.error?.code === '42P01' || 
+                          resDtx.error?.message?.includes('Invalid schema') ||
+                          resDtx.error?.message?.includes('Could not find the table');
+
+    if (isSchemaError) {
+      const publicClient = client.schema('public');
+      const resPublic = (await fn(publicClient, table)) as { data: T | null; error: any };
+      if (!resPublic.error && resPublic.data !== null && resPublic.data !== undefined) {
+        return resPublic;
+      }
     }
     
-    const isMissing = resPoct.error?.code === 'PGRST205' || 
-                      resPoct.error?.code === '42P01' || 
-                      resPoct.error?.message?.includes('Could not find the table') || 
-                      resPoct.error?.message?.includes('does not exist');
+    const isMissing = resDtx.error?.code === 'PGRST205' || 
+                      resDtx.error?.code === '42P01' || 
+                      resDtx.error?.message?.includes('Could not find the table') || 
+                      resDtx.error?.message?.includes('does not exist');
 
-    return { data: null, error: resPoct.error, isMissingTable: isMissing };
+    return { data: null, error: resDtx.error, isMissingTable: isMissing };
   } catch (err: any) {
     return { data: null, error: err, isMissingTable: false };
   }
@@ -293,31 +342,31 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
   const results: TableDiagnosticResult[] = [];
 
   for (const t of tables) {
-    let poctStatus: 'ok' | 'error' | 'not_exposed' | 'not_found' = 'not_found';
-    let poctErr = '';
+    let dtxStatus: 'ok' | 'error' | 'not_exposed' | 'not_found' = 'not_found';
+    let dtxErr = '';
     let publicStatus: 'ok' | 'error' | 'not_found' = 'not_found';
     let publicErr = '';
     let count = 0;
 
-    // 1. Check poct_system schema
+    // 1. Check dtx_system schema
     try {
-      const { data, error, count: c } = await client.schema('poct_system').from(t.name).select('*', { count: 'exact', head: true });
+      const { data, error, count: c } = await client.schema('dtx_system').from(t.name).select('*', { count: 'exact', head: true });
       if (!error) {
-        poctStatus = 'ok';
+        dtxStatus = 'ok';
         count = c || 0;
       } else {
-        poctErr = error.message || error.code || 'Error';
-        if (poctErr.includes('PGRST106') || poctErr.includes('The schema must be one of the following')) {
-          poctStatus = 'not_exposed';
-        } else if (poctErr.includes('42P01') || poctErr.includes('does not exist')) {
-          poctStatus = 'not_found';
+        dtxErr = error.message || error.code || 'Error';
+        if (dtxErr.includes('PGRST106') || dtxErr.includes('The schema must be one of the following')) {
+          dtxStatus = 'not_exposed';
+        } else if (dtxErr.includes('42P01') || dtxErr.includes('does not exist')) {
+          dtxStatus = 'not_found';
         } else {
-          poctStatus = 'error';
+          dtxStatus = 'error';
         }
       }
     } catch (e: any) {
-      poctErr = e.message || 'Exception';
-      poctStatus = 'error';
+      dtxErr = e.message || 'Exception';
+      dtxStatus = 'error';
     }
 
     // 2. Check public schema
@@ -342,12 +391,12 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
     results.push({
       tableName: t.name,
       thaiLabel: t.label,
-      poctSchemaStatus: poctStatus,
-      poctSchemaError: poctErr,
+      poctSchemaStatus: dtxStatus,
+      poctSchemaError: dtxErr,
       publicSchemaStatus: publicStatus,
       publicSchemaError: publicErr,
       recordCount: count,
-      isReady: poctStatus === 'ok' || publicStatus === 'ok'
+      isReady: dtxStatus === 'ok' || publicStatus === 'ok'
     });
   }
 
@@ -607,45 +656,129 @@ export const mapAnnouncementToDb = (a: Announcement) => ({
   is_deleted: a.isDeleted || false
 });
 
+function parseWardRow(w: any): { en_name: string; thai_name: string } | null {
+  if (!w || typeof w !== 'object') return null;
+  const thaiName = 
+    w.thai_name ||
+    w.ward_name ||
+    w.ward_name_th ||
+    w.name_th ||
+    w.ward_thai ||
+    w.wardname ||
+    w.ward_desc ||
+    w.ward_description ||
+    w.department ||
+    w.department_name ||
+    w.dept_name ||
+    w.dept ||
+    w.name ||
+    w.ward ||
+    w.en_name ||
+    w.ward_code ||
+    w.code ||
+    (w.id ? String(w.id) : '');
+
+  const enName = 
+    w.en_name ||
+    w.ward_code ||
+    w.code ||
+    w.ward_name_en ||
+    w.name_en ||
+    w.ward_en ||
+    w.ward ||
+    w.name ||
+    thaiName ||
+    '';
+
+  const tStr = String(thaiName || '').trim();
+  const eStr = String(enName || tStr).trim();
+
+  if (!tStr && !eStr) return null;
+  return {
+    en_name: eStr || tStr,
+    thai_name: tStr || eStr
+  };
+}
+
 // ==========================================================================
-// Database Service: Dual-Schema (poct_system -> public) + API Proxy Fallback
+// Database Service: Dual-Schema (dtx_system -> public) + API Proxy Fallback
 // ==========================================================================
 
 export const dbService = {
-  // --- master_wards (Uses public.master_wards as shared hospital table) ---
+  // --- master_wards (Strictly queries public.master_wards for thai_name via dedicated public client) ---
   async getWards(): Promise<{ en_name: string; thai_name: string }[]> {
-    const client = getSupabaseClient();
-    if (client) {
-      // 1. Try public schema first (shared master table across hospital projects)
+    const publicClient = getPublicSupabaseClient();
+    if (publicClient) {
       try {
-        const { data, error } = await client.schema('public').from('master_wards').select('*');
+        console.log('[DEBUG master_wards] Initiating query to public.master_wards via dedicated public client...');
+        let resData: any[] | null = null;
+        const { data, error, status, statusText } = await publicClient.from('master_wards').select('*');
+        
         if (!error && Array.isArray(data) && data.length > 0) {
-          return (data as any[]).map(w => ({
-            en_name: w.en_name || w.name || w.ward || w.code || '',
-            thai_name: w.thai_name || w.name || w.ward || w.en_name || ''
-          }));
+          console.log(`[DEBUG master_wards] Query public.master_wards SUCCESS: found ${data.length} records`);
+          resData = data;
+        } else {
+          if (error) {
+            console.warn(`[DEBUG master_wards] Query select(*) returned error:`, {
+              code: error.code,
+              message: error.message,
+              details: error.details,
+              hint: error.hint,
+              status,
+              statusText
+            });
+          }
+          // Fallback to querying specifically thai_name
+          const { data: dThai, error: eThai, status: sThai } = await publicClient.from('master_wards').select('thai_name');
+          if (!eThai && Array.isArray(dThai) && dThai.length > 0) {
+            console.log(`[DEBUG master_wards] Query select(thai_name) SUCCESS: found ${dThai.length} records`);
+            resData = dThai;
+          } else if (eThai) {
+            console.warn(`[DEBUG master_wards] Query select(thai_name) returned error:`, {
+              code: eThai.code,
+              message: eThai.message,
+              details: eThai.details,
+              hint: eThai.hint,
+              status: sThai
+            });
+          }
         }
-      } catch (err) {
-        console.warn('public.master_wards query attempt:', err);
-      }
 
-      // 2. Fallback to poct_system.master_wards if public doesn't exist
-      try {
-        const { data, error } = await client.schema('poct_system').from('master_wards').select('*');
-        if (!error && Array.isArray(data) && data.length > 0) {
-          return (data as any[]).map(w => ({
-            en_name: w.en_name || w.name || w.ward || '',
-            thai_name: w.thai_name || w.name || w.en_name || ''
-          }));
+        if (resData && resData.length > 0) {
+          const list = resData
+            .map(parseWardRow)
+            .filter((w): w is { en_name: string; thai_name: string } => w !== null);
+          if (list.length > 0) {
+            return list.sort((a, b) => a.thai_name.localeCompare(b.thai_name, 'th'));
+          }
         }
-      } catch {}
+      } catch (err: any) {
+        console.error('[DEBUG master_wards] Exception during client query:', err);
+      }
+    } else {
+      console.warn('[DEBUG master_wards] Supabase public client not configured or unavailable');
     }
 
+    // Fallback to Express backend API proxy (/api/wards)
     try {
+      console.log('[DEBUG master_wards] Attempting backend API fallback: /api/wards');
       const data = await safeApiFetch('/api/wards');
-      if (Array.isArray(data) && data.length > 0) return data;
-    } catch {}
-    return INITIAL_WARDS.map(w => ({ en_name: w, thai_name: w }));
+      if (Array.isArray(data) && data.length > 0) {
+        console.log(`[DEBUG master_wards] API fallback /api/wards SUCCESS: received ${data.length} records`);
+        const list = data
+          .map(parseWardRow)
+          .filter((w): w is { en_name: string; thai_name: string } => w !== null);
+        if (list.length > 0) {
+          return list.sort((a, b) => a.thai_name.localeCompare(b.thai_name, 'th'));
+        }
+      } else {
+        console.log('[DEBUG master_wards] API fallback /api/wards returned empty array');
+      }
+    } catch (err: any) {
+      console.warn('[DEBUG master_wards] Backend API /api/wards error:', err?.message || err);
+    }
+
+    return [];
   },
 
   // --- dtx_machines ---

@@ -162,7 +162,18 @@ export interface Announcement {
 
 export interface TroubleshootingStep {
   id: string;
-  problem: string;
+  title?: string;
+  problem?: string;
+  description?: string;
+  tip?: string;
+  iconName?: string;
+  solution?: string;
+  symptoms?: string[];
+}
+
+export interface DtxErrorCode {
+  code: string;
+  meaning: string;
   solution: string;
-  symptoms: string[];
+  severity: 'warning' | 'error' | 'critical';
 }

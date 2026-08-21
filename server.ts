@@ -18,7 +18,15 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABA
 
 const supabase = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
-      db: { schema: 'poct_system' },
+      db: { schema: 'dtx_system' },
+      auth: { persistSession: false }
+    })
+  : null;
+
+// Dedicated Public Schema Supabase Client (without dtx_system db configuration)
+const publicSupabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      db: { schema: 'public' },
       auth: { persistSession: false }
     })
   : null;
@@ -49,53 +57,82 @@ const checkDbConfig = (req: express.Request, res: express.Response, next: expres
   next();
 };
 
-// Query helper for READ queries (strictly inside poct_system schema)
+// Query helper for READ queries (primary dtx_system schema, with public view fallback)
 async function executeSupabaseQuery<T>(
   queryFn: (client: any) => Promise<{ data: T; error: any }>,
   fallbackValue?: T
 ): Promise<T> {
-  if (!supabase) {
+  if (!supabase && !publicSupabase) {
     return (fallbackValue ?? []) as unknown as T;
   }
 
-  try {
-    const poctClient = supabase.schema('poct_system');
-    const { data: poctData, error: poctError } = await queryFn(poctClient);
-    if (!poctError && poctData !== null && poctData !== undefined) {
-      return poctData;
+  // 1. Try dtx_system schema directly
+  if (supabase) {
+    try {
+      const dtxClient = supabase.schema('dtx_system');
+      const { data: dtxData, error: dtxError } = await queryFn(dtxClient);
+      if (!dtxError && dtxData !== null && dtxData !== undefined) {
+        return dtxData;
+      }
+    } catch (err: any) {
+      console.warn("dtx_system query exception:", err?.message || err);
     }
-    if (poctError) {
-      console.warn("poct_system query notice:", poctError.message || poctError);
+  }
+
+  // 2. Try public schema view bridge
+  const pubClient = publicSupabase || (supabase ? supabase.schema('public') : null);
+  if (pubClient) {
+    try {
+      const { data: pubData, error: pubError } = await queryFn(pubClient);
+      if (!pubError && pubData !== null && pubData !== undefined) {
+        return pubData;
+      }
+    } catch (err: any) {
+      console.warn("public view query exception:", err?.message || err);
     }
-  } catch (err: any) {
-    console.warn("poct_system query exception:", err?.message || err);
   }
 
   return (fallbackValue ?? []) as unknown as T;
 }
 
-// Query helper for WRITE queries (strictly inside poct_system schema)
+// Query helper for WRITE queries (primary dtx_system schema, with public view fallback)
 async function executeSupabaseWrite<T>(
   queryFn: (client: any) => Promise<{ data: T; error: any }>
 ): Promise<T> {
-  if (!supabase) {
+  if (!supabase && !publicSupabase) {
     throw new Error("Supabase client is not configured on server (SUPABASE_URL, SUPABASE_ANON_KEY)");
   }
 
-  try {
-    const poctClient = supabase.schema('poct_system');
-    const { data: poctData, error: poctError } = await queryFn(poctClient);
-    if (!poctError && poctData !== null && poctData !== undefined) {
-      return poctData;
+  // 1. Try dtx_system schema directly
+  if (supabase) {
+    try {
+      const dtxClient = supabase.schema('dtx_system');
+      const { data: dtxData, error: dtxError } = await queryFn(dtxClient);
+      if (!dtxError && dtxData !== null && dtxData !== undefined) {
+        return dtxData;
+      }
+    } catch (err: any) {
+      console.warn("dtx_system write exception:", err?.message || err);
     }
-    if (poctError) {
-      throw poctError;
-    }
-  } catch (err: any) {
-    throw new Error(err?.message || "Failed to execute Supabase database write operation in poct_system schema");
   }
 
-  throw new Error("Failed to execute Supabase database write operation in poct_system schema");
+  // 2. Try public schema view bridge
+  const pubClient = publicSupabase || (supabase ? supabase.schema('public') : null);
+  if (pubClient) {
+    try {
+      const { data: pubData, error: pubError } = await queryFn(pubClient);
+      if (!pubError && pubData !== null && pubData !== undefined) {
+        return pubData;
+      }
+      if (pubError) {
+        throw pubError;
+      }
+    } catch (err: any) {
+      throw new Error(err?.message || "Failed to execute Supabase database write operation");
+    }
+  }
+
+  throw new Error("Failed to execute Supabase database write operation");
 }
 
 // ==========================================================================
@@ -564,42 +601,65 @@ app.delete("/api/announcements/:id", checkDbConfig, async (req, res) => {
   }
 });
 
-// --- master_wards (Queries public.master_wards first as central shared table) ---
+// --- master_wards (Strictly queries public.master_wards for thai_name via dedicated public client) ---
 app.get("/api/wards", checkDbConfig, async (req, res) => {
   try {
-    let data: any[] = [];
-    // 1. Try public.master_wards
-    try {
-      if (supabase) {
-        const { data: publicWards, error } = await supabase.schema('public').from("master_wards").select("*");
-        if (!error && Array.isArray(publicWards) && publicWards.length > 0) {
-          data = publicWards;
-        }
-      }
-    } catch (e) {
-      console.warn("public.master_wards error:", e);
+    const client = publicSupabase || supabase;
+    if (!client) {
+      console.warn("[SERVER master_wards DEBUG] Supabase client is not configured");
+      return res.json([]);
     }
 
-    // 2. Fallback to poct_system.master_wards if public is empty
-    if (!data || data.length === 0) {
-      try {
-        if (supabase) {
-          const { data: poctWards, error } = await supabase.schema('poct_system').from("master_wards").select("*");
-          if (!error && Array.isArray(poctWards) && poctWards.length > 0) {
-            data = poctWards;
-          }
-        }
-      } catch (e) {
-        console.warn("poct_system.master_wards error:", e);
+    console.log("[SERVER master_wards DEBUG] Fetching master_wards from schema: public...");
+    let resData: any[] | null = null;
+    const { data, error, status, statusText } = await client.from("master_wards").select("*");
+    
+    if (!error && Array.isArray(data) && data.length > 0) {
+      console.log(`[SERVER master_wards DEBUG] select(*) SUCCESS: found ${data.length} records`);
+      resData = data;
+    } else {
+      if (error) {
+        console.warn(`[SERVER master_wards DEBUG] select(*) error from public.master_wards:`, {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          status,
+          statusText
+        });
+      }
+      // Fallback to explicitly querying thai_name if select * is restricted
+      const { data: dThai, error: eThai, status: sThai } = await client.from("master_wards").select("thai_name");
+      if (!eThai && Array.isArray(dThai) && dThai.length > 0) {
+        console.log(`[SERVER master_wards DEBUG] select(thai_name) SUCCESS: found ${dThai.length} records`);
+        resData = dThai;
+      } else if (eThai) {
+        console.warn(`[SERVER master_wards DEBUG] select(thai_name) error:`, {
+          code: eThai.code,
+          message: eThai.message,
+          details: eThai.details,
+          hint: eThai.hint,
+          status: sThai
+        });
       }
     }
 
-    const sorted = (data || []).sort((a: any, b: any) =>
-      String(a.thai_name || a.name || a.ward || '').localeCompare(String(b.thai_name || b.name || b.ward || ''), 'th')
-    );
-    res.json(sorted);
+    const list = (resData || [])
+      .filter((w: any) => w && (w.thai_name || w.name || w.ward) && String(w.thai_name || w.name || w.ward).trim().length > 0)
+      .map((w: any) => {
+        const thaiName = String(w.thai_name || w.ward_name || w.name || w.ward || '').trim();
+        const enName = String(w.en_name || w.ward_code || w.code || thaiName).trim();
+        return {
+          en_name: enName || thaiName,
+          thai_name: thaiName || enName
+        };
+      })
+      .sort((a: any, b: any) => a.thai_name.localeCompare(b.thai_name, 'th'));
+
+    res.json(list);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    console.error("[SERVER master_wards DEBUG] Exception while querying master_wards:", err?.message || err);
+    res.json([]);
   }
 });
 

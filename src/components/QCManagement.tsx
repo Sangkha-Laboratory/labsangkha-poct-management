@@ -7,7 +7,6 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { QcRecord, QcLotConfig, DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
-import { INITIAL_LOT_CONFIGS } from '../mockData';
 import { Plus, Settings, BarChart2, CheckCircle, AlertTriangle, FileText, Download, Sliders, Calendar, User, Eye, Lightbulb, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface QCManagementProps {

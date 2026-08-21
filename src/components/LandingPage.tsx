@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine, RepairRequest, SupplyRequest, UserManual, Announcement } from '../types';
 import { dbService } from '../lib/supabase';
-import { TROUBLESHOOTING_GUIDE, MANUALS_LIST, INITIAL_ANNOUNCEMENTS, DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES } from '../mockData';
+import { DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES, TROUBLESHOOTING_GUIDE } from '../constants/deviceGuide';
 import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers } from 'lucide-react';
 
 interface LandingPageProps {
@@ -61,8 +61,8 @@ export default function LandingPage({
     deletedAnnIds = JSON.parse(localStorage.getItem('dtx_deleted_ann_ids') || '[]');
   } catch (e) {}
 
-  const currentManuals = (propManuals !== undefined ? propManuals : MANUALS_LIST).filter(m => m && !m.isDeleted && !deletedManualIds.includes(m.id) && !['man1', 'man2', 'man3'].includes(m.id));
-  const currentAnnouncements = (propAnnouncements !== undefined ? propAnnouncements : INITIAL_ANNOUNCEMENTS).filter(a => a && !a.isDeleted && !deletedAnnIds.includes(a.id) && !['ann-1', 'ann-2'].includes(a.id));
+  const currentManuals = (propManuals || []).filter(m => m && !m.isDeleted && !deletedManualIds.includes(m.id) && !['man1', 'man2', 'man3'].includes(m.id));
+  const currentAnnouncements = (propAnnouncements || []).filter(a => a && !a.isDeleted && !deletedAnnIds.includes(a.id) && !['ann-1', 'ann-2'].includes(a.id));
   const featuredAnnouncement = currentAnnouncements.find(a => a.pinned) || currentAnnouncements[0];
 
   // Repair form states
