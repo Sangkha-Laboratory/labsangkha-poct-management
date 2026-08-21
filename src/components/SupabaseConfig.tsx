@@ -222,7 +222,7 @@ export default function SupabaseConfig({
 
   const [diagnostics, setDiagnostics] = useState<TableDiagnosticResult[] | null>(null);
   const [isDiagnosing, setIsDiagnosing] = useState(false);
-  const [activeSqlTab, setActiveSqlTab] = useState<'bridge' | 'full'>('bridge');
+  const [activeSqlTab, setActiveSqlTab] = useState<'bridge' | 'full' | 'cleanup'>('bridge');
 
   const handleRunDiagnostics = async () => {
     setIsDiagnosing(true);
@@ -242,7 +242,16 @@ export default function SupabaseConfig({
   const handleCopyBridgeSql = () => {
     try {
       navigator.clipboard.writeText(POCT_QUICK_BRIDGE_SQL);
-      onShowToast('คัดลอกสคริปต์ 1-Click Bridge สำหรับตาราง poct_system ที่มีอยู่แล้ว สำเร็จ!');
+      onShowToast('คัดลอกสคริปต์สิทธิ์ RLS สำหรับสกีมา poct_system สำเร็จ!');
+    } catch {
+      onShowToast('คัดลอกจากกล่องข้อความด้านล่างได้เลย');
+    }
+  };
+
+  const handleCopyCleanupSql = () => {
+    try {
+      navigator.clipboard.writeText(POCT_CLEANUP_PUBLIC_SQL);
+      onShowToast('คัดลอกสคริปต์ลบ Tables/Views ใน public schema สำเร็จแล้ว!');
     } catch {
       onShowToast('คัดลอกจากกล่องข้อความด้านล่างได้เลย');
     }
@@ -635,14 +644,14 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
               <p className="text-[11px] text-slate-500">เลือกสคริปต์ที่ตรงกับสถานะของฐานข้อมูลของคุณ เพื่อรันใน Supabase SQL Editor</p>
             </div>
           </div>
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+          <div className="flex flex-wrap items-center bg-slate-100 p-1 rounded-xl gap-1">
             <button
               onClick={() => setActiveSqlTab('bridge')}
               className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
                 activeSqlTab === 'bridge' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              1-Click Quick Bridge (มีตารางอยู่แล้ว)
+              สิทธิ์สกีมา poct_system (มีตารางอยู่แล้ว)
             </button>
             <button
               onClick={() => setActiveSqlTab('full')}
@@ -650,7 +659,15 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                 activeSqlTab === 'full' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
-              สร้างตารางใหม่ทั้งหมด (Full Schema)
+              สร้างตารางใหม่เฉพาะใน poct_system
+            </button>
+            <button
+              onClick={() => setActiveSqlTab('cleanup')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                activeSqlTab === 'cleanup' ? 'bg-white text-rose-700 shadow-3xs' : 'text-slate-500 hover:text-rose-700'
+              }`}
+            >
+              ลบตารางใน public (Cleanup)
             </button>
           </div>
         </div>
@@ -660,10 +677,10 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
             <div className="bg-amber-50/80 border border-amber-200 text-amber-900 rounded-xl p-4 text-xs leading-relaxed space-y-2">
               <p className="font-extrabold flex items-center gap-1.5 text-amber-950">
                 <Info size={15} className="text-amber-700 shrink-0" />
-                <span>สำหรับกรณีที่คุณสร้างตารางในสกีมา poct_system ไว้แล้ว:</span>
+                <span>สำหรับกรณีที่มีตารางในสกีมา poct_system อยู่แล้ว:</span>
               </p>
               <p className="text-[11px] text-amber-800">
-                Supabase PostgREST API ค่าเริ่มต้นจะมองเห็นเฉพาะสกีมา <code className="bg-white px-1 rounded font-bold font-mono">public</code> คำสั่งนี้จะทำการ <strong>สร้าง Views และมอบสิทธิ์การเข้าถึงทั้งหมด (GRANT Permissions)</strong> ให้กับตารางใน <code className="bg-white px-1 rounded font-bold font-mono">poct_system</code> ของคุณทันที ทำให้แอปสามารถบันทึกและอ่านข้อมูลได้ 100% โดยไม่ต้องลบตารางเดิม
+                คำสั่งนี้จะมอบสิทธิ์ <strong>GRANT USAGE, GRANT ALL และเปิด RLS Policy</strong> เฉพาะในสกีมา <code className="bg-white px-1 rounded font-bold font-mono">poct_system</code> โดยตรง <strong>ไม่มีการสร้าง Table หรือ View ใดๆ ใน schema public</strong>
               </p>
               <div className="pt-1">
                 <button
@@ -671,7 +688,7 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                   className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
                 >
                   <Copy size={13} />
-                  <span>คัดลอกสคริปต์ 1-Click Quick Bridge SQL</span>
+                  <span>คัดลอกสคริปต์สิทธิ์ Schema poct_system SQL</span>
                 </button>
               </div>
             </div>
@@ -680,11 +697,11 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
               {POCT_QUICK_BRIDGE_SQL}
             </pre>
           </div>
-        ) : (
+        ) : activeSqlTab === 'full' ? (
           <div className="space-y-3.5">
             <div className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl p-4 text-xs leading-relaxed space-y-2">
               <p className="font-extrabold text-slate-900">
-                สคริปต์สร้างสกีมา โครงสร้างตารางทั้งหมด 9 ตาราง พร้อม RLS และข้อมูลตัวอย่างเริ่มต้น:
+                สคริปต์สร้างสกีมา poct_system พร้อมโครงสร้าง 9 ตาราง และ RLS Policies (แยกสัดส่วนชัดเจน 100%):
               </p>
               <div className="pt-1">
                 <button
@@ -692,13 +709,38 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
                 >
                   <Copy size={13} />
-                  <span>คัดลอกสคริปต์ SQL ทั้งหมด (Full Schema)</span>
+                  <span>คัดลอกสคริปต์ SQL (poct_system Schema เท่านั้น)</span>
                 </button>
               </div>
             </div>
 
             <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
               {POCT_SCHEMA_SQL}
+            </pre>
+          </div>
+        ) : (
+          <div className="space-y-3.5">
+            <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl p-4 text-xs leading-relaxed space-y-2">
+              <p className="font-extrabold flex items-center gap-1.5 text-rose-950">
+                <AlertTriangle size={15} className="text-rose-700 shrink-0" />
+                <span>คำสั่งลบตารางและ Views ของ POCT ใน schema public ออกทั้งหมด:</span>
+              </p>
+              <p className="text-[11px] text-rose-800">
+                หากก่อนหน้านี้มีตารางหรือ View ของ POCT ถูกสร้างตกค้างอยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">public</code> schema คำสั่งนี้จะทำการ <strong>DROP TABLE / DROP VIEW</strong> ออกทั้งหมดอย่างปลอดภัย โดย<strong>ไม่กระทบข้อมูลจริงที่อยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">poct_system</code></strong>
+              </p>
+              <div className="pt-1">
+                <button
+                  onClick={handleCopyCleanupSql}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
+                >
+                  <Copy size={13} />
+                  <span>คัดลอกสคริปต์ล้าง public schema (Cleanup SQL)</span>
+                </button>
+              </div>
+            </div>
+
+            <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
+              {POCT_CLEANUP_PUBLIC_SQL}
             </pre>
           </div>
         )}
@@ -709,8 +751,8 @@ SUPABASE_ANON_KEY=your-supabase-anon-key`}
 }
 
 const POCT_QUICK_BRIDGE_SQL = `-- ==========================================================================
--- 🚀 1-Click Quick Bridge: สำหรับกรณีที่มีสกีมา poct_system และตารางอยู่แล้ว
--- รันคำสั่งนี้ใน Supabase SQL Editor เพื่อเปิดสิทธิ์และเชื่อมต่อ API ทันที
+-- 🚀 สิทธิ์การใช้งาน Schema poct_system (สำหรับกรณีที่มีตารางอยู่แล้ว)
+-- เปิดสิทธิ์ RLS และ API เฉพาะภายใน schema poct_system (ไม่สร้างหรือยุ่งกับ public)
 -- ==========================================================================
 
 -- 1. ให้สิทธิ์การใช้งานสกีมาและตารางแก่ anon, authenticated, service_role และ postgres
@@ -719,29 +761,7 @@ GRANT ALL ON ALL TABLES IN SCHEMA poct_system TO anon, authenticated, service_ro
 GRANT ALL ON ALL SEQUENCES IN SCHEMA poct_system TO anon, authenticated, service_role, postgres;
 ALTER DEFAULT PRIVILEGES IN SCHEMA poct_system GRANT ALL ON TABLES TO anon, authenticated, service_role, postgres;
 
--- 2. สร้าง Views ใน schema public เพื่อให้ Supabase API เรียกใช้งานได้ทันที 100%
-CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM poct_system.master_wards;
-CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM poct_system.dtx_machines;
-CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM poct_system.repair_requests;
-CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM poct_system.supply_requests;
-CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM poct_system.qc_records;
-CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM poct_system.qc_lot_configs;
-CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM poct_system.eqa_records;
-CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM poct_system.user_manuals;
-CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM poct_system.announcements;
-
--- 3. ให้สิทธิ์การเข้าถึง Views ใน public
-GRANT ALL ON public.master_wards TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.repair_requests TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.supply_requests TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.qc_records TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.eqa_records TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.user_manuals TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.announcements TO anon, authenticated, service_role, postgres;
-
--- 4. เปิด RLS Policy บนตาราง poct_system เพื่อให้เข้าถึงได้
+-- 2. เปิด RLS Policy บนตาราง poct_system เพื่อให้เข้าถึงได้
 ALTER TABLE IF EXISTS poct_system.master_wards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS poct_system.dtx_machines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS poct_system.repair_requests ENABLE ROW LEVEL SECURITY;
@@ -772,13 +792,39 @@ CREATE POLICY "eqa_all_policy" ON poct_system.eqa_records FOR ALL TO anon, authe
 CREATE POLICY "manuals_all_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "announcements_all_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 5. สั่ง PostgREST รีโหลดแคช Schema ทันที
+-- 3. สั่ง PostgREST รีโหลดแคช Schema ทันที
+NOTIFY pgrst, 'reload schema';
+`;
+
+const POCT_CLEANUP_PUBLIC_SQL = `-- ==========================================================================
+-- 🧹 สคริปต์ลบ Table/View เฉพาะของ POCT ที่ตกค้างใน public schema
+-- (สงวนตาราง public.master_wards ไว้สำหรับใช้งานร่วมกันในโรงพยาบาล)
+-- ==========================================================================
+
+DROP VIEW IF EXISTS public.dtx_machines CASCADE;
+DROP VIEW IF EXISTS public.repair_requests CASCADE;
+DROP VIEW IF EXISTS public.supply_requests CASCADE;
+DROP VIEW IF EXISTS public.qc_records CASCADE;
+DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
+DROP VIEW IF EXISTS public.eqa_records CASCADE;
+DROP VIEW IF EXISTS public.user_manuals CASCADE;
+DROP VIEW IF EXISTS public.announcements CASCADE;
+
+DROP TABLE IF EXISTS public.dtx_machines CASCADE;
+DROP TABLE IF EXISTS public.repair_requests CASCADE;
+DROP TABLE IF EXISTS public.supply_requests CASCADE;
+DROP TABLE IF EXISTS public.qc_records CASCADE;
+DROP TABLE IF EXISTS public.qc_lot_configs CASCADE;
+DROP TABLE IF EXISTS public.eqa_records CASCADE;
+DROP TABLE IF EXISTS public.user_manuals CASCADE;
+DROP TABLE IF EXISTS public.announcements CASCADE;
+
 NOTIFY pgrst, 'reload schema';
 `;
 
 const POCT_SCHEMA_SQL = `-- ==========================================================================
 -- SQL Schema Setup Script for Supabase (Sangkha Hospital POCT DTX System)
--- Compatible with both 'poct_system' and 'public' schemas
+-- Creates isolated schema 'poct_system' ONLY (Nothing in public)
 -- ==========================================================================
 
 -- 1. Create Schema poct_system
@@ -982,24 +1028,6 @@ CREATE POLICY "eqa_all_policy" ON poct_system.eqa_records FOR ALL TO anon, authe
 CREATE POLICY "manuals_all_policy" ON poct_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "announcements_all_policy" ON poct_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 6. Create Views in public schema
-CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM poct_system.master_wards;
-CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM poct_system.dtx_machines;
-CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM poct_system.repair_requests;
-CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM poct_system.supply_requests;
-CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM poct_system.qc_records;
-CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM poct_system.qc_lot_configs;
-CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM poct_system.eqa_records;
-CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM poct_system.user_manuals;
-CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM poct_system.announcements;
-
-GRANT ALL ON public.master_wards TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role;
-GRANT ALL ON public.repair_requests TO anon, authenticated, service_role;
-GRANT ALL ON public.supply_requests TO anon, authenticated, service_role;
-GRANT ALL ON public.qc_records TO anon, authenticated, service_role;
-GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role;
-GRANT ALL ON public.eqa_records TO anon, authenticated, service_role;
-GRANT ALL ON public.user_manuals TO anon, authenticated, service_role;
-GRANT ALL ON public.announcements TO anon, authenticated, service_role;
+-- 6. Reload Data API Schema Cache
+NOTIFY pgrst, 'reload schema';
 `;

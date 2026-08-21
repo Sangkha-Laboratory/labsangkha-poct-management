@@ -17,7 +17,10 @@ const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL ||
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 
 const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      db: { schema: 'poct_system' },
+      auth: { persistSession: false }
+    })
   : null;
 
 // Helper to validate standard UUID format
@@ -46,7 +49,7 @@ const checkDbConfig = (req: express.Request, res: express.Response, next: expres
   next();
 };
 
-// Query helper for READ queries (with fallback)
+// Query helper for READ queries (strictly inside poct_system schema)
 async function executeSupabaseQuery<T>(
   queryFn: (client: any) => Promise<{ data: T; error: any }>,
   fallbackValue?: T
@@ -55,31 +58,23 @@ async function executeSupabaseQuery<T>(
     return (fallbackValue ?? []) as unknown as T;
   }
 
-  // Attempt 1: Query using poct_system schema
   try {
     const poctClient = supabase.schema('poct_system');
     const { data: poctData, error: poctError } = await queryFn(poctClient);
     if (!poctError && poctData !== null && poctData !== undefined) {
       return poctData;
     }
-  } catch (err: any) {
-    console.warn("poct_system schema query attempt:", err?.message || err);
-  }
-
-  // Attempt 2: Fallback to default (public) schema
-  try {
-    const { data: publicData, error: publicError } = await queryFn(supabase);
-    if (!publicError && publicData !== null && publicData !== undefined) {
-      return publicData;
+    if (poctError) {
+      console.warn("poct_system query notice:", poctError.message || poctError);
     }
   } catch (err: any) {
-    console.warn("public schema query exception:", err?.message || err);
+    console.warn("poct_system query exception:", err?.message || err);
   }
 
   return (fallbackValue ?? []) as unknown as T;
 }
 
-// Query helper for WRITE queries (insert, update, delete) that throws real errors on failure
+// Query helper for WRITE queries (strictly inside poct_system schema)
 async function executeSupabaseWrite<T>(
   queryFn: (client: any) => Promise<{ data: T; error: any }>
 ): Promise<T> {
@@ -87,32 +82,20 @@ async function executeSupabaseWrite<T>(
     throw new Error("Supabase client is not configured on server (SUPABASE_URL, SUPABASE_ANON_KEY)");
   }
 
-  let lastError: any = null;
-
-  // Attempt 1: poct_system schema
   try {
     const poctClient = supabase.schema('poct_system');
     const { data: poctData, error: poctError } = await queryFn(poctClient);
     if (!poctError && poctData !== null && poctData !== undefined) {
       return poctData;
     }
-    lastError = poctError;
-  } catch (err: any) {
-    lastError = err;
-  }
-
-  // Attempt 2: public schema fallback
-  try {
-    const { data: publicData, error: publicError } = await queryFn(supabase);
-    if (!publicError && publicData !== null && publicData !== undefined) {
-      return publicData;
+    if (poctError) {
+      throw poctError;
     }
-    lastError = publicError || lastError;
   } catch (err: any) {
-    lastError = err || lastError;
+    throw new Error(err?.message || "Failed to execute Supabase database write operation in poct_system schema");
   }
 
-  throw new Error(lastError?.message || "Failed to execute Supabase database write operation");
+  throw new Error("Failed to execute Supabase database write operation in poct_system schema");
 }
 
 // ==========================================================================
@@ -164,9 +147,12 @@ app.get("/api/debug/columns/:table", async (req, res) => {
 app.get("/api/machines", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("dtx_machines").select("*").order("created_at", { ascending: false })
+      client.from("dtx_machines").select("*")
     );
-    res.json(data || []);
+    const sorted = ((data as any[]) || []).sort(
+      (a: any, b: any) => new Date(b.created_at || b.install_date || 0).getTime() - new Date(a.created_at || a.install_date || 0).getTime()
+    );
+    res.json(sorted);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -176,7 +162,7 @@ app.post("/api/machines", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
     const data = await executeSupabaseWrite(client =>
-      client.from("dtx_machines").insert([payload]).select("*").single()
+      client.from("dtx_machines").insert([payload]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -188,8 +174,8 @@ app.put("/api/machines/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
     const query = isUuid(id)
-      ? (client: any) => client.from("dtx_machines").update(req.body).eq("id", id).select("*").single()
-      : (client: any) => client.from("dtx_machines").update(req.body).eq("bgm_code", id).select("*").single();
+      ? (client: any) => client.from("dtx_machines").update(req.body).eq("id", id).select("*").maybeSingle()
+      : (client: any) => client.from("dtx_machines").update(req.body).eq("bgm_code", id).select("*").maybeSingle();
 
     const data = await executeSupabaseWrite(query);
     res.json(data);
@@ -216,9 +202,12 @@ app.delete("/api/machines/:id", checkDbConfig, async (req, res) => {
 app.get("/api/repairs", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("repair_requests").select("*").order("created_at", { ascending: false })
+      client.from("repair_requests").select("*")
     );
-    res.json(data || []);
+    const sorted = ((data as any[]) || []).sort(
+      (a: any, b: any) => new Date(b.created_at || b.req_date || 0).getTime() - new Date(a.created_at || a.req_date || 0).getTime()
+    );
+    res.json(sorted);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -228,7 +217,7 @@ app.post("/api/repairs", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
     const data = await executeSupabaseWrite(client =>
-      client.from("repair_requests").insert([payload]).select("*").single()
+      client.from("repair_requests").insert([payload]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -240,8 +229,8 @@ app.put("/api/repairs/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
     const query = isUuid(id)
-      ? (client: any) => client.from("repair_requests").update(req.body).eq("id", id).select("*").single()
-      : (client: any) => client.from("repair_requests").update(req.body).eq("bgm_code", id).select("*").single();
+      ? (client: any) => client.from("repair_requests").update(req.body).eq("id", id).select("*").maybeSingle()
+      : (client: any) => client.from("repair_requests").update(req.body).eq("bgm_code", id).select("*").maybeSingle();
 
     const data = await executeSupabaseWrite(query);
     res.json(data);
@@ -268,9 +257,12 @@ app.delete("/api/repairs/:id", checkDbConfig, async (req, res) => {
 app.get("/api/supplies", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("supply_requests").select("*").order("created_at", { ascending: false })
+      client.from("supply_requests").select("*")
     );
-    res.json(data || []);
+    const sorted = ((data as any[]) || []).sort(
+      (a: any, b: any) => new Date(b.created_at || b.req_date || 0).getTime() - new Date(a.created_at || a.req_date || 0).getTime()
+    );
+    res.json(sorted);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -280,7 +272,7 @@ app.post("/api/supplies", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
     const data = await executeSupabaseWrite(client =>
-      client.from("supply_requests").insert([payload]).select("*").single()
+      client.from("supply_requests").insert([payload]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -292,7 +284,7 @@ app.put("/api/supplies/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
     const data = await executeSupabaseWrite(client =>
-      client.from("supply_requests").update(req.body).eq("id", id).select("*").single()
+      client.from("supply_requests").update(req.body).eq("id", id).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -316,9 +308,12 @@ app.delete("/api/supplies/:id", checkDbConfig, async (req, res) => {
 app.get("/api/qc-records", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("qc_records").select("*").order("date", { ascending: false })
+      client.from("qc_records").select("*")
     );
-    res.json(data || []);
+    const sorted = ((data as any[]) || []).sort(
+      (a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime()
+    );
+    res.json(sorted);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -328,7 +323,7 @@ app.post("/api/qc-records", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
     const data = await executeSupabaseWrite(client =>
-      client.from("qc_records").insert([payload]).select("*").single()
+      client.from("qc_records").insert([payload]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -340,7 +335,7 @@ app.put("/api/qc-records/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
     const data = await executeSupabaseWrite(client =>
-      client.from("qc_records").update(req.body).eq("id", id).select("*").single()
+      client.from("qc_records").update(req.body).eq("id", id).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -375,7 +370,7 @@ app.get("/api/lot-configs", checkDbConfig, async (req, res) => {
 app.post("/api/lot-configs", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseWrite(client =>
-      client.from("qc_lot_configs").upsert([req.body], { onConflict: "lot_number" }).select("*").single()
+      client.from("qc_lot_configs").upsert([req.body], { onConflict: "lot_number" }).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -386,7 +381,7 @@ app.post("/api/lot-configs", checkDbConfig, async (req, res) => {
 app.put("/api/lot-configs/:lotNumber", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseWrite(client =>
-      client.from("qc_lot_configs").update(req.body).eq("lot_number", req.params.lotNumber).select("*").single()
+      client.from("qc_lot_configs").update(req.body).eq("lot_number", req.params.lotNumber).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -409,9 +404,12 @@ app.delete("/api/lot-configs/:lotNumber", checkDbConfig, async (req, res) => {
 app.get("/api/eqa-records", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("eqa_records").select("*").order("test_date", { ascending: false })
+      client.from("eqa_records").select("*")
     );
-    res.json(data || []);
+    const sorted = ((data as any[]) || []).sort(
+      (a: any, b: any) => new Date(b.test_date || b.created_at || 0).getTime() - new Date(a.test_date || a.created_at || 0).getTime()
+    );
+    res.json(sorted);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -421,7 +419,7 @@ app.post("/api/eqa-records", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
     const data = await executeSupabaseWrite(client =>
-      client.from("eqa_records").insert([payload]).select("*").single()
+      client.from("eqa_records").insert([payload]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -433,7 +431,7 @@ app.put("/api/eqa-records/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
     const data = await executeSupabaseWrite(client =>
-      client.from("eqa_records").update(req.body).eq("id", id).select("*").single()
+      client.from("eqa_records").update(req.body).eq("id", id).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -457,9 +455,12 @@ app.delete("/api/eqa-records/:id", checkDbConfig, async (req, res) => {
 app.get("/api/manuals", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("user_manuals").select("*").eq("is_deleted", false).order("created_at", { ascending: false })
+      client.from("user_manuals").select("*")
     );
-    res.json(data || []);
+    const filtered = ((data as any[]) || [])
+      .filter((m: any) => !m.is_deleted)
+      .sort((a: any, b: any) => new Date(b.created_at || b.upload_date || 0).getTime() - new Date(a.created_at || a.upload_date || 0).getTime());
+    res.json(filtered);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -468,7 +469,7 @@ app.get("/api/manuals", checkDbConfig, async (req, res) => {
 app.post("/api/manuals", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseWrite(client =>
-      client.from("user_manuals").insert([req.body]).select("*").single()
+      client.from("user_manuals").insert([req.body]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -479,7 +480,7 @@ app.post("/api/manuals", checkDbConfig, async (req, res) => {
 app.put("/api/manuals/:id", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseWrite(client =>
-      client.from("user_manuals").update(req.body).eq("id", req.params.id).select("*").single()
+      client.from("user_manuals").update(req.body).eq("id", req.params.id).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -508,9 +509,17 @@ app.delete("/api/manuals/:id", checkDbConfig, async (req, res) => {
 app.get("/api/announcements", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("announcements").select("*").eq("is_deleted", false).order("pinned", { ascending: false }).order("date", { ascending: false })
+      client.from("announcements").select("*")
     );
-    res.json(data || []);
+    const filtered = ((data as any[]) || [])
+      .filter((a: any) => !a.is_deleted)
+      .sort((a: any, b: any) => {
+        if (Boolean(b.pinned) !== Boolean(a.pinned)) {
+          return b.pinned ? 1 : -1;
+        }
+        return new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime();
+      });
+    res.json(filtered);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -519,7 +528,7 @@ app.get("/api/announcements", checkDbConfig, async (req, res) => {
 app.post("/api/announcements", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseWrite(client =>
-      client.from("announcements").insert([req.body]).select("*").single()
+      client.from("announcements").insert([req.body]).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -530,7 +539,7 @@ app.post("/api/announcements", checkDbConfig, async (req, res) => {
 app.put("/api/announcements/:id", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseWrite(client =>
-      client.from("announcements").update(req.body).eq("id", req.params.id).select("*").single()
+      client.from("announcements").update(req.body).eq("id", req.params.id).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {
@@ -555,13 +564,40 @@ app.delete("/api/announcements/:id", checkDbConfig, async (req, res) => {
   }
 });
 
-// --- master_wards ---
+// --- master_wards (Queries public.master_wards first as central shared table) ---
 app.get("/api/wards", checkDbConfig, async (req, res) => {
   try {
-    const data = await executeSupabaseQuery(client =>
-      client.from("master_wards").select("*").order("thai_name", { ascending: true })
+    let data: any[] = [];
+    // 1. Try public.master_wards
+    try {
+      if (supabase) {
+        const { data: publicWards, error } = await supabase.schema('public').from("master_wards").select("*");
+        if (!error && Array.isArray(publicWards) && publicWards.length > 0) {
+          data = publicWards;
+        }
+      }
+    } catch (e) {
+      console.warn("public.master_wards error:", e);
+    }
+
+    // 2. Fallback to poct_system.master_wards if public is empty
+    if (!data || data.length === 0) {
+      try {
+        if (supabase) {
+          const { data: poctWards, error } = await supabase.schema('poct_system').from("master_wards").select("*");
+          if (!error && Array.isArray(poctWards) && poctWards.length > 0) {
+            data = poctWards;
+          }
+        }
+      } catch (e) {
+        console.warn("poct_system.master_wards error:", e);
+      }
+    }
+
+    const sorted = (data || []).sort((a: any, b: any) =>
+      String(a.thai_name || a.name || a.ward || '').localeCompare(String(b.thai_name || b.name || b.ward || ''), 'th')
     );
-    res.json(data || []);
+    res.json(sorted);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

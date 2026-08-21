@@ -26,10 +26,10 @@ export const getSupabaseAnonKey = (): string => {
   return import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 };
 
-let cachedClient: SupabaseClient | null = null;
+let cachedClient: SupabaseClient<any, any, any> | null = null;
 let cachedKey = '';
 
-export function getSupabaseClient(): SupabaseClient | null {
+export function getSupabaseClient(): SupabaseClient<any, any, any> | null {
   const url = getSupabaseUrl();
   const key = getSupabaseAnonKey();
 
@@ -43,6 +43,7 @@ export function getSupabaseClient(): SupabaseClient | null {
 
   try {
     cachedClient = createClient(url, key, {
+      db: { schema: 'poct_system' },
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -127,7 +128,7 @@ export async function loginWithSupabaseAuth(identifier: string, password: string
         // Check if there is a users table with custom role
         try {
           const { data: profile } = await querySupabaseClient((c) => 
-            c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${cleanId}`).single()
+            c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${cleanId}`).maybeSingle()
           );
           const userProfile = profile as { role?: string; name?: string; ward?: string } | null;
           if (userProfile && userProfile.role) {
@@ -160,7 +161,7 @@ export async function loginWithSupabaseAuth(identifier: string, password: string
   // 3. Try checking a custom users table in the database
   try {
     const { data: dbUser } = await querySupabaseClient((c) =>
-      c.from('users').select('*').or(`username.eq.${cleanId},email.eq.${cleanId}`).single()
+      c.from('users').select('*').or(`username.eq.${cleanId},email.eq.${cleanId}`).maybeSingle()
     );
     if (dbUser && (dbUser as any).password === cleanPass) {
       return {
@@ -231,80 +232,35 @@ export function resetSupabaseCache() {
 }
 
 /**
- * Smart query runner:
- * Only attempts `poct_system` if it is supported (avoids 406 error spam).
- * Falls back to `public` schema cleanly.
+ * Strict Schema Query Runner:
+ * Strictly queries `poct_system` schema. Tables outside this schema are not accessed.
  */
 async function querySupabaseClient<T>(
   fn: (client: any, tableName: string) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>,
   primaryTable?: string,
-  aliases: string[] = []
+  _aliases?: string[]
 ): Promise<{ data: T | null; error: any; isMissingTable?: boolean }> {
   const client = getSupabaseClient();
   if (!client) return { data: null, error: new Error('Supabase client not initialized') };
 
-  const tableCandidates = primaryTable ? [primaryTable, ...aliases] : [''];
-  let lastError: any = null;
+  const table = primaryTable || '';
 
-  for (const table of tableCandidates) {
-    // Skip if we already know this table doesn't exist in public and poct is unsupported
-    if (table && missingTablesCache.has(table) && poctSchemaSupported === false) {
-      return { data: null, error: new Error(`Table ${table} not found in schema`), isMissingTable: true };
+  try {
+    const poctClient = client.schema('poct_system');
+    const resPoct = (await fn(poctClient, table)) as { data: T | null; error: any };
+    if (!resPoct.error && resPoct.data !== null && resPoct.data !== undefined) {
+      return resPoct;
     }
+    
+    const isMissing = resPoct.error?.code === 'PGRST205' || 
+                      resPoct.error?.code === '42P01' || 
+                      resPoct.error?.message?.includes('Could not find the table') || 
+                      resPoct.error?.message?.includes('does not exist');
 
-    // Attempt 1: poct_system schema (only if not known to be unsupported)
-    if (poctSchemaSupported !== false) {
-      try {
-        const poctClient = client.schema('poct_system');
-        const resPoct = (await fn(poctClient, table)) as { data: T | null; error: any };
-        if (!resPoct.error && resPoct.data !== null && resPoct.data !== undefined) {
-          poctSchemaSupported = true;
-          return resPoct;
-        }
-        
-        if (resPoct.error) {
-          lastError = resPoct.error;
-          const msg = resPoct.error.message || '';
-          if (msg.includes('PGRST106') || msg.includes('The schema must be one of the following') || resPoct.error.code === 'PGRST106') {
-            // poct_system is not in Supabase Exposed Schemas
-            poctSchemaSupported = false;
-          }
-        }
-      } catch (err: any) {
-        lastError = err;
-        if (err?.message?.includes('PGRST106')) {
-          poctSchemaSupported = false;
-        }
-      }
-    }
-
-    // Attempt 2: public schema fallback
-    try {
-      const resPublic = (await fn(client, table)) as { data: T | null; error: any };
-      if (!resPublic.error && resPublic.data !== null && resPublic.data !== undefined) {
-        return resPublic;
-      }
-      lastError = resPublic.error || lastError;
-      if (resPublic.error) {
-        const isMissing = resPublic.error.code === 'PGRST205' || 
-                          resPublic.error.code === '42P01' || 
-                          resPublic.error.message?.includes('Could not find the table') || 
-                          resPublic.error.message?.includes('does not exist');
-        if (isMissing && table) {
-          missingTablesCache.add(table);
-        }
-      }
-    } catch (err: any) {
-      lastError = err || lastError;
-    }
+    return { data: null, error: resPoct.error, isMissingTable: isMissing };
+  } catch (err: any) {
+    return { data: null, error: err, isMissingTable: false };
   }
-
-  const isMissing = lastError?.code === 'PGRST205' || 
-                    lastError?.code === '42P01' || 
-                    lastError?.message?.includes('Could not find the table') || 
-                    lastError?.message?.includes('does not exist');
-
-  return { data: null, error: lastError, isMissingTable: isMissing };
 }
 
 export interface TableDiagnosticResult {
@@ -656,19 +612,35 @@ export const mapAnnouncementToDb = (a: Announcement) => ({
 // ==========================================================================
 
 export const dbService = {
-  // --- master_wards ---
+  // --- master_wards (Uses public.master_wards as shared hospital table) ---
   async getWards(): Promise<{ en_name: string; thai_name: string }[]> {
-    if (getSupabaseClient()) {
-      const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('en_name, thai_name'),
-        'master_wards',
-        ['wards']
-      );
-      if (!error && Array.isArray(data) && data.length > 0) return data as any;
-      if (error && !isMissingTable) {
-        console.warn('Supabase getWards notice:', error.message || error);
+    const client = getSupabaseClient();
+    if (client) {
+      // 1. Try public schema first (shared master table across hospital projects)
+      try {
+        const { data, error } = await client.schema('public').from('master_wards').select('*');
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return (data as any[]).map(w => ({
+            en_name: w.en_name || w.name || w.ward || w.code || '',
+            thai_name: w.thai_name || w.name || w.ward || w.en_name || ''
+          }));
+        }
+      } catch (err) {
+        console.warn('public.master_wards query attempt:', err);
       }
+
+      // 2. Fallback to poct_system.master_wards if public doesn't exist
+      try {
+        const { data, error } = await client.schema('poct_system').from('master_wards').select('*');
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return (data as any[]).map(w => ({
+            en_name: w.en_name || w.name || w.ward || '',
+            thai_name: w.thai_name || w.name || w.en_name || ''
+          }));
+        }
+      } catch {}
     }
+
     try {
       const data = await safeApiFetch('/api/wards');
       if (Array.isArray(data) && data.length > 0) return data;
@@ -680,11 +652,15 @@ export const dbService = {
   async getMachines(): Promise<DtxMachine[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'dtx_machines',
         ['machines', 'dtx_devices']
       );
-      if (!error && data) return (data as any[]).map(mapDbToMachine);
+      if (!error && Array.isArray(data)) {
+        return (data as any[])
+          .sort((a, b) => new Date(b.created_at || b.install_date || 0).getTime() - new Date(a.created_at || a.install_date || 0).getTime())
+          .map(mapDbToMachine);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getMachines notice:', error.message || error);
       }
@@ -699,7 +675,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'dtx_machines',
         ['machines']
       );
@@ -731,8 +707,8 @@ export const dbService = {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
         (c, tbl) => isUuid(id)
-          ? c.from(tbl).update(dbPayload).eq('id', id).select().single()
-          : c.from(tbl).update(dbPayload).eq('bgm_code', machine.serialNumber || id).select().single(),
+          ? c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle()
+          : c.from(tbl).update(dbPayload).eq('bgm_code', machine.serialNumber || id).select().maybeSingle(),
         'dtx_machines',
         ['machines']
       );
@@ -770,11 +746,15 @@ export const dbService = {
   async getRepairs(): Promise<RepairRequest[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'repair_requests',
         ['repairs', 'repair_records']
       );
-      if (!error && data) return (data as any[]).map(mapDbToRepair);
+      if (!error && Array.isArray(data)) {
+        return (data as any[])
+          .sort((a, b) => new Date(b.created_at || b.req_date || 0).getTime() - new Date(a.created_at || a.req_date || 0).getTime())
+          .map(mapDbToRepair);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getRepairs notice:', error.message || error);
       }
@@ -789,7 +769,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'repair_requests',
         ['repairs']
       );
@@ -827,8 +807,8 @@ export const dbService = {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
         (c, tbl) => isUuid(id)
-          ? c.from(tbl).update(dbPayload).eq('id', id).select().single()
-          : c.from(tbl).update(dbPayload).eq('bgm_code', repair.serialNumber || id).select().single(),
+          ? c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle()
+          : c.from(tbl).update(dbPayload).eq('bgm_code', repair.serialNumber || id).select().maybeSingle(),
         'repair_requests',
         ['repairs']
       );
@@ -866,11 +846,15 @@ export const dbService = {
   async getSupplies(): Promise<SupplyRequest[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'supply_requests',
         ['supplies', 'supply_orders']
       );
-      if (!error && data) return (data as any[]).map(mapDbToSupply);
+      if (!error && Array.isArray(data)) {
+        return (data as any[])
+          .sort((a, b) => new Date(b.created_at || b.req_date || 0).getTime() - new Date(a.created_at || a.req_date || 0).getTime())
+          .map(mapDbToSupply);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getSupplies notice:', error.message || error);
       }
@@ -885,7 +869,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'supply_requests',
         ['supplies']
       );
@@ -914,7 +898,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().single(),
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle(),
         'supply_requests',
         ['supplies']
       );
@@ -950,10 +934,14 @@ export const dbService = {
   async getQcRecords(): Promise<QcRecord[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').order('date', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'qc_records'
       );
-      if (!error && data) return (data as any[]).map(mapDbToQcRecord);
+      if (!error && Array.isArray(data)) {
+        return (data as any[])
+          .sort((a, b) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime())
+          .map(mapDbToQcRecord);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getQcRecords notice:', error.message || error);
       }
@@ -968,7 +956,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'qc_records'
       );
       if (!error && data) return mapDbToQcRecord(data);
@@ -1002,7 +990,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().single(),
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle(),
         'qc_records'
       );
       if (!error && data) return mapDbToQcRecord(data);
@@ -1053,7 +1041,7 @@ export const dbService = {
     const dbPayload = mapLotConfigToDb(lot);
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).upsert([dbPayload], { onConflict: 'lot_number' }).select().single(),
+        (c, tbl) => c.from(tbl).upsert([dbPayload], { onConflict: 'lot_number' }).select().maybeSingle(),
         'qc_lot_configs',
         ['lot_configs']
       );
@@ -1087,7 +1075,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).update(dbPayload).eq('lot_number', lotNumber).select().single(),
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('lot_number', lotNumber).select().maybeSingle(),
         'qc_lot_configs',
         ['lot_configs']
       );
@@ -1123,10 +1111,14 @@ export const dbService = {
   async getEqaRecords(): Promise<EqaRecord[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').order('test_date', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'eqa_records'
       );
-      if (!error && data) return (data as any[]).map(mapDbToEqaRecord);
+      if (!error && Array.isArray(data)) {
+        return (data as any[])
+          .sort((a, b) => new Date(b.test_date || b.created_at || 0).getTime() - new Date(a.test_date || a.created_at || 0).getTime())
+          .map(mapDbToEqaRecord);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getEqaRecords notice:', error.message || error);
       }
@@ -1141,7 +1133,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().single(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'eqa_records'
       );
       if (!error && data) return mapDbToEqaRecord(data);
@@ -1173,7 +1165,7 @@ export const dbService = {
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().single(),
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle(),
         'eqa_records'
       );
       if (!error && data) return mapDbToEqaRecord(data);
@@ -1207,10 +1199,15 @@ export const dbService = {
   async getManuals(): Promise<UserManual[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').eq('is_deleted', false).order('created_at', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'user_manuals'
       );
-      if (!error && data) return (data as any[]).map(mapDbToManual);
+      if (!error && Array.isArray(data)) {
+        const filtered = (data as any[])
+          .filter(m => !m.is_deleted)
+          .sort((a, b) => new Date(b.created_at || b.upload_date || 0).getTime() - new Date(a.created_at || a.upload_date || 0).getTime());
+        return filtered.map(mapDbToManual);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getManuals notice:', error.message || error);
       }
@@ -1223,7 +1220,7 @@ export const dbService = {
     const dbPayload = mapManualToDb(manual);
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([dbPayload]).select().single(),
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
         'user_manuals'
       );
       if (!error && data) return mapDbToManual(data);
@@ -1257,10 +1254,20 @@ export const dbService = {
   async getAnnouncements(): Promise<Announcement[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').eq('is_deleted', false).order('pinned', { ascending: false }).order('date', { ascending: false }),
+        (c, tbl) => c.from(tbl).select('*'),
         'announcements'
       );
-      if (!error && data) return (data as any[]).map(mapDbToAnnouncement);
+      if (!error && Array.isArray(data)) {
+        const filtered = (data as any[])
+          .filter(a => !a.is_deleted)
+          .sort((a, b) => {
+            if (Boolean(b.pinned) !== Boolean(a.pinned)) {
+              return b.pinned ? 1 : -1;
+            }
+            return new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime();
+          });
+        return filtered.map(mapDbToAnnouncement);
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase getAnnouncements notice:', error.message || error);
       }
@@ -1273,7 +1280,7 @@ export const dbService = {
     const dbPayload = mapAnnouncementToDb(ann);
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([dbPayload]).select().single(),
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
         'announcements'
       );
       if (!error && data) return mapDbToAnnouncement(data);
