@@ -859,7 +859,13 @@ export default function StockManagement({
                 className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('brand')}
               >
-                แบรนด์/รุ่น {renderSortIcon('brand')}
+                แบรนด์ {renderSortIcon('brand')}
+              </th>
+              <th 
+                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                onClick={() => handleSort('model')}
+              >
+                รุ่น {renderSortIcon('model')}
               </th>
               <th 
                 className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
@@ -892,7 +898,7 @@ export default function StockManagement({
           <tbody className="divide-y divide-slate-100">
             {paginatedMachines.length === 0 ? (
               <tr>
-                <td colSpan={9} className="text-center p-8 text-slate-400">
+                <td colSpan={10} className="text-center p-8 text-slate-400">
                   ยังไม่มีข้อมูลรายการเครื่องตรวจวัดน้ำตาล
                 </td>
               </tr>
@@ -901,8 +907,11 @@ export default function StockManagement({
                 <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="p-4 font-bold text-slate-800">{m.serialNumber}</td>
                   <td className="p-4 font-mono text-slate-600 font-semibold">{m.machineSerial || '-'}</td>
-                  <td className="p-4 text-slate-600 font-medium">
-                    {m.brand} <span className="text-[10px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded">{m.model}</span>
+                  <td className="p-4 text-slate-700 font-semibold">{m.brand}</td>
+                  <td className="p-4">
+                    <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
+                      {m.model || '-'}
+                    </span>
                   </td>
                   <td className="p-4 text-slate-700 font-semibold">{m.ward}</td>
                   <td className="p-4">
@@ -1261,7 +1270,8 @@ export default function StockManagement({
                           <th className="p-2">แถว</th>
                           <th className="p-2">รหัส (CODE)</th>
                           <th className="p-2">ซีเรียล (S/N)</th>
-                          <th className="p-2">แบรนด์/รุ่น</th>
+                          <th className="p-2">แบรนด์</th>
+                          <th className="p-2">รุ่น</th>
                           <th className="p-2">หน่วยงาน</th>
                           <th className="p-2">LOT</th>
                           <th className="p-2">วันที่</th>
@@ -1272,7 +1282,7 @@ export default function StockManagement({
                       <tbody className="divide-y divide-slate-100">
                         {filteredPreviewRows.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="text-center p-5 text-slate-400">
+                            <td colSpan={10} className="text-center p-5 text-slate-400">
                               ไม่พบรายการในหมวดนี้
                             </td>
                           </tr>
@@ -1291,7 +1301,8 @@ export default function StockManagement({
                               <td className="p-2 font-mono text-slate-400">{r.rowNum}</td>
                               <td className="p-2 font-bold text-slate-800">{r.machine.serialNumber || '-'}</td>
                               <td className="p-2 font-mono text-slate-600">{r.machine.machineSerial || '-'}</td>
-                              <td className="p-2 text-slate-600">{r.machine.brand} {r.machine.model}</td>
+                              <td className="p-2 text-slate-700 font-medium">{r.machine.brand || '-'}</td>
+                              <td className="p-2 font-bold text-slate-700">{r.machine.model || '-'}</td>
                               <td className="p-2 font-semibold text-slate-700">{r.machine.ward || '-'}</td>
                               <td className="p-2 font-mono text-sky-700">{r.machine.lotNumber}</td>
                               <td className="p-2 text-slate-500">{r.machine.receiveDate}</td>

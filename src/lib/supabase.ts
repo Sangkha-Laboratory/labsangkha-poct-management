@@ -112,96 +112,124 @@ export async function loginWithSupabaseAuth(identifier: string, password: string
   const cleanId = identifier.trim();
   const cleanPass = password.trim();
 
-  const client = getSupabaseClient();
+  let client = getSupabaseClient();
+  
+  // If client not initialized locally, try loading config from backend /api/supabase/config
   if (!client) {
-    return { 
-      success: false, 
-      error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase กรุณาตรวจสอบการตั้งค่าการเชื่อมต่อฐานข้อมูล' 
-    };
+    try {
+      const res = await fetch('/api/supabase/config');
+      if (res.ok) {
+        const conf = await res.json();
+        if (conf.url && conf.anonKey) {
+          saveSupabaseCredentials(conf.url, conf.anonKey);
+          client = getSupabaseClient();
+        }
+      }
+    } catch {}
   }
 
-  // Try Supabase Auth (with exact email or hospital domain auto-fill)
-  const candidateEmails = cleanId.includes('@')
-    ? [cleanId]
-    : [
-        cleanId,
-        `${cleanId.toLowerCase()}@sangkha-hospital.com`,
-        `${cleanId.toLowerCase()}@gmail.com`
-      ];
+  // 1. If we have client, try Supabase Auth
+  if (client) {
+    const candidateEmails = cleanId.includes('@')
+      ? [cleanId]
+      : [
+          cleanId,
+          `${cleanId.toLowerCase()}@sangkha-hospital.com`,
+          `${cleanId.toLowerCase()}@gmail.com`
+        ];
 
-  let authErrorMsg = '';
-  for (const email of candidateEmails) {
-    try {
-      const { data, error } = await client.auth.signInWithPassword({
-        email,
-        password: cleanPass
-      });
+    let authErrorMsg = '';
+    for (const email of candidateEmails) {
+      try {
+        const { data, error } = await client.auth.signInWithPassword({
+          email,
+          password: cleanPass
+        });
 
-      if (!error && data?.user) {
-        const userMeta = data.user.user_metadata || {};
-        let role = userMeta.role || 'staff';
+        if (!error && data?.user) {
+          const userMeta = data.user.user_metadata || {};
+          let role = userMeta.role || 'staff';
 
-        // Check if there is a users table with custom role
-        try {
-          const { data: profile } = await querySupabaseClient((c) => 
-            c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${cleanId}`).maybeSingle()
-          );
-          const userProfile = profile as { role?: string; name?: string; ward?: string } | null;
-          if (userProfile && userProfile.role) {
-            role = userProfile.role;
+          // Check if there is a users table with custom role
+          try {
+            const { data: profile } = await querySupabaseClient((c) => 
+              c.from('users').select('role, name, ward').or(`email.eq.${email},username.eq.${cleanId}`).maybeSingle()
+            );
+            const userProfile = profile as { role?: string; name?: string; ward?: string } | null;
+            if (userProfile && userProfile.role) {
+              role = userProfile.role;
+            }
+          } catch {}
+
+          if (cleanId.toLowerCase() === 'admin' || email.toLowerCase().startsWith('admin@')) {
+            role = 'admin';
           }
-        } catch {}
 
-        if (cleanId.toLowerCase() === 'admin' || email.toLowerCase().startsWith('admin@')) {
-          role = 'admin';
+          return {
+            success: true,
+            user: {
+              id: data.user.id,
+              email: data.user.email,
+              role: role,
+              name: userMeta.name || data.user.email?.split('@')[0] || 'User',
+              token: data.session?.access_token
+            }
+          };
+        } else if (error) {
+          authErrorMsg = error.message;
         }
+      } catch (err: any) {
+        authErrorMsg = err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ Auth';
+      }
+    }
 
+    // Try checking a custom users table in the database
+    try {
+      const { data: dbUser } = await querySupabaseClient((c) =>
+        c.from('users').select('*').or(`username.eq.${cleanId},email.eq.${cleanId}`).maybeSingle()
+      );
+      if (dbUser && (dbUser as any).password === cleanPass) {
         return {
           success: true,
           user: {
-            id: data.user.id,
-            email: data.user.email,
-            role: role,
-            name: userMeta.name || data.user.email?.split('@')[0] || 'User',
-            token: data.session?.access_token
+            id: (dbUser as any).id || 'db-user',
+            email: (dbUser as any).email || `${cleanId}@sangkha-hospital.com`,
+            role: (dbUser as any).role || 'admin',
+            name: (dbUser as any).name || (dbUser as any).username || 'Admin User'
           }
         };
-      } else if (error) {
-        authErrorMsg = error.message;
       }
-    } catch (err: any) {
-      authErrorMsg = err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ Auth';
-    }
+    } catch {}
   }
 
-  // Try checking a custom users table in the database
+  // 2. Try Backend Server Auth Proxy /api/auth/login
   try {
-    const { data: dbUser } = await querySupabaseClient((c) =>
-      c.from('users').select('*').or(`username.eq.${cleanId},email.eq.${cleanId}`).maybeSingle()
-    );
-    if (dbUser && (dbUser as any).password === cleanPass) {
-      return {
-        success: true,
-        user: {
-          id: (dbUser as any).id || 'db-user',
-          email: (dbUser as any).email || `${cleanId}@sangkha-hospital.com`,
-          role: (dbUser as any).role || 'admin',
-          name: (dbUser as any).name || (dbUser as any).username || 'Admin User'
-        }
-      };
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: cleanId, password: cleanPass })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.user) {
+        return data;
+      }
+    } else {
+      const errData = await res.json().catch(() => null);
+      if (errData?.error) {
+        return { success: false, error: errData.error };
+      }
     }
   } catch {}
 
-  let userFriendlyMsg = authErrorMsg;
-  if (authErrorMsg.includes('Invalid login credentials')) {
-    userFriendlyMsg = 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง';
-  } else if (authErrorMsg.includes('Email not confirmed')) {
-    userFriendlyMsg = 'อีเมลนี้ยังไม่ได้กดยืนยันตัวตนในระบบ Supabase Auth';
-  } else if (!userFriendlyMsg) {
-    userFriendlyMsg = 'ไม่พบข้อมูลผู้ใช้งาน หรือรหัสผ่านไม่ถูกต้อง';
+  if (!client) {
+    return { 
+      success: false, 
+      error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase หรือเซิร์ฟเวอร์ยังไม่พร้อมใช้งาน (กรุณาตรวจสอบที่เมนู "ตั้งค่า Supabase")' 
+    };
   }
 
-  return { success: false, error: userFriendlyMsg };
+  return { success: false, error: 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง' };
 }
 
 export const getSupabaseConfigInfo = async () => {
@@ -385,24 +413,32 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
 // ==========================================================================
 
 export const mapDbToMachine = (db: any): DtxMachine => {
-  // If db has a dedicated model column, use it. Otherwise, parse from brand if needed or default sensibly.
-  let parsedBrand = db.brand || 'VivaChek';
-  let parsedModel = db.model || 'Fad';
+  const rawBrand = (db.brand || '').trim();
+  const rawModel = (db.model || '').trim();
 
-  // If brand contains both brand and model string (e.g. "VivaChek Fad Blood Glucose Meter")
-  if (!db.model && db.brand) {
-    if (db.brand.toLowerCase().includes('fad')) {
-      parsedModel = 'Fad';
-    } else if (db.brand.toLowerCase().includes('instant')) {
-      parsedModel = 'Instant';
-    } else if (db.brand.toLowerCase().includes('guide')) {
-      parsedModel = 'Guide';
-    } else if (db.brand.toLowerCase().includes('active')) {
-      parsedModel = 'Active';
-    } else if (db.brand.toLowerCase().includes('performa')) {
-      parsedModel = 'Performa';
+  let parsedBrand = rawBrand || 'VivaChek';
+  let parsedModel = rawModel;
+
+  if (rawModel) {
+    // If db.model is populated, ensure brand does not duplicate model name at the end (e.g. "VivaChek Fad" with model "Fad")
+    const modelRegex = new RegExp(`\\s+${rawModel}$`, 'i');
+    const cleaned = parsedBrand.replace(modelRegex, '').trim();
+    if (cleaned) parsedBrand = cleaned;
+  } else {
+    // If db has no model column or it's empty, extract known model from brand string
+    const knownModels = ['Fad', 'Instant', 'Guide', 'Active', 'Performa', 'Ino', 'Eco', 'Plus', 'Voice', 'Go', 'Expert'];
+    for (const km of knownModels) {
+      const regex = new RegExp(`\\b${km}\\b`, 'i');
+      if (regex.test(parsedBrand)) {
+        parsedModel = km;
+        parsedBrand = parsedBrand.replace(regex, '').replace(/\s+/g, ' ').trim();
+        break;
+      }
     }
+    if (!parsedModel) parsedModel = 'Fad';
   }
+
+  if (!parsedBrand) parsedBrand = 'VivaChek';
 
   return {
     id: db.id,
@@ -420,17 +456,14 @@ export const mapDbToMachine = (db: any): DtxMachine => {
 };
 
 export const mapMachineToDb = (m: DtxMachine) => {
-  const brandVal = m.brand || 'VivaChek';
-  const modelVal = m.model || 'Fad';
-  // Include model in brand string if column doesn't exist, e.g. "VivaChek Fad"
-  const formattedBrand = brandVal.toLowerCase().includes(modelVal.toLowerCase())
-    ? brandVal
-    : `${brandVal} ${modelVal}`.trim();
+  const brandVal = (m.brand || 'VivaChek').trim();
+  const modelVal = (m.model || 'Fad').trim();
 
   return {
     bgm_code: m.serialNumber,
     serial_number: m.machineSerial,
-    brand: formattedBrand,
+    brand: brandVal,
+    model: modelVal,
     ward: m.ward,
     status: m.status || 'active',
     rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
@@ -820,6 +853,23 @@ export const dbService = {
         ['machines']
       );
       if (!error && data) return mapDbToMachine(data);
+      
+      // If error is due to missing 'model' column in legacy database schema (42703), retry without model column
+      if (error && (error.code === '42703' || error.message?.includes('model'))) {
+        const fallbackPayload = {
+          ...payloadWithId,
+          brand: `${payloadWithId.brand} ${payloadWithId.model}`.trim()
+        };
+        delete (fallbackPayload as any).model;
+
+        const retryRes = await querySupabaseClient(
+          (c, tbl) => c.from(tbl).insert([fallbackPayload]).select().maybeSingle(),
+          'dtx_machines',
+          ['machines']
+        );
+        if (!retryRes.error && retryRes.data) return mapDbToMachine(retryRes.data);
+      }
+
       if (error && !isMissingTable) {
         console.warn('Supabase insertMachine notice:', error.message || error);
       }
@@ -860,13 +910,8 @@ export const dbService = {
     const dbPayload: any = {};
     if (machine.serialNumber !== undefined) dbPayload.bgm_code = machine.serialNumber;
     if (machine.machineSerial !== undefined) dbPayload.serial_number = machine.machineSerial;
-    if (machine.brand !== undefined || machine.model !== undefined) {
-      const brandVal = machine.brand || 'VivaChek';
-      const modelVal = machine.model || 'Fad';
-      dbPayload.brand = brandVal.toLowerCase().includes(modelVal.toLowerCase())
-        ? brandVal
-        : `${brandVal} ${modelVal}`.trim();
-    }
+    if (machine.brand !== undefined) dbPayload.brand = machine.brand.trim();
+    if (machine.model !== undefined) dbPayload.model = machine.model.trim();
     if (machine.ward !== undefined) dbPayload.ward = machine.ward;
     if (machine.status !== undefined) dbPayload.status = machine.status;
     if (machine.receiveDate !== undefined) dbPayload.rec_date = machine.receiveDate;
@@ -883,6 +928,25 @@ export const dbService = {
         ['machines']
       );
       if (!error && data) return mapDbToMachine(data);
+
+      // If legacy table without 'model' column
+      if (error && (error.code === '42703' || error.message?.includes('model'))) {
+        const fallbackPayload = { ...dbPayload };
+        if (fallbackPayload.model && fallbackPayload.brand) {
+          fallbackPayload.brand = `${fallbackPayload.brand} ${fallbackPayload.model}`.trim();
+        }
+        delete fallbackPayload.model;
+
+        const retryRes = await querySupabaseClient(
+          (c, tbl) => isUuid(id)
+            ? c.from(tbl).update(fallbackPayload).eq('id', id).select().maybeSingle()
+            : c.from(tbl).update(fallbackPayload).eq('bgm_code', machine.serialNumber || id).select().maybeSingle(),
+          'dtx_machines',
+          ['machines']
+        );
+        if (!retryRes.error && retryRes.data) return mapDbToMachine(retryRes.data);
+      }
+
       if (error && !isMissingTable) {
         console.warn('Supabase updateMachine notice:', error.message || error);
       }

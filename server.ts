@@ -146,6 +146,100 @@ app.get("/api/supabase/status", (req, res) => {
   });
 });
 
+app.get("/api/supabase/config", (req, res) => {
+  res.json({
+    configured: !!(supabaseUrl && supabaseAnonKey),
+    url: supabaseUrl || "",
+    anonKey: supabaseAnonKey || "",
+  });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { identifier, password } = req.body;
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, error: "กรุณาระบุชื่อผู้ใช้งานและรหัสผ่าน" });
+    }
+    const cleanId = String(identifier).trim();
+    const cleanPass = String(password).trim();
+
+    if (!supabase && !publicSupabase) {
+      return res.status(503).json({ success: false, error: "ยังไม่ได้กำหนดค่าการเชื่อมต่อฐานข้อมูลบนเซิร์ฟเวอร์" });
+    }
+
+    const authClient = publicSupabase || supabase;
+    if (!authClient) {
+      return res.status(503).json({ success: false, error: "ไม่สามารถสร้าง Auth Client ได้" });
+    }
+
+    // Try Supabase Auth
+    const candidateEmails = cleanId.includes("@")
+      ? [cleanId]
+      : [
+          `${cleanId.toLowerCase()}@sangkha-hospital.com`,
+          `${cleanId.toLowerCase()}@gmail.com`,
+        ];
+
+    let lastError = "";
+    for (const email of candidateEmails) {
+      try {
+        const { data, error } = await authClient.auth.signInWithPassword({
+          email,
+          password: cleanPass,
+        });
+
+        if (!error && data?.user) {
+          const userMeta = data.user.user_metadata || {};
+          let role = userMeta.role || "staff";
+          if (cleanId.toLowerCase() === "admin" || email.toLowerCase().startsWith("admin@")) {
+            role = "admin";
+          }
+          return res.json({
+            success: true,
+            user: {
+              id: data.user.id,
+              email: data.user.email,
+              role,
+              name: userMeta.name || data.user.email?.split("@")[0] || cleanId,
+              token: data.session?.access_token,
+            },
+          });
+        }
+        if (error) lastError = error.message;
+      } catch (err: any) {
+        lastError = err?.message || "";
+      }
+    }
+
+    // Try users table
+    try {
+      const data = await executeSupabaseQuery(client =>
+        client.from("users").select("*").or(`username.eq.${cleanId},email.eq.${cleanId}`).maybeSingle()
+      );
+      if (data && (data as any).password === cleanPass) {
+        return res.json({
+          success: true,
+          user: {
+            id: (data as any).id || "db-user",
+            email: (data as any).email || `${cleanId}@sangkha-hospital.com`,
+            role: (data as any).role || "admin",
+            name: (data as any).name || (data as any).username || cleanId,
+          },
+        });
+      }
+    } catch {}
+
+    return res.status(401).json({
+      success: false,
+      error: lastError.includes("Invalid login credentials")
+        ? "ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง"
+        : (lastError || "ไม่พบข้อมูลผู้ใช้งาน หรือรหัสผ่านไม่ถูกต้อง"),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || "เกิดข้อผิดพลาดในการตรวจสอบสิทธิ์" });
+  }
+});
+
 app.get("/api/debug/schema", checkDbConfig, async (req, res) => {
   try {
     const { data, error } = await supabase!

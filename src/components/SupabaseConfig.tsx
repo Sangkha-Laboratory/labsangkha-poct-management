@@ -842,7 +842,8 @@ CREATE TABLE IF NOT EXISTS dtx_system.dtx_machines (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     bgm_code VARCHAR(100) UNIQUE NOT NULL,
     serial_number VARCHAR(150) UNIQUE NOT NULL,
-    brand VARCHAR(150) DEFAULT 'VivaChek Fad Blood Glucose Meter',
+    brand VARCHAR(150) DEFAULT 'VivaChek',
+    model VARCHAR(100) DEFAULT 'Fad',
     ward VARCHAR(150) NOT NULL,
     status VARCHAR(50) DEFAULT 'active' NOT NULL,
     rec_date DATE NOT NULL,
@@ -851,6 +852,9 @@ CREATE TABLE IF NOT EXISTS dtx_system.dtx_machines (
     remark TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
+
+-- Ensure model column exists if table was previously created without it
+ALTER TABLE IF EXISTS dtx_system.dtx_machines ADD COLUMN IF NOT EXISTS model VARCHAR(100) DEFAULT 'Fad';
 
 CREATE TABLE IF NOT EXISTS dtx_system.repair_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
