@@ -844,59 +844,91 @@ export default function StockManagement({
 
       {/* Table Section */}
       <div className="overflow-x-auto border border-slate-100 rounded-xl" id="stock-table-container">
-        <table className="w-full text-left text-xs border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] sm:text-xs">
               <th 
-                className="px-2.5 py-3 w-[1%] whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('serialNumber')}
               >
-                CODE {renderSortIcon('serialNumber')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>CODE</span>
+                  {renderSortIcon('serialNumber')}
+                </div>
               </th>
               <th 
-                className="px-2.5 py-3 w-[1%] whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('machineSerial')}
               >
-                S/N {renderSortIcon('machineSerial')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>S/N</span>
+                  {renderSortIcon('machineSerial')}
+                </div>
               </th>
               <th 
-                className="px-2.5 py-3 w-[1%] whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('brand')}
               >
-                แบรนด์ {renderSortIcon('brand')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>แบรนด์</span>
+                  {renderSortIcon('brand')}
+                </div>
               </th>
               <th 
-                className="px-2 py-3 w-[1%] whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-2.5 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('model')}
               >
-                รุ่น {renderSortIcon('model')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>รุ่น</span>
+                  {renderSortIcon('model')}
+                </div>
               </th>
               <th 
-                className="px-3 py-3 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-4 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('ward')}
               >
-                หน่วยงานประจำการ {renderSortIcon('ward')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>หน่วยงานประจำการ</span>
+                  {renderSortIcon('ward')}
+                </div>
               </th>
               <th 
-                className="px-2 py-3 w-[1%] whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('lotNumber')}
               >
-                LOT {renderSortIcon('lotNumber')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>LOT</span>
+                  {renderSortIcon('lotNumber')}
+                </div>
               </th>
               <th 
-                className="px-2.5 py-3 w-[1%] whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('receiveDate')}
               >
-                วันที่จ่ายเครื่อง {renderSortIcon('receiveDate')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>วันที่จ่ายเครื่อง</span>
+                  {renderSortIcon('receiveDate')}
+                </div>
               </th>
               <th 
-                className="px-2.5 py-3 w-[1%] text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('status')}
               >
-                สถานะ {renderSortIcon('status')}
+                <div className="inline-flex items-center justify-center space-x-1">
+                  <span>สถานะ</span>
+                  {renderSortIcon('status')}
+                </div>
               </th>
-              <th className="px-2.5 py-3 w-[1%] whitespace-nowrap">หมายเหตุ</th>
-              <th className="px-2 py-3 w-[1%] text-center whitespace-nowrap">จัดการ</th>
+              <th className="px-3 py-3 text-center whitespace-nowrap">
+                <div className="inline-flex items-center justify-center">
+                  <span>หมายเหตุ</span>
+                </div>
+              </th>
+              <th className="px-3 py-3 text-center whitespace-nowrap">
+                <div className="inline-flex items-center justify-center">
+                  <span>จัดการ</span>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -909,28 +941,28 @@ export default function StockManagement({
             ) : (
               paginatedMachines.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-2.5 py-2.5 font-bold text-slate-800 whitespace-nowrap w-[1%]">{m.serialNumber}</td>
-                  <td className="px-2.5 py-2.5 font-mono text-slate-600 font-semibold whitespace-nowrap w-[1%]">{m.machineSerial || '-'}</td>
-                  <td className="px-2.5 py-2.5 text-slate-700 font-semibold whitespace-nowrap w-[1%]">{m.brand || '-'}</td>
-                  <td className="px-2 py-2.5 whitespace-nowrap w-[1%]">
+                  <td className="px-3 py-2.5 font-bold text-slate-800 text-center whitespace-nowrap">{m.serialNumber}</td>
+                  <td className="px-3 py-2.5 font-mono text-slate-600 font-semibold text-center whitespace-nowrap">{m.machineSerial || '-'}</td>
+                  <td className="px-3 py-2.5 text-slate-700 font-semibold text-center whitespace-nowrap">{m.brand || '-'}</td>
+                  <td className="px-2.5 py-2.5 text-center whitespace-nowrap">
                     <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
                       {m.model || '-'}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-slate-700 font-semibold">{m.ward || '-'}</td>
-                  <td className="px-2 py-2.5 whitespace-nowrap w-[1%]">
+                  <td className="px-4 py-2.5 text-slate-700 font-semibold text-center whitespace-nowrap">{m.ward || '-'}</td>
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
                     <span className="font-mono text-[10px] bg-sky-50 text-sky-700 font-bold px-2 py-0.5 rounded border border-sky-100">
                       {m.lotNumber || '-'}
                     </span>
                   </td>
-                  <td className="px-2.5 py-2.5 text-slate-500 whitespace-nowrap w-[1%]">{m.receiveDate || '-'}</td>
-                  <td className="px-2.5 py-2.5 text-center whitespace-nowrap w-[1%]">{getStatusDisplay(m.status)}</td>
-                  <td className="px-2.5 py-2.5 text-slate-500 italic whitespace-nowrap w-[1%]" title={m.remark || ''}>
+                  <td className="px-3 py-2.5 text-slate-500 text-center whitespace-nowrap">{m.receiveDate || '-'}</td>
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">{getStatusDisplay(m.status)}</td>
+                  <td className="px-3 py-2.5 text-slate-500 italic text-center whitespace-nowrap" title={m.remark || ''}>
                     {m.remark && m.remark.trim() ? (
                       m.remark.trim().length > 8 ? `${m.remark.trim().slice(0, 8)}...` : m.remark.trim()
                     ) : '-'}
                   </td>
-                  <td className="px-2 py-2.5 whitespace-nowrap w-[1%]">
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
                     <div className="flex items-center justify-center space-x-2">
                       <button
                         onClick={() => openEditModal(m)}
