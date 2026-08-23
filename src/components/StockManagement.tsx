@@ -713,19 +713,19 @@ export default function StockManagement({
   const getStatusDisplay = (s: string) => {
     switch (s) {
       case 'active':
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-extrabold bg-emerald-500 text-white uppercase tracking-wider shadow-2xs">active</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-extrabold bg-emerald-500 text-white uppercase tracking-wider shadow-2xs whitespace-nowrap">active</span>;
       case 'inactive':
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-extrabold bg-rose-600 text-white uppercase tracking-wider shadow-2xs">inactive</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-extrabold bg-rose-600 text-white uppercase tracking-wider shadow-2xs whitespace-nowrap">inactive</span>;
       case 'lost':
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">สูญหาย</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200 whitespace-nowrap">สูญหาย</span>;
       case 'unknown':
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600">ไม่ทราบ</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 whitespace-nowrap">ไม่ทราบ</span>;
       case 'waiting_claim':
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-500 text-white">รอส่งเคลม</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-500 text-white whitespace-nowrap">รอส่งเคลม</span>;
       case 'claimed':
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-sky-500 text-white">ส่งเคลมแล้ว</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-sky-500 text-white whitespace-nowrap">ส่งเคลมแล้ว</span>;
       default:
-        return <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-800">{s}</span>;
+        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-800 whitespace-nowrap">{s}</span>;
     }
   };
 
@@ -846,57 +846,57 @@ export default function StockManagement({
       <div className="overflow-x-auto border border-slate-100 rounded-xl" id="stock-table-container">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
-            <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+            <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100 text-[11px] sm:text-xs">
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('serialNumber')}
               >
                 รหัสเครื่อง (CODE) {renderSortIcon('serialNumber')}
               </th>
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('machineSerial')}
               >
                 หมายเลขซีเรียล (S/N) {renderSortIcon('machineSerial')}
               </th>
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('brand')}
               >
                 แบรนด์ {renderSortIcon('brand')}
               </th>
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-2.5 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('model')}
               >
                 รุ่น {renderSortIcon('model')}
               </th>
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('ward')}
               >
                 หน่วยงานประจำการ {renderSortIcon('ward')}
               </th>
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-2.5 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('lotNumber')}
               >
                 LOT {renderSortIcon('lotNumber')}
               </th>
               <th 
-                className="p-4 cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('receiveDate')}
               >
                 วันที่จ่ายเครื่อง {renderSortIcon('receiveDate')}
               </th>
               <th 
-                className="p-4 text-center cursor-pointer select-none group hover:bg-slate-100 transition-colors"
+                className="px-3 py-3 text-center whitespace-nowrap cursor-pointer select-none group hover:bg-slate-100 transition-colors"
                 onClick={() => handleSort('status')}
               >
                 สถานะ {renderSortIcon('status')}
               </th>
-              <th className="p-4">หมายเหตุ</th>
-              <th className="p-4 text-center">จัดการ</th>
+              <th className="px-3 py-3">หมายเหตุ</th>
+              <th className="px-3 py-3 text-center whitespace-nowrap">จัดการ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -909,26 +909,28 @@ export default function StockManagement({
             ) : (
               paginatedMachines.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="p-4 font-bold text-slate-800">{m.serialNumber}</td>
-                  <td className="p-4 font-mono text-slate-600 font-semibold">{m.machineSerial || '-'}</td>
-                  <td className="p-4 text-slate-700 font-semibold">{m.brand}</td>
-                  <td className="p-4">
+                  <td className="px-3 py-2.5 font-bold text-slate-800 whitespace-nowrap">{m.serialNumber}</td>
+                  <td className="px-3 py-2.5 font-mono text-slate-600 font-semibold whitespace-nowrap">{m.machineSerial || '-'}</td>
+                  <td className="px-3 py-2.5 text-slate-700 font-semibold whitespace-nowrap">{m.brand || '-'}</td>
+                  <td className="px-2.5 py-2.5 whitespace-nowrap">
                     <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
                       {m.model || '-'}
                     </span>
                   </td>
-                  <td className="p-4 text-slate-700 font-semibold">{m.ward}</td>
-                  <td className="p-4">
+                  <td className="px-3 py-2.5 text-slate-700 font-semibold">{m.ward || '-'}</td>
+                  <td className="px-2.5 py-2.5 whitespace-nowrap">
                     <span className="font-mono text-[10px] bg-sky-50 text-sky-700 font-bold px-2 py-0.5 rounded border border-sky-100">
-                      {m.lotNumber}
+                      {m.lotNumber || '-'}
                     </span>
                   </td>
-                  <td className="p-4 text-slate-500">{m.receiveDate}</td>
-                  <td className="p-4 text-center">{getStatusDisplay(m.status)}</td>
-                  <td className="p-4 text-slate-500 italic max-w-[150px] truncate" title={m.remark || ''}>
-                    {m.remark || '-'}
+                  <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{m.receiveDate || '-'}</td>
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">{getStatusDisplay(m.status)}</td>
+                  <td className="px-3 py-2.5 text-slate-500 italic max-w-[130px] sm:max-w-[180px] truncate" title={m.remark || ''}>
+                    {m.remark && m.remark.trim() ? (
+                      m.remark.trim().length > 18 ? `${m.remark.trim().slice(0, 18)}...` : m.remark.trim()
+                    ) : '-'}
                   </td>
-                  <td className="p-4">
+                  <td className="px-3 py-2.5 whitespace-nowrap">
                     <div className="flex items-center justify-center space-x-2">
                       <button
                         onClick={() => openEditModal(m)}
