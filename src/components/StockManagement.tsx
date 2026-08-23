@@ -711,21 +711,22 @@ export default function StockManagement({
   };
 
   const getStatusDisplay = (s: string) => {
+    const baseClasses = "inline-flex items-center justify-center w-[74px] py-1 rounded-md text-[10px] text-center shadow-2xs whitespace-nowrap";
     switch (s) {
       case 'active':
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-extrabold bg-emerald-500 text-white uppercase tracking-wider shadow-2xs whitespace-nowrap">active</span>;
+        return <span className={`${baseClasses} font-extrabold bg-emerald-500 text-white uppercase tracking-wider`}>active</span>;
       case 'inactive':
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-extrabold bg-rose-600 text-white uppercase tracking-wider shadow-2xs whitespace-nowrap">inactive</span>;
+        return <span className={`${baseClasses} font-extrabold bg-rose-600 text-white uppercase tracking-wider`}>inactive</span>;
       case 'lost':
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200 whitespace-nowrap">สูญหาย</span>;
+        return <span className={`${baseClasses} font-bold bg-orange-100 text-orange-800 border border-orange-200`}>สูญหาย</span>;
       case 'unknown':
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 whitespace-nowrap">ไม่ทราบ</span>;
+        return <span className={`${baseClasses} font-bold bg-slate-100 text-slate-600`}>ไม่ทราบ</span>;
       case 'waiting_claim':
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-500 text-white whitespace-nowrap">รอส่งเคลม</span>;
+        return <span className={`${baseClasses} font-bold bg-amber-500 text-white`}>รอส่งเคลม</span>;
       case 'claimed':
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-sky-500 text-white whitespace-nowrap">ส่งเคลมแล้ว</span>;
+        return <span className={`${baseClasses} font-bold bg-sky-500 text-white`}>ส่งเคลมแล้ว</span>;
       default:
-        return <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-800 whitespace-nowrap">{s}</span>;
+        return <span className={`${baseClasses} font-bold bg-slate-100 text-slate-800`}>{s}</span>;
     }
   };
 
@@ -949,7 +950,7 @@ export default function StockManagement({
                       {m.model || '-'}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-700 font-semibold text-center whitespace-nowrap">{m.ward || '-'}</td>
+                  <td className="px-4 py-2.5 text-slate-700 font-semibold text-left whitespace-nowrap">{m.ward || '-'}</td>
                   <td className="px-3 py-2.5 text-center whitespace-nowrap">
                     <span className="font-mono text-[10px] bg-sky-50 text-sky-700 font-bold px-2 py-0.5 rounded border border-sky-100">
                       {m.lotNumber || '-'}
