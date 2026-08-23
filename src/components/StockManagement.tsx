@@ -62,8 +62,6 @@ export default function StockManagement({
   // Compute distinct Brands dynamically from dtx_machines (machines prop)
   const distinctBrands = React.useMemo(() => {
     const brandsSet = new Set<string>();
-    // Always include VivaChek first
-    brandsSet.add('VivaChek');
 
     machines.forEach((m) => {
       if (m.brand && m.brand.trim()) {
@@ -96,10 +94,10 @@ export default function StockManagement({
   // Form states
   const [serialNumber, setSerialNumber] = useState('');
   const [machineSerial, setMachineSerial] = useState('');
-  const [brand, setBrand] = useState('VivaChek');
+  const [brand, setBrand] = useState('');
   const [isCustomBrand, setIsCustomBrand] = useState(false);
   const [customBrand, setCustomBrand] = useState('');
-  const [model, setModel] = useState('Fad');
+  const [model, setModel] = useState('');
   const [ward, setWard] = useState('');
   const [status, setStatus] = useState<DtxMachine['status']>('active');
   const [receiveDate, setReceiveDate] = useState('');
@@ -136,10 +134,16 @@ export default function StockManagement({
     setModalMode('add');
     setSerialNumber('');
     setMachineSerial('');
-    setBrand('VivaChek');
-    setIsCustomBrand(false);
-    setCustomBrand('');
-    setModel('Fad');
+    if (distinctBrands.length > 0) {
+      setBrand(distinctBrands[0]);
+      setIsCustomBrand(false);
+      setCustomBrand('');
+    } else {
+      setBrand('__custom__');
+      setIsCustomBrand(true);
+      setCustomBrand('');
+    }
+    setModel('');
     setWard('');
     setStatus('active');
     setReceiveDate(new Date().toISOString().split('T')[0]);
@@ -159,11 +163,11 @@ export default function StockManagement({
   const openEditModal = (machine: DtxMachine) => {
     setModalMode('edit');
     setCurrentMachineId(machine.id);
-    setSerialNumber(machine.serialNumber);
+    setSerialNumber(machine.serialNumber || '');
     setMachineSerial(machine.machineSerial || '');
 
-    const cleanedBrand = machine.brand ? machine.brand.replace(/\(หลัก\)/g, '').trim() : 'VivaChek';
-    if (distinctBrands.includes(cleanedBrand)) {
+    const cleanedBrand = machine.brand ? machine.brand.replace(/\(หลัก\)/g, '').trim() : '';
+    if (cleanedBrand && distinctBrands.includes(cleanedBrand)) {
       setBrand(cleanedBrand);
       setIsCustomBrand(false);
       setCustomBrand('');
@@ -173,19 +177,19 @@ export default function StockManagement({
       setCustomBrand(cleanedBrand);
     }
 
-    setModel(machine.model);
-    setWard(machine.ward);
-    setStatus(machine.status);
-    setReceiveDate(machine.receiveDate);
+    setModel(machine.model || '');
+    setWard(machine.ward || '');
+    setStatus(machine.status || 'active');
+    setReceiveDate(machine.receiveDate || '');
 
-    if (distinctLots.includes(machine.lotNumber)) {
+    if (machine.lotNumber && distinctLots.includes(machine.lotNumber)) {
       setLotNumber(machine.lotNumber);
       setIsCustomLot(false);
       setCustomLot('');
     } else {
       setLotNumber('__custom__');
       setIsCustomLot(true);
-      setCustomLot(machine.lotNumber);
+      setCustomLot(machine.lotNumber || '');
     }
 
     setRemark(machine.remark || '');
@@ -195,8 +199,8 @@ export default function StockManagement({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const finalBrand = (isCustomBrand ? customBrand.trim() : brand) || 'VivaChek';
-    const finalLot = (isCustomLot ? customLot.trim() : lotNumber) || (distinctLots.length > 0 ? distinctLots[0] : 'LOT-2026-01');
+    const finalBrand = (isCustomBrand ? customBrand.trim() : brand).trim();
+    const finalLot = (isCustomLot ? customLot.trim() : lotNumber).trim();
     const finalWard = ward.trim() || 'ไม่ระบุหน่วยงาน';
     const finalSerial = machineSerial.trim().toUpperCase() || serialNumber.trim().toUpperCase();
 
@@ -215,7 +219,7 @@ export default function StockManagement({
       serialNumber: serialNumber.trim().toUpperCase(),
       machineSerial: finalSerial,
       brand: finalBrand,
-      model: model.trim() || 'Fad',
+      model: model.trim(),
       ward: finalWard,
       status: status || 'active',
       receiveDate: receiveDate || new Date().toISOString().split('T')[0],
@@ -399,10 +403,10 @@ export default function StockManagement({
 
         const codeVal = rawCode.trim().toUpperCase();
         const serialVal = (rawSerial.trim() || codeVal).toUpperCase();
-        const brandVal = rawBrand.trim() || 'VivaChek';
-        const modelVal = rawModel.trim() || 'Fad';
+        const brandVal = rawBrand.trim();
+        const modelVal = rawModel.trim();
         const wardVal = rawWard.trim();
-        const lotVal = rawLot.trim() || (distinctLots.length > 0 ? distinctLots[0] : 'LOT-2026-01');
+        const lotVal = rawLot.trim();
         const dateVal = normalizeDate(rawDate);
         const statusVal = normalizeStatus(rawStatus);
         const remarkVal = rawRemark.trim();

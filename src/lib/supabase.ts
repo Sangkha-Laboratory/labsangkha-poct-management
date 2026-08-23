@@ -413,62 +413,32 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
 // ==========================================================================
 
 export const mapDbToMachine = (db: any): DtxMachine => {
-  const rawBrand = (db.brand || '').trim();
-  const rawModel = (db.model || '').trim();
-
-  let parsedBrand = rawBrand || 'VivaChek';
-  let parsedModel = rawModel;
-
-  if (rawModel) {
-    // If db.model is populated, ensure brand does not duplicate model name at the end (e.g. "VivaChek Fad" with model "Fad")
-    const modelRegex = new RegExp(`\\s+${rawModel}$`, 'i');
-    const cleaned = parsedBrand.replace(modelRegex, '').trim();
-    if (cleaned) parsedBrand = cleaned;
-  } else {
-    // If db has no model column or it's empty, extract known model from brand string
-    const knownModels = ['Fad', 'Instant', 'Guide', 'Active', 'Performa', 'Ino', 'Eco', 'Plus', 'Voice', 'Go', 'Expert'];
-    for (const km of knownModels) {
-      const regex = new RegExp(`\\b${km}\\b`, 'i');
-      if (regex.test(parsedBrand)) {
-        parsedModel = km;
-        parsedBrand = parsedBrand.replace(regex, '').replace(/\s+/g, ' ').trim();
-        break;
-      }
-    }
-    if (!parsedModel) parsedModel = 'Fad';
-  }
-
-  if (!parsedBrand) parsedBrand = 'VivaChek';
-
   return {
     id: db.id,
-    serialNumber: db.bgm_code,
-    machineSerial: db.serial_number,
-    brand: parsedBrand,
-    model: parsedModel,
-    ward: db.ward,
+    serialNumber: db.bgm_code || '',
+    machineSerial: db.serial_number || '',
+    brand: (db.brand || '').trim(),
+    model: (db.model || '').trim(),
+    ward: db.ward || '',
     status: db.status as any,
-    receiveDate: db.rec_date,
+    receiveDate: db.rec_date || '',
     lastQCDate: db.last_qc_date || undefined,
-    lotNumber: db.lot_number,
+    lotNumber: db.lot_number || '',
     remark: db.remark || undefined
   };
 };
 
 export const mapMachineToDb = (m: DtxMachine) => {
-  const brandVal = (m.brand || 'VivaChek').trim();
-  const modelVal = (m.model || 'Fad').trim();
-
   return {
     bgm_code: m.serialNumber,
     serial_number: m.machineSerial,
-    brand: brandVal,
-    model: modelVal,
+    brand: (m.brand || '').trim(),
+    model: (m.model || '').trim(),
     ward: m.ward,
     status: m.status || 'active',
     rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
     last_qc_date: m.lastQCDate || null,
-    lot_number: m.lotNumber || 'LOT-2026-01',
+    lot_number: m.lotNumber || '',
     remark: m.remark || null
   };
 };
