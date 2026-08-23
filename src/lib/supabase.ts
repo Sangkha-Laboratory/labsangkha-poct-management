@@ -112,31 +112,15 @@ export async function loginWithSupabaseAuth(identifier: string, password: string
   const cleanId = identifier.trim();
   const cleanPass = password.trim();
 
-  // 1. Emergency & Master Admin Bypass (works 100% anytime, online or offline)
-  if (
-    (cleanId.toLowerCase() === 'admin' || cleanId.toLowerCase() === 'admin@sangkha-hospital.com' || cleanId.toLowerCase() === 'labadmin') &&
-    (cleanPass === 'lab1234' || cleanPass === 'admin1234' || cleanPass === 'admin')
-  ) {
-    return {
-      success: true,
-      user: {
-        id: 'admin-master',
-        email: 'admin@sangkha-hospital.com',
-        role: 'admin',
-        name: 'ผู้ดูแลระบบสูงสุด (Master Admin)'
-      }
-    };
-  }
-
   const client = getSupabaseClient();
   if (!client) {
     return { 
       success: false, 
-      error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase หรือใช้รหัสผ่าน Master Admin (admin / lab1234) เพื่อเข้าสู่ระบบ' 
+      error: 'ยังไม่ได้ตั้งค่าเชื่อมต่อ Supabase กรุณาตรวจสอบการตั้งค่าการเชื่อมต่อฐานข้อมูล' 
     };
   }
 
-  // 2. Try Supabase Auth (with exact email or hospital domain auto-fill)
+  // Try Supabase Auth (with exact email or hospital domain auto-fill)
   const candidateEmails = cleanId.includes('@')
     ? [cleanId]
     : [
@@ -190,7 +174,7 @@ export async function loginWithSupabaseAuth(identifier: string, password: string
     }
   }
 
-  // 3. Try checking a custom users table in the database
+  // Try checking a custom users table in the database
   try {
     const { data: dbUser } = await querySupabaseClient((c) =>
       c.from('users').select('*').or(`username.eq.${cleanId},email.eq.${cleanId}`).maybeSingle()
@@ -210,11 +194,11 @@ export async function loginWithSupabaseAuth(identifier: string, password: string
 
   let userFriendlyMsg = authErrorMsg;
   if (authErrorMsg.includes('Invalid login credentials')) {
-    userFriendlyMsg = 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้องใน Supabase Auth (ท่านสามารถใช้บัญชีฉุกเฉิน admin / lab1234 ได้)';
+    userFriendlyMsg = 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง';
   } else if (authErrorMsg.includes('Email not confirmed')) {
     userFriendlyMsg = 'อีเมลนี้ยังไม่ได้กดยืนยันตัวตนในระบบ Supabase Auth';
   } else if (!userFriendlyMsg) {
-    userFriendlyMsg = 'ไม่พบข้อมูลผู้ใช้งาน หรือรหัสผ่านไม่ถูกต้อง (สามารถเข้าใช้งานด่วนด้วย admin / lab1234)';
+    userFriendlyMsg = 'ไม่พบข้อมูลผู้ใช้งาน หรือรหัสผ่านไม่ถูกต้อง';
   }
 
   return { success: false, error: userFriendlyMsg };
@@ -400,31 +384,61 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
 // Data Mappers: Convert CamelCase (Frontend) <-> snake_case (Supabase)
 // ==========================================================================
 
-export const mapDbToMachine = (db: any): DtxMachine => ({
-  id: db.id,
-  serialNumber: db.bgm_code,
-  machineSerial: db.serial_number,
-  brand: db.brand || 'VivaChek Fad Blood Glucose Meter',
-  model: 'Instant',
-  ward: db.ward,
-  status: db.status as any,
-  receiveDate: db.rec_date,
-  lastQCDate: db.last_qc_date || undefined,
-  lotNumber: db.lot_number,
-  remark: db.remark || undefined
-});
+export const mapDbToMachine = (db: any): DtxMachine => {
+  // If db has a dedicated model column, use it. Otherwise, parse from brand if needed or default sensibly.
+  let parsedBrand = db.brand || 'VivaChek';
+  let parsedModel = db.model || 'Fad';
 
-export const mapMachineToDb = (m: DtxMachine) => ({
-  bgm_code: m.serialNumber,
-  serial_number: m.machineSerial,
-  brand: m.brand || 'VivaChek Fad Blood Glucose Meter',
-  ward: m.ward,
-  status: m.status || 'active',
-  rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
-  last_qc_date: m.lastQCDate || null,
-  lot_number: m.lotNumber || 'LOT-2026-01',
-  remark: m.remark || null
-});
+  // If brand contains both brand and model string (e.g. "VivaChek Fad Blood Glucose Meter")
+  if (!db.model && db.brand) {
+    if (db.brand.toLowerCase().includes('fad')) {
+      parsedModel = 'Fad';
+    } else if (db.brand.toLowerCase().includes('instant')) {
+      parsedModel = 'Instant';
+    } else if (db.brand.toLowerCase().includes('guide')) {
+      parsedModel = 'Guide';
+    } else if (db.brand.toLowerCase().includes('active')) {
+      parsedModel = 'Active';
+    } else if (db.brand.toLowerCase().includes('performa')) {
+      parsedModel = 'Performa';
+    }
+  }
+
+  return {
+    id: db.id,
+    serialNumber: db.bgm_code,
+    machineSerial: db.serial_number,
+    brand: parsedBrand,
+    model: parsedModel,
+    ward: db.ward,
+    status: db.status as any,
+    receiveDate: db.rec_date,
+    lastQCDate: db.last_qc_date || undefined,
+    lotNumber: db.lot_number,
+    remark: db.remark || undefined
+  };
+};
+
+export const mapMachineToDb = (m: DtxMachine) => {
+  const brandVal = m.brand || 'VivaChek';
+  const modelVal = m.model || 'Fad';
+  // Include model in brand string if column doesn't exist, e.g. "VivaChek Fad"
+  const formattedBrand = brandVal.toLowerCase().includes(modelVal.toLowerCase())
+    ? brandVal
+    : `${brandVal} ${modelVal}`.trim();
+
+  return {
+    bgm_code: m.serialNumber,
+    serial_number: m.machineSerial,
+    brand: formattedBrand,
+    ward: m.ward,
+    status: m.status || 'active',
+    rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
+    last_qc_date: m.lastQCDate || null,
+    lot_number: m.lotNumber || 'LOT-2026-01',
+    remark: m.remark || null
+  };
+};
 
 export const mapDbToRepair = (db: any): RepairRequest => ({
   id: db.id,
@@ -818,11 +832,41 @@ export const dbService = {
     return data ? mapDbToMachine(data) : machine;
   },
 
+  async insertMachinesBulk(machinesList: DtxMachine[], overwrite = false): Promise<{ success: number; failed: number; results: DtxMachine[] }> {
+    const results: DtxMachine[] = [];
+    let success = 0;
+    let failed = 0;
+
+    for (const m of machinesList) {
+      try {
+        if (overwrite) {
+          const updated = await this.updateMachine(m.id || m.serialNumber, m);
+          results.push(updated);
+          success++;
+        } else {
+          const inserted = await this.insertMachine(m);
+          results.push(inserted);
+          success++;
+        }
+      } catch (err) {
+        console.error('Failed to import machine item:', m.serialNumber, err);
+        failed++;
+      }
+    }
+    return { success, failed, results };
+  },
+
   async updateMachine(id: string, machine: Partial<DtxMachine>): Promise<DtxMachine> {
     const dbPayload: any = {};
     if (machine.serialNumber !== undefined) dbPayload.bgm_code = machine.serialNumber;
     if (machine.machineSerial !== undefined) dbPayload.serial_number = machine.machineSerial;
-    if (machine.brand !== undefined) dbPayload.brand = machine.brand;
+    if (machine.brand !== undefined || machine.model !== undefined) {
+      const brandVal = machine.brand || 'VivaChek';
+      const modelVal = machine.model || 'Fad';
+      dbPayload.brand = brandVal.toLowerCase().includes(modelVal.toLowerCase())
+        ? brandVal
+        : `${brandVal} ${modelVal}`.trim();
+    }
     if (machine.ward !== undefined) dbPayload.ward = machine.ward;
     if (machine.status !== undefined) dbPayload.status = machine.status;
     if (machine.receiveDate !== undefined) dbPayload.rec_date = machine.receiveDate;

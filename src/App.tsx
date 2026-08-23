@@ -377,6 +377,37 @@ export default function App() {
     }
   };
 
+  const handleBulkAddMachines = async (newMachines: DtxMachine[], overwrite = false): Promise<{ success: number; failed: number }> => {
+    if (isSupabaseConfigured()) {
+      const result = await dbService.insertMachinesBulk(newMachines, overwrite);
+      try {
+        const fresh = await dbService.getMachines();
+        if (fresh && fresh.length > 0) {
+          setMachines(fresh);
+        }
+      } catch (err) {
+        console.warn('Failed to refresh machines after bulk import:', err);
+      }
+      setShowToast(`นำเข้าข้อมูลสำเร็จ ${result.success} รายการ${result.failed > 0 ? ` (ไม่สำเร็จ ${result.failed} รายการ)` : ''}`);
+      return { success: result.success, failed: result.failed };
+    } else {
+      setMachines(prev => {
+        let updated = [...prev];
+        for (const m of newMachines) {
+          const idx = updated.findIndex(item => item.serialNumber === m.serialNumber || item.id === m.id);
+          if (idx >= 0) {
+            if (overwrite) updated[idx] = m;
+          } else {
+            updated.push(m);
+          }
+        }
+        return updated;
+      });
+      setShowToast(`นำเข้าข้อมูลในเบราว์เซอร์สำเร็จ ${newMachines.length} รายการ`);
+      return { success: newMachines.length, failed: 0 };
+    }
+  };
+
   const handleUpdateMachine = (updatedMachine: DtxMachine) => {
     setMachines(prev => prev.map(m => m.id === updatedMachine.id ? updatedMachine : m));
     if (isSupabaseConfigured()) {
@@ -493,39 +524,39 @@ export default function App() {
             </div>
 
             {/* PC Navigation: Elegant service tabs directly in header */}
-            <div className="hidden md:flex items-center space-x-2 h-16">
+            <div className="hidden md:flex items-center space-x-1 lg:space-x-2 h-16">
               {role === 'user' ? (
-                <div className="flex items-center space-x-4 mr-2 h-16">
+                <div className="flex items-center space-x-2 lg:space-x-4 mr-1 lg:mr-2 h-16">
                   <button
                     onClick={() => setActiveUserTab('repair')}
-                    className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                    className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                     id="header-tab-repair"
                   >
-                    <Wrench size={13} className="shrink-0" />
-                    <span>แจ้งซ่อม (Repair)</span>
+                    <Wrench size={14} className="shrink-0" />
+                    <span>แจ้งซ่อม</span>
                   </button>
                   <button
                     onClick={() => setActiveUserTab('supply')}
-                    className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'supply' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                    className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${activeUserTab === 'supply' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                     id="header-tab-supply"
                   >
-                    <Package size={13} className="shrink-0" />
-                    <span>ขอเบิก (Request Supply)</span>
+                    <Package size={14} className="shrink-0" />
+                    <span>ขอเบิกเครื่อง</span>
                   </button>
                   <button
                     onClick={() => setActiveUserTab('track')}
-                    className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'track' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                    className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${activeUserTab === 'track' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                     id="header-tab-track"
                   >
-                    <Search size={13} className="shrink-0" />
+                    <Search size={14} className="shrink-0" />
                     <span>ติดตามสถานะ</span>
                   </button>
                   <button
                     onClick={() => setActiveUserTab('guide')}
-                    className={`px-1 h-16 text-[11px] md:text-xs font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer ${activeUserTab === 'guide' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
+                    className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${activeUserTab === 'guide' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
                     id="header-tab-guide"
                   >
-                    <BookOpen size={13} className="shrink-0" />
+                    <BookOpen size={14} className="shrink-0" />
                     <span>คู่มือ & เอกสาร</span>
                   </button>
                 </div>
@@ -572,7 +603,7 @@ export default function App() {
                       setRole('admin');
                       localStorage.setItem('dtx_role', 'admin');
                       if (!isAdminLoggedIn) {
-                        setShowToast('กรุณาเข้าสู่ระบบด้วยรหัสผ่านแอดมิน (lab1234)');
+                        setShowToast('กรุณาเข้าสู่ระบบสำหรับเจ้าหน้าที่และผู้ดูแล');
                       }
                     }
                   }}
@@ -605,7 +636,7 @@ export default function App() {
                   localStorage.setItem('dtx_role', 'admin');
                   setIsMobileMenuOpen(false);
                   if (!isAdminLoggedIn) {
-                    setShowToast('กรุณาเข้าสู่ระบบด้วยรหัสผ่านแอดมิน (lab1234)');
+                    setShowToast('กรุณาเข้าสู่ระบบสำหรับเจ้าหน้าที่และผู้ดูแล');
                   }
                 }}
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${role === 'admin' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600'}`}
@@ -781,7 +812,7 @@ export default function App() {
 
       {/* Main Workspace Layout */}
       <main 
-        className={`flex-1 w-full relative z-10 transition-all duration-300 min-h-screen bg-slate-50/70 dark:bg-slate-950 ${
+        className={`flex-1 w-full transition-all duration-300 min-h-screen bg-slate-50/70 dark:bg-slate-950 ${
           role === 'admin' && isAdminLoggedIn
             ? `pt-16 pb-16 ${isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'}`
             : 'py-6 md:py-8'
@@ -858,12 +889,12 @@ export default function App() {
                   {isSupabaseConfigured() ? (
                     <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>พร้อมเชื่อมต่อ Supabase Auth / Master Admin</span>
+                      <span>พร้อมเชื่อมต่อ Supabase Auth</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span>โหมดสแตนด์อโลน (สามารถใช้รหัส Master Admin เข้าได้ทันที)</span>
+                      <span>โหมดออฟไลน์ (ยังไม่ได้เชื่อมต่อ Supabase)</span>
                     </span>
                   )}
                 </div>
@@ -887,7 +918,7 @@ export default function App() {
                   setShowTimeoutNotice(false);
                   setShowToast(`เข้าสู่ระบบสำเร็จในฐานะ ${assignedRole === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่ (Staff)'} (${res.user.name || res.user.email})`);
                 } else {
-                  setLoginError(res.error || 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง (หากยังไม่ได้สร้างบัญชีใน Supabase Auth สามารถใช้ admin / lab1234)');
+                  setLoginError(res.error || 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง');
                 }
                 setIsLoggingIn(false);
               }} className="space-y-4 text-xs">
@@ -919,20 +950,6 @@ export default function App() {
                     className="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-sky-500 bg-slate-50/50 dark:bg-slate-800 font-medium"
                     required
                   />
-                </div>
-
-                <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
-                  <span className="text-slate-500 dark:text-slate-400">เข้าใช้งานด่วนด้วย Master Admin:</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAdminUsername('admin');
-                      setAdminPassword('lab1234');
-                    }}
-                    className="text-sky-600 dark:text-sky-400 font-bold hover:underline cursor-pointer"
-                  >
-                    ใส่ admin / lab1234 อัตโนมัติ
-                  </button>
                 </div>
 
                 <button
@@ -1109,6 +1126,7 @@ export default function App() {
                   onAddMachine={handleAddMachine}
                   onUpdateMachine={handleUpdateMachine}
                   onDeleteMachine={handleDeleteMachine}
+                  onBulkAddMachines={handleBulkAddMachines}
                 />
               )}
               {activeAdminTab === 'repair' && (

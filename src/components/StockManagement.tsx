@@ -3,20 +3,42 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
-import { Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { 
+  Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, 
+  ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
+  Upload, Download, FileSpreadsheet, FileDown, AlertTriangle, 
+  AlertCircle, CheckCircle2, Loader2, Sparkles
+} from 'lucide-react';
 
 interface StockManagementProps {
   machines: DtxMachine[];
   onAddMachine: (machine: DtxMachine) => void;
   onUpdateMachine: (machine: DtxMachine) => void;
   onDeleteMachine: (id: string) => void;
+  onBulkAddMachines?: (machines: DtxMachine[], overwrite?: boolean) => Promise<{ success: number; failed: number }>;
 }
 
-export default function StockManagement({ machines, onAddMachine, onUpdateMachine, onDeleteMachine }: StockManagementProps) {
+interface ParsedMachineRow {
+  rowNum: number;
+  raw: Record<string, string>;
+  machine: DtxMachine;
+  isValid: boolean;
+  validationError?: string;
+  isExisting: boolean;
+  existingMachine?: DtxMachine;
+}
+
+export default function StockManagement({ 
+  machines, 
+  onAddMachine, 
+  onUpdateMachine, 
+  onDeleteMachine,
+  onBulkAddMachines 
+}: StockManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterWard, setFilterWard] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -85,6 +107,23 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
   const [isCustomLot, setIsCustomLot] = useState(false);
   const [customLot, setCustomLot] = useState('');
   const [remark, setRemark] = useState('');
+
+  // =========================================================================
+  // CSV Import States
+  // =========================================================================
+  const [isOpenCsvModal, setIsOpenCsvModal] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvFileName, setCsvFileName] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isParsingCsv, setIsParsingCsv] = useState(false);
+  const [csvParseError, setCsvParseError] = useState<string | null>(null);
+  const [parsedRows, setParsedRows] = useState<ParsedMachineRow[]>([]);
+  const [importStrategy, setImportStrategy] = useState<'skip_existing' | 'overwrite_existing'>('skip_existing');
+  const [previewFilter, setPreviewFilter] = useState<'all' | 'valid' | 'duplicate' | 'invalid'>('all');
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
+  const [importResultToast, setImportResultToast] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check if current typed CODE is duplicate
   const trimmedCode = serialNumber.trim().toUpperCase();
@@ -156,11 +195,13 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const finalBrand = isCustomBrand ? customBrand.trim() : brand;
-    const finalLot = isCustomLot ? customLot.trim() : lotNumber;
+    const finalBrand = (isCustomBrand ? customBrand.trim() : brand) || 'VivaChek';
+    const finalLot = (isCustomLot ? customLot.trim() : lotNumber) || (distinctLots.length > 0 ? distinctLots[0] : 'LOT-2026-01');
+    const finalWard = ward.trim() || 'ไม่ระบุหน่วยงาน';
+    const finalSerial = machineSerial.trim().toUpperCase() || serialNumber.trim().toUpperCase();
 
-    if (!serialNumber.trim() || !machineSerial.trim() || !ward || !finalBrand || !finalLot) {
-      alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (รวมถึงรหัสเครื่อง, หมายเลขซีเรียล S/N, แบรนด์, หน่วยงาน และ LOT)');
+    if (!serialNumber.trim()) {
+      alert('กรุณาระบุรหัสเครื่อง (CODE)');
       return;
     }
 
@@ -172,12 +213,12 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
     const machineData: DtxMachine = {
       id: modalMode === 'add' ? String(Date.now()) : currentMachineId,
       serialNumber: serialNumber.trim().toUpperCase(),
-      machineSerial: machineSerial.trim().toUpperCase(),
+      machineSerial: finalSerial,
       brand: finalBrand,
-      model,
-      ward,
-      status,
-      receiveDate,
+      model: model.trim() || 'Fad',
+      ward: finalWard,
+      status: status || 'active',
+      receiveDate: receiveDate || new Date().toISOString().split('T')[0],
       lotNumber: finalLot,
       remark: remark.trim(),
     };
@@ -196,6 +237,414 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
       onDeleteMachine(id);
     }
   };
+
+  // =========================================================================
+  // CSV Import Helpers & Parser Logic
+  // =========================================================================
+
+  const parseCsvLine = (line: string, delimiter: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"' || char === "'") {
+        if (inQuotes && line[i + 1] === char) {
+          current += char;
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const normalizeDate = (val: string): string => {
+    if (!val || !val.trim()) return new Date().toISOString().split('T')[0];
+    const cleaned = val.trim();
+    
+    // Check YYYY-MM-DD
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(cleaned)) {
+      const [y, m, d] = cleaned.split('-').map(Number);
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+
+    // Check DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmyMatch) {
+      let [_, d, m, y] = dmyMatch;
+      let yearNum = Number(y);
+      // If Buddhist Era year (e.g. 2569 -> 2026)
+      if (yearNum > 2400) {
+        yearNum -= 543;
+      }
+      return `${yearNum}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+
+    return new Date().toISOString().split('T')[0];
+  };
+
+  const normalizeStatus = (val: string): DtxMachine['status'] => {
+    if (!val) return 'active';
+    const s = val.trim().toLowerCase();
+    if (s.includes('active') || s.includes('ใช้งาน') || s.includes('ปกติ') || s.includes('พร้อม')) return 'active';
+    if (s.includes('inactive') || s.includes('ปิด') || s.includes('คืน') || s.includes('ยกเลิก') || s.includes('ชำรุด')) return 'inactive';
+    if (s.includes('lost') || s.includes('สูญหาย') || s.includes('หาย')) return 'lost';
+    if (s.includes('waiting') || s.includes('รอเคลม') || s.includes('รอส่งเคลม')) return 'waiting_claim';
+    if (s.includes('claimed') || s.includes('เคลมแล้ว') || s.includes('ส่งเคลม')) return 'claimed';
+    if (s.includes('unknown') || s.includes('ไม่ทราบ')) return 'unknown';
+    return 'active';
+  };
+
+  const parseCsvText = (text: string) => {
+    setIsParsingCsv(true);
+    setCsvParseError(null);
+
+    try {
+      // 1. Remove BOM and normalize line endings
+      const cleanText = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = cleanText.split('\n').filter(l => l.trim().length > 0);
+
+      if (lines.length < 2) {
+        setCsvParseError('ไฟล์ CSV ต้องมีหัวตาราง (Header) และข้อมูลอย่างน้อย 1 แถว');
+        setIsParsingCsv(false);
+        return;
+      }
+
+      // 2. Detect delimiter (comma vs semicolon vs tab)
+      const firstLine = lines[0];
+      let delimiter = ',';
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const semiCount = (firstLine.match(/;/g) || []).length;
+      const tabCount = (firstLine.match(/\t/g) || []).length;
+      if (semiCount > commaCount && semiCount > tabCount) delimiter = ';';
+      else if (tabCount > commaCount && tabCount > semiCount) delimiter = '\t';
+
+      // 3. Parse headers
+      const rawHeaders = parseCsvLine(firstLine, delimiter).map(h => h.toLowerCase().replace(/[\s_\-]/g, ''));
+      
+      const headerMap: {
+        codeIdx: number;
+        serialIdx: number;
+        brandIdx: number;
+        modelIdx: number;
+        wardIdx: number;
+        lotIdx: number;
+        dateIdx: number;
+        statusIdx: number;
+        remarkIdx: number;
+      } = {
+        codeIdx: -1,
+        serialIdx: -1,
+        brandIdx: -1,
+        modelIdx: -1,
+        wardIdx: -1,
+        lotIdx: -1,
+        dateIdx: -1,
+        statusIdx: -1,
+        remarkIdx: -1,
+      };
+
+      rawHeaders.forEach((h, idx) => {
+        if (h.includes('รหัส') || h.includes('bgm') || h.includes('code') || (h.includes('serial') && !h.includes('number') && headerMap.codeIdx === -1) || h.includes('เครื่อง')) {
+          if (headerMap.codeIdx === -1) headerMap.codeIdx = idx;
+        } else if (h.includes('ซีเรียล') || h.includes('s/n') || h.includes('sn') || h.includes('machineserial') || (h.includes('serial') && headerMap.serialIdx === -1)) {
+          if (headerMap.serialIdx === -1) headerMap.serialIdx = idx;
+        } else if (h.includes('แบรนด์') || h.includes('ยี่ห้อ') || h.includes('brand') || h.includes('make')) {
+          headerMap.brandIdx = idx;
+        } else if (h.includes('รุ่น') || h.includes('โมเดล') || h.includes('model')) {
+          headerMap.modelIdx = idx;
+        } else if (h.includes('หน่วยงาน') || h.includes('วอร์ด') || h.includes('แผนก') || h.includes('ward') || h.includes('dept') || h.includes('department')) {
+          headerMap.wardIdx = idx;
+        } else if (h.includes('lot') || h.includes('ล็อต') || h.includes('ล๊อต')) {
+          headerMap.lotIdx = idx;
+        } else if (h.includes('วัน') || h.includes('date') || h.includes('rec') || h.includes('install')) {
+          headerMap.dateIdx = idx;
+        } else if (h.includes('สถานะ') || h.includes('status')) {
+          headerMap.statusIdx = idx;
+        } else if (h.includes('หมายเหตุ') || h.includes('remark') || h.includes('note')) {
+          headerMap.remarkIdx = idx;
+        }
+      });
+
+      // Fallback if headers were simple index order
+      if (headerMap.codeIdx === -1 && rawHeaders.length > 0) headerMap.codeIdx = 0;
+      if (headerMap.serialIdx === -1 && rawHeaders.length > 1) headerMap.serialIdx = 1;
+      if (headerMap.wardIdx === -1 && rawHeaders.length > 2) headerMap.wardIdx = 2;
+
+      const seenCodesInFile = new Set<string>();
+      const parsed: ParsedMachineRow[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCsvLine(lines[i], delimiter);
+        if (cols.length === 0 || cols.every(c => !c.trim())) continue;
+
+        const rawCode = headerMap.codeIdx >= 0 ? cols[headerMap.codeIdx] || '' : '';
+        const rawSerial = headerMap.serialIdx >= 0 ? cols[headerMap.serialIdx] || '' : '';
+        const rawBrand = headerMap.brandIdx >= 0 ? cols[headerMap.brandIdx] || '' : '';
+        const rawModel = headerMap.modelIdx >= 0 ? cols[headerMap.modelIdx] || '' : '';
+        const rawWard = headerMap.wardIdx >= 0 ? cols[headerMap.wardIdx] || '' : '';
+        const rawLot = headerMap.lotIdx >= 0 ? cols[headerMap.lotIdx] || '' : '';
+        const rawDate = headerMap.dateIdx >= 0 ? cols[headerMap.dateIdx] || '' : '';
+        const rawStatus = headerMap.statusIdx >= 0 ? cols[headerMap.statusIdx] || '' : '';
+        const rawRemark = headerMap.remarkIdx >= 0 ? cols[headerMap.remarkIdx] || '' : '';
+
+        const codeVal = rawCode.trim().toUpperCase();
+        const serialVal = (rawSerial.trim() || codeVal).toUpperCase();
+        const brandVal = rawBrand.trim() || 'VivaChek';
+        const modelVal = rawModel.trim() || 'Fad';
+        const wardVal = rawWard.trim();
+        const lotVal = rawLot.trim() || (distinctLots.length > 0 ? distinctLots[0] : 'LOT-2026-01');
+        const dateVal = normalizeDate(rawDate);
+        const statusVal = normalizeStatus(rawStatus);
+        const remarkVal = rawRemark.trim();
+
+        // If ward is missing, use default
+        const effectiveWard = wardVal || 'ไม่ระบุหน่วยงาน';
+        const effectiveSerial = serialVal || codeVal;
+
+        // Check validation - only codeVal is strictly required
+        let isValid = true;
+        let validationError = '';
+
+        if (!codeVal) {
+          isValid = false;
+          validationError = 'ไม่พบรหัสเครื่อง (CODE)';
+        } else if (seenCodesInFile.has(codeVal)) {
+          isValid = false;
+          validationError = 'รหัสเครื่องซ้ำกันภายในไฟล์ CSV เดียวกัน';
+        }
+
+        if (codeVal) {
+          seenCodesInFile.add(codeVal);
+        }
+
+        // Check if exists in current database/system
+        const existingMachine = machines.find(m => m.serialNumber.trim().toUpperCase() === codeVal);
+        const isExisting = !!existingMachine;
+
+        const machineObj: DtxMachine = {
+          id: existingMachine ? existingMachine.id : `imp-${Date.now()}-${i}`,
+          serialNumber: codeVal,
+          machineSerial: effectiveSerial,
+          brand: brandVal,
+          model: modelVal,
+          ward: effectiveWard,
+          lotNumber: lotVal,
+          receiveDate: dateVal,
+          status: statusVal,
+          remark: remarkVal || undefined
+        };
+
+        parsed.push({
+          rowNum: i,
+          raw: { codeVal, serialVal, brandVal, modelVal, wardVal, lotVal, dateVal, statusVal, remarkVal },
+          machine: machineObj,
+          isValid,
+          validationError: validationError || undefined,
+          isExisting,
+          existingMachine
+        });
+      }
+
+      if (parsed.length === 0) {
+        setCsvParseError('ไม่พบแถวข้อมูลที่สามารถอ่านได้ในไฟล์ CSV');
+      } else {
+        setParsedRows(parsed);
+      }
+    } catch (err: any) {
+      console.error('CSV Parsing Error:', err);
+      setCsvParseError(`เกิดข้อผิดพลาดในการอ่านไฟล์ CSV: ${err.message || err}`);
+    } finally {
+      setIsParsingCsv(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCsvFile(file);
+    setCsvFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result as string;
+      if (content) {
+        parseCsvText(content);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && (file.name.endsWith('.csv') || file.type === 'text/csv' || file.type === 'application/vnd.ms-excel')) {
+      setCsvFile(file);
+      setCsvFileName(file.name);
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const content = evt.target?.result as string;
+        if (content) {
+          parseCsvText(content);
+        }
+      };
+      reader.readAsText(file, 'UTF-8');
+    } else {
+      alert('กรุณาเลือกไฟล์รูปแบบ .csv เท่านั้น');
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = ['รหัสเครื่อง(CODE)', 'หมายเลขซีเรียล(S/N)', 'แบรนด์', 'รุ่น', 'หน่วยงานประจำการ', 'LOT', 'วันที่รับเครื่อง(YYYY-MM-DD)', 'สถานะ(active/inactive/lost)', 'หมายเหตุ'];
+    const sampleWard1 = wards.length > 0 ? wards[0].thai_name : 'หอผู้ป่วยใน 1';
+    const sampleWard2 = wards.length > 1 ? wards[1].thai_name : 'ห้องฉุกเฉิน (ER)';
+    const sampleWard3 = wards.length > 2 ? wards[2].thai_name : 'หอผู้ป่วยวิกฤต (ICU)';
+
+    const sampleRows = [
+      ['BGM-901', '103A2002FB1', 'VivaChek', 'Fad', sampleWard1, 'LOT-2026-01', '2026-01-15', 'active', 'เครื่องประจำหอผู้ป่วย'],
+      ['BGM-902', '103A2002FB2', 'VivaChek', 'Fad', sampleWard2, 'LOT-2026-01', '2026-02-10', 'active', 'ประจำรถเข็นฉุกเฉิน'],
+      ['BGM-903', '103A2002FB3', 'Accu-Chek', 'Instant', sampleWard3, 'LOT-2026-02', '2026-03-01', 'active', 'เครื่องใหม่'],
+    ];
+
+    const csvContent = '\uFEFF' + [
+      headers.join(','),
+      ...sampleRows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'dtx_machines_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCSV = () => {
+    if (machines.length === 0) {
+      alert('ยังไม่มีข้อมูลเครื่อง DTX ในระบบให้ส่งออก');
+      return;
+    }
+
+    const headers = ['รหัสเครื่อง(CODE)', 'หมายเลขซีเรียล(S/N)', 'แบรนด์', 'รุ่น', 'หน่วยงานประจำการ', 'LOT', 'วันที่รับเครื่อง', 'สถานะ', 'หมายเหตุ'];
+    
+    const rows = (sortedAndFilteredMachines.length > 0 ? sortedAndFilteredMachines : machines).map(m => [
+      m.serialNumber,
+      m.machineSerial || '',
+      m.brand || '',
+      m.model || '',
+      m.ward || '',
+      m.lotNumber || '',
+      m.receiveDate || '',
+      m.status || 'active',
+      m.remark || ''
+    ]);
+
+    const csvContent = '\uFEFF' + [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `dtx_machines_stock_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExecuteImport = async () => {
+    if (parsedRows.length === 0) return;
+
+    // Filter candidate machines according to validation and strategy
+    const candidatesToImport: DtxMachine[] = [];
+    let skippedCount = 0;
+
+    parsedRows.forEach(row => {
+      if (!row.isValid) return;
+
+      if (row.isExisting) {
+        if (importStrategy === 'overwrite_existing') {
+          candidatesToImport.push(row.machine);
+        } else {
+          skippedCount++;
+        }
+      } else {
+        candidatesToImport.push(row.machine);
+      }
+    });
+
+    if (candidatesToImport.length === 0) {
+      alert('ไม่มีรายการที่สามารถนำเข้าได้ (รายการทั้งหมดอาจไม่ถูกต้อง หรือถูกข้ามเนื่องจากซ้ำกับข้อมูลเดิม)');
+      return;
+    }
+
+    setIsImporting(true);
+    setImportProgress({ current: 0, total: candidatesToImport.length });
+
+    try {
+      if (onBulkAddMachines) {
+        const res = await onBulkAddMachines(candidatesToImport, importStrategy === 'overwrite_existing');
+        setImportResultToast(`นำเข้าข้อมูลสำเร็จ ${res.success} รายการ${res.failed > 0 ? ` (ไม่สำเร็จ ${res.failed} รายการ)` : ''}${skippedCount > 0 ? ` ข้ามรายการซ้ำ ${skippedCount} รายการ` : ''}`);
+      } else {
+        // Fallback sequential execution
+        let success = 0;
+        for (let i = 0; i < candidatesToImport.length; i++) {
+          const m = candidatesToImport[i];
+          const exists = machines.find(x => x.serialNumber === m.serialNumber || x.id === m.id);
+          if (exists && importStrategy === 'overwrite_existing') {
+            onUpdateMachine(m);
+          } else {
+            onAddMachine(m);
+          }
+          success++;
+          setImportProgress({ current: i + 1, total: candidatesToImport.length });
+        }
+        setImportResultToast(`นำเข้าข้อมูลสำเร็จ ${success} รายการ${skippedCount > 0 ? ` (ข้ามรายการซ้ำ ${skippedCount} รายการ)` : ''}`);
+      }
+
+      // Close modal and reset state after a short delay
+      setTimeout(() => {
+        setIsImporting(false);
+        setIsOpenCsvModal(false);
+        setCsvFile(null);
+        setCsvFileName('');
+        setParsedRows([]);
+      }, 1000);
+
+    } catch (err: any) {
+      console.error('Import execution error:', err);
+      alert(`เกิดข้อผิดพลาดในการนำเข้า: ${err.message || err}`);
+      setIsImporting(false);
+    }
+  };
+
+  const validRowsCount = parsedRows.filter(r => r.isValid && !r.isExisting).length;
+  const duplicateRowsCount = parsedRows.filter(r => r.isValid && r.isExisting).length;
+  const invalidRowsCount = parsedRows.filter(r => !r.isValid).length;
+
+  const filteredPreviewRows = parsedRows.filter(r => {
+    if (previewFilter === 'valid') return r.isValid && !r.isExisting;
+    if (previewFilter === 'duplicate') return r.isValid && r.isExisting;
+    if (previewFilter === 'invalid') return !r.isValid;
+    return true;
+  });
 
   // Sorting states - Default sorting to serialNumber (CODE) asc
   const [sortField, setSortField] = useState<keyof DtxMachine>('serialNumber');
@@ -285,17 +734,66 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
             <Layers size={20} className="text-sky-600" />
             <span>จัดการคลังเครื่องตรวจวัดน้ำตาล (DTX Stock Inventory)</span>
           </h2>
-          <p className="text-xs text-slate-400">ควบคุมจำนวน ประจำการ วินิจฉัยสถานะ และบันทึก LOT ของเครื่องทั้งหมดในโรงพยาบาล</p>
+          <p className="text-xs text-slate-400">ควบคุมจำนวน ประจำการ วินิจฉัยสถานะ บันทึก LOT และนำเข้า/ส่งออกข้อมูลเครื่อง DTX ทั้งหมดในโรงพยาบาล</p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center space-x-1.5 transition-all shrink-0 shadow-md shadow-sky-600/10"
-          id="add-machine-btn"
-        >
-          <Plus size={14} />
-          <span>เพิ่มเครื่อง DTX ใหม่</span>
-        </button>
+        
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* CSV Export Button */}
+          <button
+            onClick={handleExportCSV}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer"
+            title="ส่งออกรายการเครื่อง DTX เป็นไฟล์ CSV"
+            id="export-csv-btn"
+          >
+            <Download size={14} className="text-slate-500" />
+            <span>ส่งออก CSV</span>
+          </button>
+
+          {/* CSV Import Button */}
+          <button
+            onClick={() => {
+              setParsedRows([]);
+              setCsvFile(null);
+              setCsvFileName('');
+              setCsvParseError(null);
+              setIsOpenCsvModal(true);
+            }}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-emerald-600/10 cursor-pointer"
+            title="นำเข้าไฟล์ CSV เพิ่มเครื่อง DTX จำนวนมาก"
+            id="import-csv-btn"
+          >
+            <Upload size={14} />
+            <span>นำเข้าไฟล์ CSV</span>
+          </button>
+
+          {/* Add Single Machine Button */}
+          <button
+            onClick={openAddModal}
+            className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-sky-600/10 cursor-pointer"
+            id="add-machine-btn"
+          >
+            <Plus size={14} />
+            <span>เพิ่มเครื่อง DTX ใหม่</span>
+          </button>
+        </div>
       </div>
+
+      {/* Result Toast if set */}
+      {importResultToast && (
+        <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl flex items-center justify-between text-xs text-emerald-900 animate-fadeIn">
+          <div className="flex items-center space-x-2 font-bold">
+            <CheckCircle2 size={16} className="text-emerald-600" />
+            <span>{importResultToast}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setImportResultToast(null)} 
+            className="text-slate-400 hover:text-slate-600 cursor-pointer font-bold px-2 py-0.5"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Filters Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" id="stock-filters">
@@ -303,10 +801,10 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
           <Search size={15} className="absolute left-3 top-3 text-slate-400" />
           <input
             type="text"
-            placeholder="ค้นหาตามรหัสเครื่อง/แบรนด์/รุ่น..."
+            placeholder="ค้นหาตามรหัสเครื่อง/แบรนด์/รุ่น/S/N..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full text-xs p-2.5 pl-9 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500"
+            className="w-full text-xs p-2.5 pl-9 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500"
           />
         </div>
 
@@ -314,7 +812,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
           <CustomSelect
             value={filterWard}
             onChange={(e) => setFilterWard(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+            className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
           >
             <option value="">-- หน่วยงานทั้งหมด --</option>
             {wards.map((w, idx) => (
@@ -327,7 +825,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
           <CustomSelect
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+            className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
           >
             <option value="">-- สถานะทั้งหมด --</option>
             <option value="active">active (ใช้งานปกติ)</option>
@@ -421,14 +919,14 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                     <div className="flex items-center justify-center space-x-2">
                       <button
                         onClick={() => openEditModal(m)}
-                        className="p-1.5 hover:bg-sky-50 text-sky-600 rounded-lg hover:text-sky-500 transition-colors"
+                        className="p-1.5 hover:bg-sky-50 text-sky-600 rounded-lg hover:text-sky-500 transition-colors cursor-pointer"
                         title="แก้ไขข้อมูลเครื่อง"
                       >
                         <Edit2 size={13} />
                       </button>
                       <button
                         onClick={() => handleDelete(m.id, m.serialNumber)}
-                        className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg hover:text-rose-500 transition-colors"
+                        className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg hover:text-rose-500 transition-colors cursor-pointer"
                         title="ลบเครื่องนี้ออก"
                       >
                         <Trash2 size={13} />
@@ -449,74 +947,78 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
             <button
               onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={currentPage === 1}
-              className="relative inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="relative inline-flex items-center px-4 py-2 border border-slate-200 text-xs font-bold rounded-lg text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
             >
               ก่อนหน้า
             </button>
             <button
               onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
               disabled={currentPage === totalPages}
-              className="relative ml-3 inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="relative ml-3 inline-flex items-center px-4 py-2 border border-slate-200 text-xs font-bold rounded-lg text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
             >
               ถัดไป
             </button>
           </div>
-          <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
-            <div className="flex items-center space-x-4">
-              <p className="text-slate-500 font-medium">
-                แสดงรายการที่ <span className="font-bold text-slate-800">{Math.min(filteredMachines.length, (currentPage - 1) * itemsPerPage + 1)}</span> ถึง{' '}
-                <span className="font-bold text-slate-800">{Math.min(filteredMachines.length, currentPage * itemsPerPage)}</span> จากทั้งหมด{' '}
-                <span className="font-bold text-slate-800">{filteredMachines.length}</span> รายการ
-              </p>
-              <div className="flex items-center space-x-1.5 text-slate-500 font-medium">
-                <span>แสดง:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500/25 text-[11px] font-bold"
-                >
-                  <option value={10}>10 รายการ</option>
-                  <option value={15}>15 รายการ</option>
-                  <option value={25}>25 รายการ</option>
-                  <option value={50}>50 รายการ</option>
-                  <option value={100}>100 รายการ</option>
-                </select>
-              </div>
-            </div>
+          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
             <div>
-              <nav className="isolate inline-flex -space-x-px rounded-md shadow-2xs" aria-label="Pagination">
+              <p className="text-slate-500 font-medium">
+                แสดงลำดับที่ <span className="font-bold text-slate-800">{(currentPage - 1) * itemsPerPage + 1}</span> ถึง <span className="font-bold text-slate-800">{Math.min(currentPage * itemsPerPage, sortedAndFilteredMachines.length)}</span> จากทั้งหมด <span className="font-bold text-slate-800">{sortedAndFilteredMachines.length}</span> รายการ
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <span className="text-slate-400 text-[11px]">จำนวนต่อหน้า:</span>
+              <CustomSelect
+                value={String(itemsPerPage)}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-bold p-1 px-2 border border-slate-200 rounded-lg bg-slate-50"
+              >
+                <option value="10">10</option>
+                <option value="15">15</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </CustomSelect>
+
+              <nav className="relative z-0 inline-flex rounded-lg shadow-2xs -space-x-px ml-2" aria-label="Pagination">
                 <button
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                   disabled={currentPage === 1}
-                  className="relative inline-flex items-center rounded-l-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="relative inline-flex items-center px-2 py-1.5 rounded-l-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <span className="sr-only">Previous</span>
-                  <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                  <ChevronLeft size={14} />
                 </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    aria-current={currentPage === page ? 'page' : undefined}
-                    className={`relative inline-flex items-center px-3 py-2 text-xs font-extrabold ring-1 ring-inset focus:z-20 focus:outline-offset-0 ${
-                      currentPage === page
-                        ? 'z-10 bg-sky-600 text-white ring-sky-600'
-                        : 'text-slate-700 ring-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    {page}
-                  </button>
-                ))}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, idx) => {
+                  let pageNum = idx + 1;
+                  if (totalPages > 5) {
+                    if (currentPage > 3 && currentPage < totalPages - 2) {
+                      pageNum = currentPage - 2 + idx;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + idx;
+                    }
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`relative inline-flex items-center px-3 py-1.5 border text-xs font-bold ${
+                        currentPage === pageNum
+                          ? 'z-10 bg-sky-50 border-sky-500 text-sky-600'
+                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
                 <button
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="relative inline-flex items-center rounded-r-md px-2 py-2 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 focus:z-20 focus:outline-offset-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="relative inline-flex items-center px-2 py-1.5 rounded-r-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <span className="sr-only">Next</span>
-                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                  <ChevronRight size={14} />
                 </button>
               </nav>
             </div>
@@ -524,90 +1026,424 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
         </div>
       )}
 
-      {/* Stock Summary Metrics Footer */}
-      <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 flex flex-wrap justify-between items-center gap-3 text-xs text-slate-500">
-        <p>แสดงทั้งหมด <span className="font-bold text-slate-800">{filteredMachines.length}</span> จาก <span className="font-bold text-slate-800">{machines.length}</span> รายการเครื่องตรวจน้ำตาล</p>
-        <div className="flex items-center space-x-4">
-          <span className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
-            <span>active: {machines.filter(m => m.status === 'active').length}</span>
-          </span>
-          <span className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span>
-            <span>inactive: {machines.filter(m => m.status === 'inactive').length}</span>
-          </span>
-          <span className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block"></span>
-            <span>สูญหาย: {machines.filter(m => m.status === 'lost').length}</span>
-          </span>
-          <span className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
-            <span>รอส่งเคลม: {machines.filter(m => m.status === 'waiting_claim').length}</span>
-          </span>
-          <span className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block"></span>
-            <span>ส่งเคลมแล้ว: {machines.filter(m => m.status === 'claimed').length}</span>
-          </span>
-        </div>
-      </div>
-
-      {/* Create / Edit Modal */}
-      {isOpenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto" id="stock-modal">
-          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl border border-slate-100 animate-scale-up my-auto">
-            <div className="bg-slate-900 text-white p-4 rounded-t-2xl flex items-center justify-between">
-              <h3 className="font-bold text-sm">
-                {modalMode === 'add' ? 'เพิ่มเครื่องตรวจวัดน้ำตาลเข้าคลัง' : 'แก้ไขข้อมูลเครื่องตรวจวัดน้ำตาล (DTX)'}
-              </h3>
+      {/* ========================================================================= */}
+      {/* CSV IMPORT MODAL */}
+      {/* ========================================================================= */}
+      {isOpenCsvModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-[100] animate-fadeIn" id="csv-import-modal-overlay">
+          <div className="bg-white w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-scaleUp">
+            {/* Modal Header */}
+            <div className="p-3.5 sm:p-5 border-b border-slate-100 flex items-start sm:items-center justify-between bg-slate-50/50 gap-2">
+              <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 border border-emerald-100 shrink-0 mt-0.5 sm:mt-0">
+                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <h3 className="text-xs sm:text-base font-bold text-slate-800">
+                      นำเข้าข้อมูลเครื่อง DTX จากไฟล์ CSV
+                    </h3>
+                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      Batch Importer
+                    </span>
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5">
+                    อัปโหลดไฟล์ CSV เพื่อเพิ่มหรืออัปเดตเครื่องตรวจวัดน้ำตาลในคลังพร้อมกัน
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setIsOpenModal(false)}
-                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                onClick={() => !isImporting && setIsOpenCsvModal(false)}
+                disabled={isImporting}
+                className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50 shrink-0"
               >
-                <X size={18} />
+                <X size={15} />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-6 space-y-4">
+            {/* Modal Body */}
+            <div className="p-3.5 sm:p-5 overflow-y-auto space-y-4 sm:space-y-5 flex-1 text-xs">
+              {/* Step 1: Upload / Dropzone & Template */}
+              <div className="space-y-2 sm:space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                    <Upload size={13} className="text-sky-600" />
+                    <span>1. เลือกไฟล์ CSV หรือลากไฟล์มาวาง</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    className="w-full sm:w-auto justify-center text-[11px] sm:text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center space-x-1.5 cursor-pointer bg-sky-50 hover:bg-sky-100 px-3 py-1.5 rounded-lg border border-sky-200 transition-all"
+                  >
+                    <FileDown size={13} />
+                    <span>ดาวน์โหลดไฟล์ตัวอย่าง (Template CSV)</span>
+                  </button>
+                </div>
+
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl sm:rounded-2xl p-4 sm:p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center space-y-2 ${
+                    isDragOver 
+                      ? 'border-sky-500 bg-sky-50/50' 
+                      : csvFile
+                      ? 'border-emerald-400 bg-emerald-50/30'
+                      : 'border-slate-200 hover:border-sky-400 hover:bg-slate-50/50'
+                  }`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,text/csv,application/vnd.ms-excel"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  
+                  {isParsingCsv ? (
+                    <div className="flex flex-col items-center space-y-2 py-3">
+                      <Loader2 size={24} className="text-sky-600 animate-spin" />
+                      <span className="text-xs font-bold text-slate-600">กำลังอ่านและตรวจสอบโครงสร้างไฟล์ CSV...</span>
+                    </div>
+                  ) : csvFile ? (
+                    <div className="flex items-center space-x-3 py-1">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/20 shrink-0">
+                        <FileSpreadsheet size={18} />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                          <span className="truncate max-w-[200px] sm:max-w-md">{csvFileName}</span>
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-mono">
+                            {(csvFile.size / 1024).toFixed(1)} KB
+                          </span>
+                        </div>
+                        <p className="text-[10px] sm:text-[11px] text-slate-400">คลิกหรือลากไฟล์ใหม่มาวางเพื่อเปลี่ยนไฟล์</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-10 h-10 rounded-xl sm:rounded-2xl bg-sky-50 flex items-center justify-center text-sky-600">
+                        <Upload size={20} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-700">
+                          ลากไฟล์ CSV มาวางที่นี่ หรือ <span className="text-sky-600 underline">คลิกเลือกไฟล์</span>
+                        </p>
+                        <p className="text-[10px] sm:text-[11px] text-slate-400 mt-0.5">
+                          รองรับไฟล์ .csv (UTF-8, Excel) บังคับเฉพาะ<strong>รหัสเครื่อง (CODE)</strong> ข้อมูลอื่นๆ ที่เว้นว่างระบบจะเติมค่าเริ่มต้นให้อัตโนมัติ
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Error Box if parsing failed */}
+              {csvParseError && (
+                <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-start space-x-2 text-xs text-rose-800">
+                  <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">เกิดข้อผิดพลาดในการอ่านไฟล์:</span>
+                    <p className="mt-0.5 text-[11px]">{csvParseError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 2: Preview & Validation Stats */}
+              {parsedRows.length > 0 && (
+                <div className="space-y-3 pt-2 border-t border-slate-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-700 flex items-center space-x-1.5">
+                      <Sparkles size={13} className="text-amber-500" />
+                      <span>2. ผลตรวจสอบ ({parsedRows.length} รายการ)</span>
+                    </span>
+
+                    {/* Conflict Strategy Radios */}
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-[11px] sm:text-xs font-bold bg-slate-50 p-1.5 sm:p-2 rounded-xl border border-slate-200">
+                      <span className="text-slate-400 text-[10px] sm:text-[11px]">หากรหัสซ้ำ:</span>
+                      <label className="flex items-center space-x-1.5 cursor-pointer text-slate-700">
+                        <input
+                          type="radio"
+                          name="importStrategy"
+                          value="skip_existing"
+                          checked={importStrategy === 'skip_existing'}
+                          onChange={() => setImportStrategy('skip_existing')}
+                          className="accent-sky-600"
+                        />
+                        <span>ข้ามที่ซ้ำ ({duplicateRowsCount})</span>
+                      </label>
+                      <label className="flex items-center space-x-1.5 cursor-pointer text-slate-700">
+                        <input
+                          type="radio"
+                          name="importStrategy"
+                          value="overwrite_existing"
+                          checked={importStrategy === 'overwrite_existing'}
+                          onChange={() => setImportStrategy('overwrite_existing')}
+                          className="accent-sky-600"
+                        />
+                        <span className="text-amber-600">อัปเดตทับเดิม</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Summary Metric Chips */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilter('all')}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        previewFilter === 'all' 
+                          ? 'border-sky-500 bg-sky-50/50 ring-1 ring-sky-500' 
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="text-[10px] text-slate-400 font-bold">ทั้งหมดในไฟล์</div>
+                      <div className="text-sm font-black text-slate-800 mt-0.5">{parsedRows.length} รายการ</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilter('valid')}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        previewFilter === 'valid' 
+                          ? 'border-emerald-500 bg-emerald-50/50 ring-1 ring-emerald-500' 
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="text-[10px] text-emerald-600 font-bold flex items-center space-x-1">
+                        <CheckCircle2 size={11} />
+                        <span>พร้อมเพิ่มใหม่</span>
+                      </div>
+                      <div className="text-sm font-black text-emerald-600 mt-0.5">{validRowsCount} รายการ</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilter('duplicate')}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        previewFilter === 'duplicate' 
+                          ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500' 
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="text-[10px] text-amber-600 font-bold flex items-center space-x-1">
+                        <AlertTriangle size={11} />
+                        <span>ซ้ำกับในคลัง</span>
+                      </div>
+                      <div className="text-sm font-black text-amber-600 mt-0.5">{duplicateRowsCount} รายการ</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFilter('invalid')}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        previewFilter === 'invalid' 
+                          ? 'border-rose-500 bg-rose-50/50 ring-1 ring-rose-500' 
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="text-[10px] text-rose-600 font-bold flex items-center space-x-1">
+                        <AlertCircle size={11} />
+                        <span>ข้อมูลไม่สมบูรณ์</span>
+                      </div>
+                      <div className="text-sm font-black text-rose-600 mt-0.5">{invalidRowsCount} รายการ</div>
+                    </button>
+                  </div>
+
+                  {/* Preview Table */}
+                  <div className="border border-slate-100 rounded-xl overflow-hidden max-h-52 sm:max-h-60 overflow-y-auto">
+                    <table className="w-full text-left text-[11px] border-collapse">
+                      <thead className="sticky top-0 bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="p-2">แถว</th>
+                          <th className="p-2">รหัส (CODE)</th>
+                          <th className="p-2">ซีเรียล (S/N)</th>
+                          <th className="p-2">แบรนด์/รุ่น</th>
+                          <th className="p-2">หน่วยงาน</th>
+                          <th className="p-2">LOT</th>
+                          <th className="p-2">วันที่</th>
+                          <th className="p-2">สถานะ</th>
+                          <th className="p-2">ผลการตรวจ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredPreviewRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="text-center p-5 text-slate-400">
+                              ไม่พบรายการในหมวดนี้
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredPreviewRows.map((r, idx) => (
+                            <tr 
+                              key={idx} 
+                              className={`transition-colors ${
+                                !r.isValid 
+                                  ? 'bg-rose-50/40' 
+                                  : r.isExisting 
+                                  ? 'bg-amber-50/30' 
+                                  : 'hover:bg-slate-50/60'
+                              }`}
+                            >
+                              <td className="p-2 font-mono text-slate-400">{r.rowNum}</td>
+                              <td className="p-2 font-bold text-slate-800">{r.machine.serialNumber || '-'}</td>
+                              <td className="p-2 font-mono text-slate-600">{r.machine.machineSerial || '-'}</td>
+                              <td className="p-2 text-slate-600">{r.machine.brand} {r.machine.model}</td>
+                              <td className="p-2 font-semibold text-slate-700">{r.machine.ward || '-'}</td>
+                              <td className="p-2 font-mono text-sky-700">{r.machine.lotNumber}</td>
+                              <td className="p-2 text-slate-500">{r.machine.receiveDate}</td>
+                              <td className="p-2">{getStatusDisplay(r.machine.status)}</td>
+                              <td className="p-2">
+                                {!r.isValid ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                                    ✗ {r.validationError}
+                                  </span>
+                                ) : r.isExisting ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                    {importStrategy === 'overwrite_existing' ? '⚡ จะอัปเดตทับ' : '⚠ จะข้าม (ซ้ำ)'}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                    ✓ พร้อมนำเข้า
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Progress Indicator during execution */}
+              {isImporting && (
+                <div className="bg-sky-50 p-3.5 rounded-xl border border-sky-200 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-sky-900">
+                    <span className="flex items-center space-x-2">
+                      <Loader2 size={15} className="animate-spin text-sky-600" />
+                      <span>กำลังบันทึกข้อมูลเครื่องเข้าสู่ฐานข้อมูลคลัง...</span>
+                    </span>
+                    <span>{importProgress.current} / {importProgress.total}</span>
+                  </div>
+                  <div className="w-full bg-sky-200 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                      className="bg-sky-600 h-1.5 transition-all duration-200 rounded-full"
+                      style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="p-3.5 sm:p-4 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2.5 bg-slate-50/50">
+              <div className="text-[11px] sm:text-xs text-slate-500 text-center sm:text-left">
+                {parsedRows.length > 0 && (
+                  <span>
+                    จะนำเข้าทั้งหมด: <strong className="text-slate-800">{importStrategy === 'overwrite_existing' ? validRowsCount + duplicateRowsCount : validRowsCount}</strong> รายการ
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsOpenCsvModal(false)}
+                  disabled={isImporting}
+                  className="w-1/3 sm:w-auto justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  ยกเลิก
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExecuteImport}
+                  disabled={isImporting || parsedRows.length === 0 || (importStrategy === 'skip_existing' && validRowsCount === 0 && duplicateRowsCount > 0)}
+                  className="w-2/3 sm:w-auto justify-center bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-all flex items-center space-x-1.5 shadow-md shadow-emerald-600/10 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>กำลังนำเข้า...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={14} />
+                      <span>
+                        ยืนยันนำเข้า ({importStrategy === 'overwrite_existing' ? validRowsCount + duplicateRowsCount : validRowsCount} รายการ)
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ADD / EDIT SINGLE MACHINE MODAL */}
+      {/* ========================================================================= */}
+      {isOpenModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-4 z-[100] animate-fadeIn" id="machine-modal-overlay">
+          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-xl border border-slate-100 space-y-4 animate-scaleUp">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center space-x-1.5">
+                <Layers size={16} className="text-sky-600" />
+                <span>{modalMode === 'add' ? 'เพิ่มเครื่อง DTX ใหม่' : `แก้ไขข้อมูลเครื่อง (${serialNumber})`}</span>
+              </h3>
+              <button 
+                onClick={() => setIsOpenModal(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-3.5">
               <div className="grid grid-cols-2 gap-3">
                 {/* CODE */}
-                <div className="space-y-1.5 col-span-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-slate-700">รหัสเครื่อง (CODE) *</label>
-                    {isCodeDuplicate && (
-                      <span className="text-[11px] font-bold text-rose-600 animate-pulse">
-                        ⚠️ รหัสเครื่องซ้ำในระบบ!
-                      </span>
-                    )}
-                  </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-700">รหัสเครื่อง (CODE) *</label>
                   <input
                     type="text"
-                    placeholder="เช่น BGM-016"
+                    placeholder="เช่น BGM-001"
                     value={serialNumber}
                     onChange={(e) => setSerialNumber(e.target.value)}
-                    disabled={modalMode === 'edit'}
-                    className={`w-full text-xs p-2.5 rounded-lg border font-bold disabled:bg-slate-50 disabled:text-slate-400 ${
-                      isCodeDuplicate
-                        ? 'border-rose-500 bg-rose-50/60 focus:border-rose-600 text-rose-900 focus:outline-none'
+                    className={`w-full text-xs p-2.5 rounded-lg border font-mono font-bold uppercase transition-colors ${
+                      isCodeDuplicate 
+                        ? 'border-rose-500 bg-rose-50/50 text-rose-800' 
                         : 'border-slate-200 focus:outline-hidden focus:border-sky-500'
                     }`}
                     required
                   />
+                  {isCodeDuplicate && (
+                    <p className="text-[10px] font-bold text-rose-600 animate-fadeIn">
+                      รหัสเครื่องนี้ซ้ำกับเครื่องอื่นในคลัง!
+                    </p>
+                  )}
                 </div>
 
-                {/* Machine Serial Number (S/N) */}
-                <div className="space-y-1.5 col-span-2">
-                  <label className="text-[11px] font-bold text-slate-700">หมายเลขซีเรียลตัวเครื่อง (S/N) *</label>
+                {/* Manufacturer Serial Number */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-slate-700">หมายเลขซีเรียล (S/N) *</label>
                   <input
                     type="text"
-                    placeholder="เช่น 311A0012BBD"
+                    placeholder="เช่น 103A2002FB7"
                     value={machineSerial}
                     onChange={(e) => setMachineSerial(e.target.value)}
-                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 font-mono"
+                    className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 font-mono font-bold uppercase"
                     required
                   />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-2 gap-3">
                 {/* Brand */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-700">แบรนด์ *</label>
@@ -625,8 +1461,8 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
                     required
                   >
-                    {distinctBrands.map((b) => (
-                      <option key={b} value={b}>{b}</option>
+                    {distinctBrands.map((b, idx) => (
+                      <option key={idx} value={b}>{b}</option>
                     ))}
                     <option value="__custom__">+ เพิ่มแบรนด์ใหม่ (พิมพ์เอง)</option>
                   </CustomSelect>
@@ -636,7 +1472,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                       placeholder="พิมพ์ชื่อแบรนด์ใหม่..."
                       value={customBrand}
                       onChange={(e) => setCustomBrand(e.target.value)}
-                      className="w-full text-xs p-2.5 mt-1 rounded-lg border border-sky-300 focus:outline-hidden focus:border-sky-500 bg-sky-50/40 font-semibold"
+                      className="w-full text-xs p-2.5 mt-1 rounded-lg border border-sky-300 focus:outline-hidden focus:border-sky-500 bg-sky-50/40 font-bold"
                       required
                     />
                   )}
@@ -644,7 +1480,7 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
 
                 {/* Model */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">รุ่น *</label>
+                  <label className="text-[11px] font-bold text-slate-700">รุ่น (Model) *</label>
                   <input
                     type="text"
                     placeholder="เช่น Fad"
@@ -755,13 +1591,13 @@ export default function StockManagement({ machines, onAddMachine, onUpdateMachin
                 <button
                   type="button"
                   onClick={() => setIsOpenModal(false)}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-lg transition-colors"
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-5 py-2.5 rounded-lg transition-colors flex items-center space-x-1"
+                  className="bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs px-5 py-2.5 rounded-lg transition-colors flex items-center space-x-1 cursor-pointer shadow-md shadow-sky-600/10"
                 >
                   <CheckCircle size={13} />
                   <span>บันทึกข้อมูล</span>
