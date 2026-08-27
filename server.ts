@@ -283,7 +283,19 @@ app.get("/api/machines", checkDbConfig, async (req, res) => {
     const sorted = ((data as any[]) || []).sort(
       (a: any, b: any) => new Date(b.created_at || b.install_date || 0).getTime() - new Date(a.created_at || a.install_date || 0).getTime()
     );
-    res.json(sorted);
+    // Deduplicate by bgm_code / id
+    const seen = new Set<string>();
+    const deduplicated: any[] = [];
+    for (const item of sorted) {
+      const code = String(item.bgm_code || '').trim().toUpperCase();
+      const id = String(item.id || '').trim();
+      const key = code || id;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        deduplicated.push(item);
+      }
+    }
+    res.json(deduplicated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

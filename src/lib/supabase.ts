@@ -793,6 +793,7 @@ export const dbService = {
 
   // --- dtx_machines ---
   async getMachines(): Promise<DtxMachine[]> {
+    let rawList: any[] = [];
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
         (c, tbl) => c.from(tbl).select('*'),
@@ -800,16 +801,41 @@ export const dbService = {
         ['machines', 'dtx_devices']
       );
       if (!error && Array.isArray(data)) {
-        return (data as any[])
-          .sort((a, b) => new Date(b.created_at || b.install_date || 0).getTime() - new Date(a.created_at || a.install_date || 0).getTime())
-          .map(mapDbToMachine);
-      }
-      if (error && !isMissingTable) {
+        rawList = data;
+      } else if (error && !isMissingTable) {
         console.warn('Supabase getMachines notice:', error.message || error);
       }
     }
-    const data = await safeApiFetch('/api/machines');
-    return data ? (data as any[]).map(mapDbToMachine) : [];
+    
+    if (rawList.length === 0) {
+      const apiData = await safeApiFetch('/api/machines');
+      if (Array.isArray(apiData)) {
+        rawList = apiData;
+      }
+    }
+
+    const mapped = rawList
+      .sort((a, b) => new Date(b.created_at || b.install_date || 0).getTime() - new Date(a.created_at || a.install_date || 0).getTime())
+      .map(mapDbToMachine);
+
+    // Deduplicate by serialNumber (CODE) and id
+    const seenCodes = new Set<string>();
+    const seenIds = new Set<string>();
+    const uniqueMachines: DtxMachine[] = [];
+
+    for (const m of mapped) {
+      const codeKey = (m.serialNumber || '').trim().toUpperCase();
+      const idKey = (m.id || '').trim();
+
+      if (codeKey && seenCodes.has(codeKey)) continue;
+      if (idKey && seenIds.has(idKey)) continue;
+
+      if (codeKey) seenCodes.add(codeKey);
+      if (idKey) seenIds.add(idKey);
+      uniqueMachines.push(m);
+    }
+
+    return uniqueMachines;
   },
 
   async insertMachine(machine: DtxMachine): Promise<DtxMachine> {

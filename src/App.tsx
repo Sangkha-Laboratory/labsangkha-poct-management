@@ -22,6 +22,7 @@ import QualityManagement from './components/QualityManagement';
 import LineNotifyConfig from './components/LineNotifyConfig';
 import SupabaseConfig from './components/SupabaseConfig';
 import DocumentsAndAnnouncementsManager from './components/DocumentsAndAnnouncementsManager';
+import PrivacyPolicyModal from './components/PrivacyPolicyModal';
 
 // Supabase Imports
 import { isSupabaseConfigured, getSupabaseConfigInfo, loginWithSupabaseAuth } from './lib/supabase';
@@ -224,6 +225,7 @@ export default function App() {
     return saved;
   });
   const [showLogoModal, setShowLogoModal] = useState<boolean>(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [footerLogoError, setFooterLogoError] = useState<boolean>(false);
 
@@ -320,33 +322,21 @@ export default function App() {
   const handleUpdateRepair = (updatedRepair: RepairRequest) => {
     setRepairs(prev => prev.map(r => r.id === updatedRepair.id ? updatedRepair : r));
     
-    let updatedMachines = [...machines];
-    // If completed, update lastQCDate in corresponding machine
-    if (updatedRepair.status === 'completed') {
-      updatedMachines = machines.map(m => {
-        if (m.serialNumber === updatedRepair.serialNumber) {
+    // If completed/waiting_claim/claimed, update corresponding machine status
+    let affectedMachineId = '';
+    setMachines(prev => prev.map(m => {
+      if (m.serialNumber === updatedRepair.serialNumber) {
+        affectedMachineId = m.id;
+        if (updatedRepair.status === 'completed') {
           return { ...m, status: 'active', lastQCDate: new Date().toISOString().split('T')[0] };
-        }
-        return m;
-      });
-      setMachines(updatedMachines);
-    } else if (updatedRepair.status === 'waiting_claim') {
-      updatedMachines = machines.map(m => {
-        if (m.serialNumber === updatedRepair.serialNumber) {
+        } else if (updatedRepair.status === 'waiting_claim') {
           return { ...m, status: 'waiting_claim' };
-        }
-        return m;
-      });
-      setMachines(updatedMachines);
-    } else if (updatedRepair.status === 'claimed') {
-      updatedMachines = machines.map(m => {
-        if (m.serialNumber === updatedRepair.serialNumber) {
+        } else if (updatedRepair.status === 'claimed') {
           return { ...m, status: 'claimed' };
         }
-        return m;
-      });
-      setMachines(updatedMachines);
-    }
+      }
+      return m;
+    }));
 
     if (isSupabaseConfigured()) {
       // 1. Update repair record
@@ -357,9 +347,11 @@ export default function App() {
       });
 
       // 2. Update corresponding machine status if affected
-      const affectedMachine = updatedMachines.find(m => m.serialNumber === updatedRepair.serialNumber);
-      if (affectedMachine) {
-        dbService.updateMachine(affectedMachine.id, affectedMachine).catch(err => {
+      if (affectedMachineId) {
+        dbService.updateMachine(affectedMachineId, {
+          status: updatedRepair.status === 'completed' ? 'active' : updatedRepair.status as any,
+          lastQCDate: updatedRepair.status === 'completed' ? new Date().toISOString().split('T')[0] : undefined
+        }).catch(err => {
           console.error('Failed to sync machine state:', err);
         });
       }
@@ -367,9 +359,30 @@ export default function App() {
   };
 
   const handleAddMachine = (newMachine: DtxMachine) => {
-    setMachines(prev => [...prev, newMachine]);
+    const cleanCode = (newMachine.serialNumber || '').trim().toUpperCase();
+    setMachines(prev => {
+      // Check if machine with same serialNumber or ID already exists
+      const existingIdx = prev.findIndex(m => 
+        (cleanCode && m.serialNumber.trim().toUpperCase() === cleanCode) ||
+        (newMachine.id && m.id === newMachine.id)
+      );
+      if (existingIdx >= 0) {
+        const copy = [...prev];
+        copy[existingIdx] = { ...copy[existingIdx], ...newMachine };
+        return copy;
+      }
+      return [...prev, newMachine];
+    });
+
     if (isSupabaseConfigured()) {
-      dbService.insertMachine(newMachine).then(() => {
+      dbService.insertMachine(newMachine).then((saved) => {
+        if (saved && saved.id) {
+          setMachines(prev => prev.map(m => 
+            (m.serialNumber.trim().toUpperCase() === cleanCode || m.id === newMachine.id)
+              ? { ...m, ...saved, id: saved.id }
+              : m
+          ));
+        }
         setShowToast('บันทึกเครื่องตรวจน้ำตาลใหม่ขึ้นคลาวด์สำเร็จ');
       }).catch(err => {
         setShowToast(`บันทึกเครื่องในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
@@ -394,7 +407,8 @@ export default function App() {
       setMachines(prev => {
         let updated = [...prev];
         for (const m of newMachines) {
-          const idx = updated.findIndex(item => item.serialNumber === m.serialNumber || item.id === m.id);
+          const codeVal = m.serialNumber.trim().toUpperCase();
+          const idx = updated.findIndex(item => item.serialNumber.trim().toUpperCase() === codeVal || item.id === m.id);
           if (idx >= 0) {
             if (overwrite) updated[idx] = m;
           } else {
@@ -409,9 +423,34 @@ export default function App() {
   };
 
   const handleUpdateMachine = (updatedMachine: DtxMachine) => {
-    setMachines(prev => prev.map(m => m.id === updatedMachine.id ? updatedMachine : m));
+    const cleanCode = (updatedMachine.serialNumber || '').trim().toUpperCase();
+    setMachines(prev => {
+      // Find machine by ID or by CODE
+      const idx = prev.findIndex(m => 
+        m.id === updatedMachine.id || 
+        (cleanCode && m.serialNumber.trim().toUpperCase() === cleanCode)
+      );
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = updatedMachine;
+        // Filter out any other accidental duplicates with the same CODE or ID
+        return copy.filter((item, i) => 
+          i === idx || 
+          (item.serialNumber.trim().toUpperCase() !== cleanCode && item.id !== updatedMachine.id)
+        );
+      }
+      return [...prev, updatedMachine];
+    });
+
     if (isSupabaseConfigured()) {
-      dbService.updateMachine(updatedMachine.id, updatedMachine).then(() => {
+      dbService.updateMachine(updatedMachine.id, updatedMachine).then((saved) => {
+        if (saved && saved.id) {
+          setMachines(prev => prev.map(m => 
+            (m.id === updatedMachine.id || (cleanCode && m.serialNumber.trim().toUpperCase() === cleanCode))
+              ? { ...m, ...saved }
+              : m
+          ));
+        }
         setShowToast('อัปเดตข้อมูลเครื่องตรวจน้ำตาลบนคลาวด์สำเร็จ');
       }).catch(err => {
         console.error('Failed to sync updated machine:', err);
@@ -420,7 +459,7 @@ export default function App() {
   };
 
   const handleDeleteMachine = (id: string) => {
-    setMachines(prev => prev.filter(m => m.id !== id));
+    setMachines(prev => prev.filter(m => m.id !== id && m.serialNumber !== id));
     if (isSupabaseConfigured()) {
       dbService.deleteMachine(id).then(() => {
         setShowToast('ลบเครื่องตรวจน้ำตาลจากระบบคลาวด์สำเร็จ');
@@ -433,8 +472,10 @@ export default function App() {
   const handleAddQcRecord = (newRecord: QcRecord) => {
     setQcRecords(prev => [newRecord, ...prev]);
     // Also update machine's lastQCDate and active status if normal
-    const updatedMachines = machines.map(m => {
+    let affectedMachineId = '';
+    setMachines(prev => prev.map(m => {
       if (m.serialNumber === newRecord.serialNumber) {
+        affectedMachineId = m.id;
         return {
           ...m,
           lastQCDate: newRecord.date,
@@ -442,8 +483,7 @@ export default function App() {
         };
       }
       return m;
-    });
-    setMachines(updatedMachines);
+    }));
 
     if (isSupabaseConfigured()) {
       // 1. Insert QC Record
@@ -454,9 +494,12 @@ export default function App() {
       });
 
       // 2. Update machine affected states
-      const affectedMachine = updatedMachines.find(m => m.serialNumber === newRecord.serialNumber);
-      if (affectedMachine) {
-        dbService.updateMachine(affectedMachine.id, affectedMachine).catch(err => {
+      if (affectedMachineId) {
+        const isNormal = newRecord.level1Status === 'normal' && newRecord.level2Status === 'normal' && newRecord.level3Status === 'normal';
+        dbService.updateMachine(affectedMachineId, {
+          lastQCDate: newRecord.date,
+          status: isNormal ? 'active' : undefined
+        }).catch(err => {
           console.error('Failed to sync machine state after QC:', err);
         });
       }
@@ -812,7 +855,7 @@ export default function App() {
 
       {/* Main Workspace Layout */}
       <main 
-        className={`flex-1 w-full transition-all duration-300 min-h-screen bg-slate-50/70 dark:bg-slate-950 ${
+        className={`flex-1 w-full transition-all duration-300 bg-slate-50/70 dark:bg-slate-950 ${
           role === 'admin' && isAdminLoggedIn
             ? `pt-16 pb-16 ${isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'}`
             : 'py-6 md:py-8'
@@ -833,6 +876,7 @@ export default function App() {
             onActiveTabChange={setActiveUserTab}
             manuals={manuals}
             announcements={announcements}
+            onOpenPrivacy={() => setShowPrivacyModal(true)}
           />
         ) : !isAdminLoggedIn ? (
           // ADMIN LOGIN FORM
@@ -1270,7 +1314,19 @@ export default function App() {
             <div className="flex flex-col text-[11px] sm:text-xs font-light leading-relaxed text-slate-500 dark:text-slate-400 text-left">
               <span>© 2026 Medical Technology Department, Sangkha Hospital. All rights reserved.</span>
               <span>Blood Glucose POCT Management System</span>
-              <span>Version 2.0.0 • Developed by MT. S. Singsard</span>
+              <div className="flex items-center space-x-2 flex-wrap pt-0.5">
+                <span>Version 2.0.0 • Developed by MT. S. Singsard</span>
+                <span className="text-slate-300 dark:text-slate-700">•</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPrivacyModal(true)}
+                  className="text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 hover:underline font-medium cursor-pointer inline-flex items-center space-x-1"
+                  id="footer-privacy-policy-btn"
+                >
+                  <ShieldCheck size={12} className="text-sky-600 dark:text-sky-400" />
+                  <span>ประกาศความเป็นส่วนตัว (Privacy Notice)</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1292,6 +1348,12 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Institutional Privacy Policy Modal */}
+      <PrivacyPolicyModal 
+        isOpen={showPrivacyModal} 
+        onClose={() => setShowPrivacyModal(false)} 
+      />
 
       {/* Floating System Toast Alerts */}
       {showToast && (

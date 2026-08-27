@@ -8,7 +8,7 @@ import CustomSelect from "./CustomSelect";
 import { DtxMachine, RepairRequest, SupplyRequest, UserManual, Announcement } from '../types';
 import { dbService } from '../lib/supabase';
 import { DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES, TROUBLESHOOTING_GUIDE } from '../constants/deviceGuide';
-import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers } from 'lucide-react';
+import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, ShieldCheck, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers, Lock } from 'lucide-react';
 
 interface LandingPageProps {
   machines: DtxMachine[];
@@ -21,6 +21,7 @@ interface LandingPageProps {
   onActiveTabChange?: (tab: 'repair' | 'supply' | 'track' | 'guide') => void;
   manuals?: UserManual[];
   announcements?: Announcement[];
+  onOpenPrivacy?: () => void;
 }
 
 export default function LandingPage({ 
@@ -33,7 +34,8 @@ export default function LandingPage({
   activeTab: controlledActiveTab,
   onActiveTabChange,
   manuals: propManuals = [],
-  announcements: propAnnouncements = []
+  announcements: propAnnouncements = [],
+  onOpenPrivacy
 }: LandingPageProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<'repair' | 'supply' | 'track' | 'guide'>('repair');
   
@@ -284,19 +286,22 @@ export default function LandingPage({
       const rightCol = document.getElementById('sidebar-right-column');
       const workspace = document.getElementById('landing-workspace');
 
-      if (!leftCol || !rightCol || !workspace) return;
+      if (!leftCol || !rightCol || !workspace) {
+        setSyncScrollOffset(0);
+        return;
+      }
 
       const leftHeight = leftCol.offsetHeight;
       const rightHeight = rightCol.offsetHeight;
       const heightDiff = rightHeight - leftHeight;
 
-      if (heightDiff > 0) {
+      if (heightDiff > 5) {
         const workspaceRect = workspace.getBoundingClientRect();
-        const startY = 80;
-        const scrollDistance = Math.max(1, leftHeight - (window.innerHeight - startY));
-        const currentProgress = Math.min(1, Math.max(0, (startY - workspaceRect.top) / scrollDistance));
+        const topMargin = 80;
+        const scrollDistance = Math.max(1, leftHeight - (window.innerHeight - topMargin));
+        const currentProgress = Math.min(1, Math.max(0, (topMargin - workspaceRect.top) / scrollDistance));
 
-        // Smoothly interpolate the right column offset to match the scroll progress exactly
+        // Smoothly interpolate the right column offset to match the scroll progress
         setSyncScrollOffset(-(currentProgress * heightDiff));
       } else {
         setSyncScrollOffset(0);
@@ -306,12 +311,14 @@ export default function LandingPage({
     window.addEventListener('scroll', handleSyncScroll, { passive: true });
     window.addEventListener('resize', handleSyncScroll, { passive: true });
     handleSyncScroll();
+    const timer = setTimeout(handleSyncScroll, 120);
 
     return () => {
       window.removeEventListener('scroll', handleSyncScroll);
       window.removeEventListener('resize', handleSyncScroll);
+      clearTimeout(timer);
     };
-  }, [activeTab, openTsId]);
+  }, [activeTab, openTsId, wards, machines]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 sm:space-y-6" id="landing-container">
@@ -425,223 +432,65 @@ export default function LandingPage({
 
           {/* Form Content 1: Repair Request */}
           {activeTab === 'repair' && (
-            <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-5" id="repair-form-container">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3.5 mb-4">
-                <h2 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100">กรอกข้อมูลเพื่อส่งเครื่องซ่อมบำรุง</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">ระบบจะทำการบันทึกข้อมูลและออกหมายเลขติดตามสถานะให้ท่านอัตโนมัติ</p>
-              </div>
-
-              <form onSubmit={handleRepairSubmit} className="space-y-4" id="repair-landing-form">
-                {/* ชื่อผู้แจ้ง * */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">ชื่อผู้แจ้ง *</label>
-                  <input
-                    type="text"
-                    placeholder="กรอกชื่อ-นามสกุลผู้แจ้ง เช่น พว. สมใจ จิตดี"
-                    value={reporterName}
-                    onChange={(e) => setReporterName(e.target.value)}
-                    className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
-                    required
-                  />
+            <>
+              {/* Service Workflow Steps Card - Placed above the form */}
+              <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm space-y-3.5" id="repair-workflow-guide">
+                <div className="flex items-center space-x-2 text-slate-800 dark:text-slate-100">
+                  <Clock size={17} className="text-sky-600 dark:text-sky-400" />
+                  <h3 className="font-bold text-sm sm:text-base">ขั้นตอนและแนวทางปฏิบัติเมื่อส่งแจ้งซ่อม</h3>
                 </div>
-
-                {/* หน่วยงาน/แผนก * */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">หน่วยงาน/แผนก *</label>
-                  <CustomSelect
-                    value={repairWard}
-                    onChange={(e) => {
-                      const ward = e.target.value;
-                      setRepairWard(ward);
-                      setRepairSerial('');
-                      setRepairMachineSerial('');
-                      setCustomSerial('');
-                      setCustomMachineSerial('');
-                    }}
-                    className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white transition-colors"
-                    required
-                  >
-                    <option value="">เลือกหน่วยงาน/แผนก</option>
-                    {(wards || []).map((w, idx) => (
-                      <option key={idx} value={w.thai_name}>{w.thai_name}</option>
-                    ))}
-                  </CustomSelect>
-                </div>
-
-                {/* รหัสเครื่อง (Code) * */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">รหัสเครื่อง (Code) *</label>
-                  <CustomSelect
-                    value={repairSerial}
-                    onChange={(e) => {
-                      const serial = e.target.value;
-                      handleSerialChange(serial);
-                    }}
-                    className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white font-semibold transition-colors"
-                    required
-                  >
-                    <option value="">เลือก Code</option>
-                    {repairWard && (machines || []).filter(m => m && m.ward === repairWard).map(m => (
-                      <option key={m.id} value={m.serialNumber}>{m.serialNumber} ({m.brand} {m.model})</option>
-                    ))}
-                    <option value="CUSTOM">-- ระบุรหัสเครื่องเอง (เครื่องนอกระบบ) --</option>
-                  </CustomSelect>
-
-                  {repairSerial === 'CUSTOM' && (
-                    <input
-                      type="text"
-                      placeholder="กรอกรหัสเครื่องเอง เช่น BGM-099"
-                      value={customSerial}
-                      onChange={(e) => setCustomSerial(e.target.value)}
-                      className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 font-semibold mt-2 transition-colors"
-                      required
-                    />
-                  )}
-                </div>
-
-                {/* Serial Number * */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">Serial Number *</label>
-                  <CustomSelect
-                    value={repairMachineSerial}
-                    onChange={(e) => {
-                      const mSerial = e.target.value;
-                      setRepairMachineSerial(mSerial);
-                      if (mSerial !== 'CUSTOM' && mSerial !== '') {
-                        const matched = (machines || []).find(m => m && m.machineSerial === mSerial);
-                        if (matched) {
-                          setRepairSerial(matched.serialNumber);
-                        }
-                      }
-                    }}
-                    className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white font-mono transition-colors"
-                    required
-                  >
-                    <option value="">เลือก Serial</option>
-                    {repairWard && (machines || []).filter(m => m && m.ward === repairWard).map(m => (
-                      <option key={m.id} value={m.machineSerial}>{m.machineSerial || 'ไม่มี Serial'}</option>
-                    ))}
-                    <option value="CUSTOM">-- ระบุ Serial Number เอง --</option>
-                  </CustomSelect>
-
-                  {repairMachineSerial === 'CUSTOM' && (
-                    <input
-                      type="text"
-                      placeholder="กรอกหมายเลข Serial Number เอง เช่น 311A0012BBD"
-                      value={customMachineSerial}
-                      onChange={(e) => setCustomMachineSerial(e.target.value)}
-                      className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 font-mono mt-2 transition-colors"
-                      required
-                    />
-                  )}
-                </div>
-
-                {/* รายละเอียด / อาการ */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">รายละเอียด / อาการ</label>
-                  <textarea
-                    rows={3}
-                    placeholder="กรุณาอธิบายอาการชำรุด เช่น เสียบแถบตรวจแล้วไม่อ่านค่า หรือเปิดเครื่องไม่ติด..."
-                    value={reportedProblem}
-                    onChange={(e) => setReportedProblem(e.target.value)}
-                    className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
-                    required
-                  ></textarea>
-                </div>
-
-                {/* ขอเบิกเครื่องสำรองใช้ชั่วคราว */}
-                <div className="flex items-start space-x-2.5 py-1">
-                  <input
-                    type="checkbox"
-                    id="needsBackup"
-                    checked={needsBackup}
-                    onChange={(e) => setNeedsBackup(e.target.checked)}
-                    className="mt-1 h-4.5 w-4.5 rounded-sm border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
-                  />
-                  <label htmlFor="needsBackup" className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight cursor-pointer">
-                    ต้องการขอเบิกเครื่องสำรองใช้ชั่วคราวระหว่างรอซ่อม
-                    <span className="block text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5">ในกรณีที่หน่วยงานไม่มีเครื่องสำรองใช้งานในตึก</span>
-                  </label>
-                </div>
-
-                {/* Troubleshooting advice shortcut */}
-                <div className="bg-sky-50/50 dark:bg-sky-950/30 p-3.5 rounded-xl border border-sky-100 dark:border-sky-900/40 text-sm text-sky-800 dark:text-sky-300 flex items-start space-x-2.5">
-                  <Lightbulb size={18} className="text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
-                  <p className="leading-relaxed text-sm text-sky-900 dark:text-sky-200">
-                    <span className="font-bold">ตรวจสอบเบื้องต้น:</span> แนะนำให้อ่านหัวข้อ <span className="font-bold underline cursor-pointer hover:text-sky-700" onClick={() => setActiveTab('guide')}>"แนวทางการดูแลเครื่องเบื้องต้น"</span> ด้านขวา เพื่อทดสอบแก้ไขปัญหาก่อนส่ง เพื่อไม่ให้เสียเวลาใช้งานอุปกรณ์ของท่าน
-                  </p>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    className="w-full bg-[#0ea5e9] hover:bg-[#0284c7] text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-sky-600/15 cursor-pointer"
-                    id="submit-repair-btn"
-                  >
-                    <span>ส่งคำร้อง</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Form Content 2: Supply Request */}
-          {activeTab === 'supply' && (
-            <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-5" id="supply-form-container">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3.5 mb-4">
-                <div className="flex items-center space-x-2 text-sky-600 mb-1">
-                  <Package size={22} />
-                  <h2 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100">ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</h2>
-                </div>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  ยื่นคำขอเบิกเครื่องตรวจน้ำตาล DTX เพิ่มเติมสำหรับใช้งานประจำหน่วยงาน/วอร์ด
-                </p>
-              </div>
-
-              <form onSubmit={handleSupplySubmit} className="space-y-4" id="supply-landing-form">
-                {/* Item Type Info Card (Fixed to DTX Machine) */}
-                <div className="p-4 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-900/60 flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="p-2.5 bg-sky-600 text-white rounded-xl shadow-xs">
-                      <Monitor size={20} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-sky-950 dark:text-sky-300">รายการที่ขอเบิก</p>
-                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">เครื่องตรวจน้ำตาล DTX (Blood Glucose Monitor)</p>
-                    </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 rounded-md">ขั้นตอนที่ 1</span>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">นำส่งเครื่องที่ห้องชันสูตร</h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">นำเครื่องตรวจที่ชำรุดส่งที่ห้องปฏิบัติการเทคนิคการแพทย์ อาคารผู้ป่วยนอก ชั้น 2 (เปิดรับตลอด 24 ชม.)</p>
                   </div>
-                  <span className="text-xs font-bold text-sky-700 dark:text-sky-300 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-sky-100 dark:border-sky-800 shadow-2xs">
-                    หน่วยนับ: เครื่อง
-                  </span>
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 rounded-md">ขั้นตอนที่ 2</span>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">รับเครื่องสำรอง & ดำเนินการ</h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">รับเครื่องสำรองไปใช้งานประจำวอร์ด (กรณีเลือกขอไว้) เจ้าหน้าที่จะเข้าตรวจสอบและซ่อมบำรุงตามลำดับ</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 rounded-md">ขั้นตอนที่ 3</span>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">ทดสอบ QC & รับเครื่องคืน</h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">เมื่อซ่อมเสร็จและผ่านการทดสอบ QC เจ้าหน้าที่จะแจ้งเตือนในระบบเพื่อให้วอร์ดมารับเครื่องกลับ</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-5" id="repair-form-container">
+                <div className="border-b border-slate-100 dark:border-slate-800 pb-3.5 mb-4">
+                  <h2 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100">กรอกข้อมูลเพื่อส่งเครื่องซ่อมบำรุง</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">ระบบจะทำการบันทึกข้อมูลและออกหมายเลขติดตามสถานะให้ท่านอัตโนมัติ</p>
                 </div>
 
-                {/* Requester & Ward Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Requester / ชื่อผู้แจ้ง */}
+                <form onSubmit={handleRepairSubmit} className="space-y-4" id="repair-landing-form">
+                  {/* ชื่อผู้แจ้ง * */}
                   <div className="space-y-1.5">
-                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center space-x-1">
-                      <User size={14} className="text-slate-400" />
-                      <span>ชื่อผู้แจ้ง *</span>
-                    </label>
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">ชื่อผู้แจ้ง *</label>
                     <input
                       type="text"
                       placeholder="กรอกชื่อ-นามสกุลผู้แจ้ง เช่น พว. สมใจ จิตดี"
-                      value={requesterName}
-                      onChange={(e) => setRequesterName(e.target.value)}
+                      value={reporterName}
+                      onChange={(e) => setReporterName(e.target.value)}
                       className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
                       required
                     />
                   </div>
 
-                  {/* Ward / หน่วยงาน/แผนก */}
+                  {/* หน่วยงาน/แผนก * */}
                   <div className="space-y-1.5">
-                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center space-x-1">
-                      <Wrench size={14} className="text-slate-400" />
-                      <span>หน่วยงาน/แผนก *</span>
-                    </label>
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">หน่วยงาน/แผนก *</label>
                     <CustomSelect
-                      value={supplyWard}
-                      onChange={(e) => setSupplyWard(e.target.value)}
+                      value={repairWard}
+                      onChange={(e) => {
+                        const ward = e.target.value;
+                        setRepairWard(ward);
+                        setRepairSerial('');
+                        setRepairMachineSerial('');
+                        setCustomSerial('');
+                        setCustomMachineSerial('');
+                      }}
                       className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white transition-colors"
                       required
                     >
@@ -651,81 +500,293 @@ export default function LandingPage({
                       ))}
                     </CustomSelect>
                   </div>
-                </div>
 
-                {/* Quantity / จำนวนที่ขอเบิก */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                    <span>จำนวนเครื่องที่ขอเบิก *</span>
-                    <span className="text-xs font-normal text-slate-500">
-                      (หน่วยนับ: เครื่อง)
-                    </span>
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setSupplyQty(Math.max(1, (supplyQty || 1) - 1))}
-                      className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all border border-slate-200 cursor-pointer"
-                      title="ลดจำนวน"
-                    >
-                      <Minus size={16} />
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      placeholder="ระบุจำนวน"
-                      value={supplyQty || ''}
+                  {/* รหัสเครื่อง (Code) * */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">รหัสเครื่อง (Code) *</label>
+                    <CustomSelect
+                      value={repairSerial}
                       onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, '');
-                        setSupplyQty(val ? parseInt(val, 10) : 0);
+                        const serial = e.target.value;
+                        handleSerialChange(serial);
                       }}
-                      className="w-full text-center font-bold text-slate-800 text-sm md:text-base p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                      className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white font-semibold transition-colors"
                       required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setSupplyQty((supplyQty || 0) + 1)}
-                      className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all border border-slate-200 cursor-pointer"
-                      title="เพิ่มจำนวน"
                     >
-                      <Plus size={16} />
+                      <option value="">เลือก Code</option>
+                      {repairWard && (machines || []).filter(m => m && m.ward === repairWard).map(m => (
+                        <option key={m.id} value={m.serialNumber}>{m.serialNumber} ({m.brand} {m.model})</option>
+                      ))}
+                      <option value="CUSTOM">-- ระบุรหัสเครื่องเอง (เครื่องนอกระบบ) --</option>
+                    </CustomSelect>
+
+                    {repairSerial === 'CUSTOM' && (
+                      <input
+                        type="text"
+                        placeholder="กรอกรหัสเครื่องเอง เช่น BGM-099"
+                        value={customSerial}
+                        onChange={(e) => setCustomSerial(e.target.value)}
+                        className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 font-semibold mt-2 transition-colors"
+                        required
+                      />
+                    )}
+                  </div>
+
+                  {/* Serial Number * */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">Serial Number *</label>
+                    <CustomSelect
+                      value={repairMachineSerial}
+                      onChange={(e) => {
+                        const mSerial = e.target.value;
+                        setRepairMachineSerial(mSerial);
+                        if (mSerial !== 'CUSTOM' && mSerial !== '') {
+                          const matched = (machines || []).find(m => m && m.machineSerial === mSerial);
+                          if (matched) {
+                            setRepairSerial(matched.serialNumber);
+                          }
+                        }
+                      }}
+                      className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white font-mono transition-colors"
+                      required
+                    >
+                      <option value="">เลือก Serial</option>
+                      {repairWard && (machines || []).filter(m => m && m.ward === repairWard).map(m => (
+                        <option key={m.id} value={m.machineSerial}>{m.machineSerial || 'ไม่มี Serial'}</option>
+                      ))}
+                      <option value="CUSTOM">-- ระบุ Serial Number เอง --</option>
+                    </CustomSelect>
+
+                    {repairMachineSerial === 'CUSTOM' && (
+                      <input
+                        type="text"
+                        placeholder="กรอกหมายเลข Serial Number เอง เช่น 311A0012BBD"
+                        value={customMachineSerial}
+                        onChange={(e) => setCustomMachineSerial(e.target.value)}
+                        className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 font-mono mt-2 transition-colors"
+                        required
+                      />
+                    )}
+                  </div>
+
+                  {/* รายละเอียด / อาการ */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">รายละเอียด / อาการ</label>
+                    <textarea
+                      rows={3}
+                      placeholder="กรุณาอธิบายอาการชำรุด เช่น เสียบแถบตรวจแล้วไม่อ่านค่า หรือเปิดเครื่องไม่ติด..."
+                      value={reportedProblem}
+                      onChange={(e) => setReportedProblem(e.target.value)}
+                      className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                      required
+                    ></textarea>
+                  </div>
+
+                  {/* ขอเบิกเครื่องสำรองใช้ชั่วคราว */}
+                  <div className="flex items-start space-x-2.5 py-1">
+                    <input
+                      type="checkbox"
+                      id="needsBackup"
+                      checked={needsBackup}
+                      onChange={(e) => setNeedsBackup(e.target.checked)}
+                      className="mt-1 h-4.5 w-4.5 rounded-sm border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                    />
+                    <label htmlFor="needsBackup" className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight cursor-pointer">
+                      ต้องการขอเบิกเครื่องสำรองใช้ชั่วคราวระหว่างรอซ่อม
+                      <span className="block text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5">ในกรณีที่หน่วยงานไม่มีเครื่องสำรองใช้งานในตึก</span>
+                    </label>
+                  </div>
+
+                  {/* Troubleshooting advice shortcut */}
+                  <div className="bg-sky-50/50 dark:bg-sky-950/30 p-3.5 rounded-xl border border-sky-100 dark:border-sky-900/40 text-sm text-sky-800 dark:text-sky-300 flex items-start space-x-2.5">
+                    <Lightbulb size={18} className="text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+                    <p className="leading-relaxed text-sm text-sky-900 dark:text-sky-200">
+                      <span className="font-bold">ตรวจสอบเบื้องต้น:</span> แนะนำให้อ่านหัวข้อ <span className="font-bold underline cursor-pointer hover:text-sky-700" onClick={() => setActiveTab('guide')}>"แนวทางการดูแลเครื่องเบื้องต้น"</span> ด้านขวา เพื่อทดสอบแก้ไขปัญหาก่อนส่ง เพื่อไม่ให้เสียเวลาใช้งานอุปกรณ์ของท่าน
+                    </p>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full bg-[#0ea5e9] hover:bg-[#0284c7] text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-sky-600/15 cursor-pointer"
+                      id="submit-repair-btn"
+                    >
+                      <span>ส่งคำร้อง</span>
                     </button>
                   </div>
+                </form>
+              </div>
+            </>
+          )}
+
+          {/* Form Content 2: Supply Request */}
+          {activeTab === 'supply' && (
+            <>
+              {/* Supply Workflow Steps Card - Placed above the form */}
+              <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm space-y-3.5" id="supply-workflow-guide">
+                <div className="flex items-center space-x-2 text-slate-800 dark:text-slate-100">
+                  <ShieldCheck size={17} className="text-sky-600 dark:text-sky-400" />
+                  <h3 className="font-bold text-sm sm:text-base">ขั้นตอนและเกณฑ์การจัดสรรเครื่อง DTX</h3>
                 </div>
-
-                {/* Reason / เหตุผลประกอบการเบิก */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">เหตุผลประกอบการเบิก / อธิบายความจำเป็น (ไม่บังคับ)</label>
-                  <textarea
-                    rows={3}
-                    placeholder="ระบุเหตุผลประกอบการเบิก เช่น เพื่อทดแทนตัวเดิมที่ส่งซ่อม/เคลม หรือเปิดหน่วยงานใหม่..."
-                    value={supplyReason}
-                    onChange={(e) => setSupplyReason(e.target.value)}
-                    className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
-                  ></textarea>
-                </div>
-
-                {/* Submit Button */}
-                <div className="pt-2 space-y-3">
-                  <button
-                    type="submit"
-                    className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-md shadow-sky-600/15 cursor-pointer"
-                    id="submit-supply-btn"
-                  >
-                    <Package size={18} />
-                    <span>ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</span>
-                  </button>
-
-                  <div className="bg-sky-50/60 dark:bg-sky-950/30 p-3 rounded-xl border border-sky-100 dark:border-sky-900/40 flex items-start space-x-2 text-xs text-sky-800 dark:text-sky-300">
-                    <Info size={16} className="text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
-                    <span>
-                      เมื่อยื่นคำขอเรียบร้อยแล้ว ระบบจะส่งการแจ้งเตือนไปยังทีมเจ้าหน้าที่ห้องปฏิบัติการโดยอัตโนมัติ ท่านสามารถติดตามสถานะได้ในแท็บ "ติดตามสถานะ"
-                    </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 rounded-md">ขั้นตอนที่ 1</span>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">ยื่นคำขอและระบุจำนวน</h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">ระบุหน่วยงานและเหตุผลประกอบความต้องการใช้งานผ่านระบบ</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 rounded-md">ขั้นตอนที่ 2</span>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">ตรวจสอบสต็อก & อนุมัติ</h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">เจ้าหน้าที่ชันสูตรตรวจสอบสต็อกเครื่องสำรองและยืนยันการจัดสรร</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 rounded-md">ขั้นตอนที่ 3</span>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">ลงทะเบียน & ส่งมอบ</h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">ลงทะเบียนรหัสเครื่องเข้าระบบและนัดหมายรับเครื่องไปใช้งาน</p>
                   </div>
                 </div>
-              </form>
-            </div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 md:p-7 rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-md shadow-slate-200/50 dark:shadow-none space-y-5" id="supply-form-container">
+                <div className="border-b border-slate-100 dark:border-slate-800 pb-3.5 mb-4">
+                  <div className="flex items-center space-x-2 text-sky-600 mb-1">
+                    <Package size={22} />
+                    <h2 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100">ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</h2>
+                  </div>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    ยื่นคำขอเบิกเครื่องตรวจน้ำตาล DTX เพิ่มเติมสำหรับใช้งานประจำหน่วยงาน/วอร์ด
+                  </p>
+                </div>
+
+                <form onSubmit={handleSupplySubmit} className="space-y-4" id="supply-landing-form">
+                  {/* Item Type Info Card (Fixed to DTX Machine) */}
+                  <div className="p-4 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-900/60 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2.5 bg-sky-600 text-white rounded-xl shadow-xs">
+                        <Monitor size={20} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-sky-950 dark:text-sky-300">รายการที่ขอเบิก</p>
+                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100">เครื่องตรวจน้ำตาล DTX (Blood Glucose Monitor)</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-sky-700 dark:text-sky-300 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-sky-100 dark:border-sky-800 shadow-2xs">
+                      หน่วยนับ: เครื่อง
+                    </span>
+                  </div>
+
+                  {/* Requester & Ward Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Requester / ชื่อผู้แจ้ง */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center space-x-1">
+                        <User size={14} className="text-slate-400" />
+                        <span>ชื่อผู้แจ้ง *</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="กรอกชื่อ-นามสกุลผู้แจ้ง เช่น พว. สมใจ จิตดี"
+                        value={requesterName}
+                        onChange={(e) => setRequesterName(e.target.value)}
+                        className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                        required
+                      />
+                    </div>
+
+                    {/* Ward / หน่วยงาน/แผนก */}
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center space-x-1">
+                        <Wrench size={14} className="text-slate-400" />
+                        <span>หน่วยงาน/แผนก *</span>
+                      </label>
+                      <CustomSelect
+                        value={supplyWard}
+                        onChange={(e) => setSupplyWard(e.target.value)}
+                        className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white transition-colors"
+                        required
+                      >
+                        <option value="">เลือกหน่วยงาน/แผนก</option>
+                        {(wards || []).map((w, idx) => (
+                          <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                        ))}
+                      </CustomSelect>
+                    </div>
+                  </div>
+
+                  {/* Quantity / จำนวนที่ขอเบิก */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
+                      <span>จำนวนเครื่องที่ขอเบิก *</span>
+                      <span className="text-xs font-normal text-slate-500">
+                        (หน่วยนับ: เครื่อง)
+                      </span>
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setSupplyQty(Math.max(1, (supplyQty || 1) - 1))}
+                        className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all border border-slate-200 cursor-pointer"
+                        title="ลดจำนวน"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="ระบุจำนวน"
+                        value={supplyQty || ''}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '');
+                          setSupplyQty(val ? parseInt(val, 10) : 0);
+                        }}
+                        className="w-full text-center font-bold text-slate-800 text-sm md:text-base p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSupplyQty((supplyQty || 0) + 1)}
+                        className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all border border-slate-200 cursor-pointer"
+                        title="เพิ่มจำนวน"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Reason / เหตุผลประกอบการเบิก */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">เหตุผลประกอบการเบิก / อธิบายความจำเป็น (ไม่บังคับ)</label>
+                    <textarea
+                      rows={3}
+                      placeholder="ระบุเหตุผลประกอบการเบิก เช่น เพื่อทดแทนตัวเดิมที่ส่งซ่อม/เคลม หรือเปิดหน่วยงานใหม่..."
+                      value={supplyReason}
+                      onChange={(e) => setSupplyReason(e.target.value)}
+                      className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
+                    ></textarea>
+                  </div>
+
+                  {/* Submit Button */}
+                  <div className="pt-2 space-y-3">
+                    <button
+                      type="submit"
+                      className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-md shadow-sky-600/15 cursor-pointer"
+                      id="submit-supply-btn"
+                    >
+                      <Package size={18} />
+                      <span>ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</span>
+                    </button>
+
+                    <div className="bg-sky-50/60 dark:bg-sky-950/30 p-3 rounded-xl border border-sky-100 dark:border-sky-900/40 flex items-start space-x-2 text-xs text-sky-800 dark:text-sky-300">
+                      <Info size={16} className="text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+                      <span>
+                        เมื่อยื่นคำขอเรียบร้อยแล้ว ระบบจะส่งการแจ้งเตือนไปยังทีมเจ้าหน้าที่ห้องปฏิบัติการโดยอัตโนมัติ ท่านสามารถติดตามสถานะได้ในแท็บ "ติดตามสถานะ"
+                      </span>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </>
           )}
 
           {/* Form Content 3: Track Status */}
@@ -1206,6 +1267,34 @@ export default function LandingPage({
                       ))}
                     </div>
                   )}
+
+                  {/* Institutional Privacy Policy Banner */}
+                  {onOpenPrivacy && (
+                    <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-sky-50 to-indigo-50/40 dark:from-slate-800/80 dark:to-slate-800/40 border border-sky-200/80 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-xl bg-sky-600/10 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0 border border-sky-200 dark:border-sky-800">
+                          <ShieldCheck size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center space-x-1.5">
+                            <span>ประกาศความเป็นส่วนตัวและการคุ้มครองข้อมูลส่วนบุคคล (PDPA)</span>
+                            <span className="text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.2 rounded-full font-bold">2562</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                            นโยบายความมั่นคงปลอดภัยสารสนเทศและการเก็บรักษาข้อมูลของกลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onOpenPrivacy}
+                        className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shrink-0 transition-colors shadow-2xs cursor-pointer flex items-center space-x-1.5 self-stretch sm:self-auto justify-center"
+                      >
+                        <Eye size={13} />
+                        <span>อ่านประกาศฉบับเต็ม</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1319,6 +1408,18 @@ export default function LandingPage({
                       <span>หัวหน้างานชันสูตร: <strong className="text-slate-800 dark:text-slate-200 font-medium">ทนพ.ไพศาล มุมทอง</strong></span>
                     </li>
                   </ul>
+                  {onOpenPrivacy && (
+                    <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={onOpenPrivacy}
+                        className="text-[11px] font-semibold text-sky-600 dark:text-sky-400 hover:underline flex items-center space-x-1 cursor-pointer"
+                      >
+                        <ShieldCheck size={13} />
+                        <span>ประกาศความเป็นส่วนตัว (PDPA)</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

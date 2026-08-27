@@ -59,11 +59,33 @@ export default function StockManagement({
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);
 
-  // Compute distinct Brands dynamically from dtx_machines (machines prop)
+  // Compute deduplicated machines list (unique by serialNumber/CODE and id)
+  const deduplicatedMachines = React.useMemo(() => {
+    const seenCodes = new Set<string>();
+    const seenIds = new Set<string>();
+    const result: DtxMachine[] = [];
+
+    for (const m of machines) {
+      if (!m) continue;
+      const codeKey = (m.serialNumber || '').trim().toUpperCase();
+      const idKey = (m.id || '').trim();
+
+      // If we already have a machine with this CODE or ID, skip duplicate
+      if (codeKey && seenCodes.has(codeKey)) continue;
+      if (idKey && seenIds.has(idKey)) continue;
+
+      if (codeKey) seenCodes.add(codeKey);
+      if (idKey) seenIds.add(idKey);
+      result.push(m);
+    }
+    return result;
+  }, [machines]);
+
+  // Compute distinct Brands dynamically from deduplicated dtx_machines
   const distinctBrands = React.useMemo(() => {
     const brandsSet = new Set<string>();
 
-    machines.forEach((m) => {
+    deduplicatedMachines.forEach((m) => {
       if (m.brand && m.brand.trim()) {
         const cleaned = m.brand.replace(/\(หลัก\)/g, '').trim();
         if (cleaned) brandsSet.add(cleaned);
@@ -71,20 +93,20 @@ export default function StockManagement({
     });
 
     return Array.from(brandsSet);
-  }, [machines]);
+  }, [deduplicatedMachines]);
 
-  // Compute distinct Lot numbers dynamically from dtx_machines (machines prop) ONLY
+  // Compute distinct Lot numbers dynamically from deduplicated dtx_machines ONLY
   const distinctLots = React.useMemo(() => {
     const lotSet = new Set<string>();
 
-    machines.forEach((m) => {
+    deduplicatedMachines.forEach((m) => {
       if (m.lotNumber && m.lotNumber.trim()) {
         lotSet.add(m.lotNumber.trim());
       }
     });
 
     return Array.from(lotSet);
-  }, [machines]);
+  }, [deduplicatedMachines]);
 
   // Add/Edit Modal state
   const [isOpenModal, setIsOpenModal] = useState(false);
@@ -125,9 +147,9 @@ export default function StockManagement({
 
   // Check if current typed CODE is duplicate
   const trimmedCode = serialNumber.trim().toUpperCase();
-  const isCodeDuplicate = !!trimmedCode && machines.some(m =>
+  const isCodeDuplicate = !!trimmedCode && deduplicatedMachines.some(m =>
     m.serialNumber.trim().toUpperCase() === trimmedCode &&
-    (modalMode === 'add' || m.id !== currentMachineId)
+    (modalMode === 'add' || (m.id !== currentMachineId && m.serialNumber.trim().toUpperCase() !== trimmedCode))
   );
 
   const openAddModal = () => {
@@ -654,8 +676,8 @@ export default function StockManagement({
   const [sortField, setSortField] = useState<keyof DtxMachine>('serialNumber');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Filtered machines
-  const filteredMachines = machines.filter(m => {
+  // Filtered machines - always based on deduplicated data
+  const filteredMachines = deduplicatedMachines.filter(m => {
     const matchesSearch = m.serialNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (m.machineSerial && m.machineSerial.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           m.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
