@@ -855,7 +855,7 @@ export default function App() {
 
       {/* Main Workspace Layout */}
       <main 
-        className={`flex-1 w-full transition-all duration-300 bg-slate-50/70 dark:bg-slate-950 ${
+        className={`flex-1 flex flex-col w-full transition-all duration-300 bg-slate-50/70 dark:bg-slate-950 ${
           role === 'admin' && isAdminLoggedIn
             ? `pt-16 pb-16 ${isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-60'}`
             : 'py-6 md:py-8'

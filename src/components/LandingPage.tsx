@@ -274,12 +274,14 @@ export default function LandingPage({
   const [openTsId, setOpenTsId] = useState<string | null>(null);
 
   // Synchronized differential scroll offset (Parallax sync between unequal column heights)
-  const [syncScrollOffset, setSyncScrollOffset] = useState(0);
+  const [leftScrollOffset, setLeftScrollOffset] = useState(0);
+  const [rightScrollOffset, setRightScrollOffset] = useState(0);
 
   useEffect(() => {
     const handleSyncScroll = () => {
       if (window.innerWidth < 1024) {
-        setSyncScrollOffset(0);
+        setLeftScrollOffset(0);
+        setRightScrollOffset(0);
         return;
       }
       const leftCol = document.getElementById('left-form-column');
@@ -287,38 +289,76 @@ export default function LandingPage({
       const workspace = document.getElementById('landing-workspace');
 
       if (!leftCol || !rightCol || !workspace) {
-        setSyncScrollOffset(0);
+        setLeftScrollOffset(0);
+        setRightScrollOffset(0);
         return;
       }
 
       const leftHeight = leftCol.offsetHeight;
       const rightHeight = rightCol.offsetHeight;
-      const heightDiff = rightHeight - leftHeight;
 
-      if (heightDiff > 5) {
-        const workspaceRect = workspace.getBoundingClientRect();
-        const topMargin = 80;
-        const scrollDistance = Math.max(1, leftHeight - (window.innerHeight - topMargin));
-        const currentProgress = Math.min(1, Math.max(0, (topMargin - workspaceRect.top) / scrollDistance));
+      if (Math.abs(leftHeight - rightHeight) < 5) {
+        setLeftScrollOffset(0);
+        setRightScrollOffset(0);
+        return;
+      }
 
-        // Smoothly interpolate the right column offset to match the scroll progress
-        setSyncScrollOffset(-(currentProgress * heightDiff));
+      const workspaceRect = workspace.getBoundingClientRect();
+      const workspaceTop = window.scrollY + workspaceRect.top;
+      const topMargin = 80;
+      const maxH = Math.max(leftHeight, rightHeight);
+
+      const startScrollY = workspaceTop - topMargin;
+      const endScrollY = workspaceTop + maxH - window.innerHeight;
+      const scrollRange = endScrollY - startScrollY;
+
+      if (scrollRange <= 0) {
+        setLeftScrollOffset(0);
+        setRightScrollOffset(0);
+        return;
+      }
+
+      const currentScroll = window.scrollY - startScrollY;
+      const progress = Math.min(1, Math.max(0, currentScroll / scrollRange));
+      const heightDiff = Math.abs(leftHeight - rightHeight);
+
+      if (leftHeight > rightHeight) {
+        // Left column is taller: Left stays at 0, Right column translates DOWN smoothly by (progress * heightDiff)
+        // At progress = 1, right bottom aligns EXACTLY with left bottom!
+        setLeftScrollOffset(0);
+        setRightScrollOffset(progress * heightDiff);
       } else {
-        setSyncScrollOffset(0);
+        // Right column is taller: Right stays at 0, Left column translates DOWN smoothly by (progress * heightDiff)
+        // At progress = 1, left bottom aligns EXACTLY with right bottom!
+        setLeftScrollOffset(progress * heightDiff);
+        setRightScrollOffset(0);
       }
     };
 
     window.addEventListener('scroll', handleSyncScroll, { passive: true });
     window.addEventListener('resize', handleSyncScroll, { passive: true });
+
+    const leftCol = document.getElementById('left-form-column');
+    const rightCol = document.getElementById('sidebar-right-column');
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && (leftCol || rightCol)) {
+      resizeObserver = new ResizeObserver(() => {
+        handleSyncScroll();
+      });
+      if (leftCol) resizeObserver.observe(leftCol);
+      if (rightCol) resizeObserver.observe(rightCol);
+    }
+
     handleSyncScroll();
-    const timer = setTimeout(handleSyncScroll, 120);
+    const timer = setTimeout(handleSyncScroll, 100);
 
     return () => {
       window.removeEventListener('scroll', handleSyncScroll);
       window.removeEventListener('resize', handleSyncScroll);
+      if (resizeObserver) resizeObserver.disconnect();
       clearTimeout(timer);
     };
-  }, [activeTab, openTsId, wards, machines]);
+  }, [activeTab, openTsId, wards, machines, guideSubTab]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-5 sm:space-y-6" id="landing-container">
@@ -425,9 +465,14 @@ export default function LandingPage({
           id="left-form-column"
           className={
             (activeTab === 'repair' || activeTab === 'supply')
-              ? "lg:col-span-8 space-y-6"
+              ? "lg:col-span-8 space-y-6 transition-transform duration-75 ease-out"
               : "space-y-6"
           }
+          style={{
+            transform: (activeTab === 'repair' || activeTab === 'supply') && leftScrollOffset !== 0
+              ? `translate3d(0, ${leftScrollOffset}px, 0)`
+              : undefined
+          }}
         >
 
           {/* Form Content 1: Repair Request */}
@@ -1353,10 +1398,10 @@ export default function LandingPage({
         {/* Right Side: POCT Contact & Troubleshooting Guide (Harmoniously Scaled) */}
         {(activeTab === 'repair' || activeTab === 'supply') && (
           <div 
-            className="lg:col-span-4 space-y-6 lg:sticky lg:top-6 self-start transition-transform duration-150 ease-out" 
+            className="lg:col-span-4 space-y-6 self-start transition-transform duration-75 ease-out" 
             id="sidebar-right-column"
             style={{
-              transform: syncScrollOffset !== 0 ? `translate3d(0, ${syncScrollOffset}px, 0)` : undefined
+              transform: rightScrollOffset !== 0 ? `translate3d(0, ${rightScrollOffset}px, 0)` : undefined
             }}
           >
             {/* Card 1: POCT Lab Contact & Status */}
