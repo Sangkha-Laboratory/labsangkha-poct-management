@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Printer, 
@@ -17,6 +17,7 @@ import {
   Building2,
   Maximize2
 } from 'lucide-react';
+import JsBarcode from 'jsbarcode';
 import { StripReagentItem, DtxMachine, QcLotConfig } from '../types';
 
 interface BarcodePrinterModalProps {
@@ -42,54 +43,28 @@ interface PrintableLabel {
   copies: number;
 }
 
-// Crisp Vector Barcode Generator (Code128 visual pattern)
-function BarcodeSvg({ text, height = 32, width = 140 }: { text: string; height?: number; width?: number }) {
-  if (!text) return null;
-  
-  // Deterministic bar pattern based on char codes
-  const bars: { x: number; w: number }[] = [];
-  let currentX = 2;
-  const hashSeed = text.split('').reduce((acc, char, i) => acc + char.charCodeAt(0) * (i + 1), 0);
-  
-  // Guard start bar
-  bars.push({ x: currentX, w: 2 });
-  currentX += 3;
-  bars.push({ x: currentX, w: 1 });
-  currentX += 3;
+// Standard Highly Compliant Code128 Vector Barcode Generator
+function BarcodeSvg({ text, height = 32, barWidth = 1.2 }: { text: string; height?: number; barWidth?: number }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    const p1 = (code % 3) + 1;
-    const p2 = ((code * 3 + hashSeed) % 2) + 1;
-    const p3 = ((code * 7) % 3) + 1;
+  useEffect(() => {
+    if (svgRef.current && text) {
+      try {
+        JsBarcode(svgRef.current, text, {
+          format: "CODE128B", // Use Code128 Subset B for general alphanumeric strings
+          lineColor: "#000000",
+          width: barWidth,
+          height: height,
+          displayValue: false,
+          margin: 0
+        });
+      } catch (err) {
+        console.error('JsBarcode error:', err);
+      }
+    }
+  }, [text, height, barWidth]);
 
-    bars.push({ x: currentX, w: p1 });
-    currentX += p1 + 1;
-    bars.push({ x: currentX, w: p2 });
-    currentX += p2 + 2;
-    bars.push({ x: currentX, w: p3 });
-    currentX += p3 + 1;
-  }
-
-  // Guard end bar
-  bars.push({ x: currentX, w: 2 });
-  currentX += 3;
-  bars.push({ x: currentX, w: 1 });
-  currentX += 2;
-
-  return (
-    <svg 
-      viewBox={`0 0 ${currentX} 32`} 
-      className="w-full"
-      style={{ height: `${height}px`, maxWidth: `${width}px` }}
-      preserveAspectRatio="none"
-    >
-      <rect width="100%" height="100%" fill="white" />
-      {bars.map((bar, idx) => (
-        <rect key={idx} x={bar.x} y="0" width={bar.w} height="32" fill="#000000" />
-      ))}
-    </svg>
-  );
+  return <svg ref={svgRef} style={{ display: 'block', margin: '0 auto' }} />;
 }
 
 export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
@@ -264,21 +239,44 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
       {/* Dynamic Print Styles for 50x25mm and A4 sheets */}
       <style>{`
         @media print {
-          /* Hide everything except printable barcode container */
-          body * {
-            visibility: hidden;
+          /* Hide main app interface containers on print */
+          #app-root > *:not(#barcode-printer-modal) {
+            display: none !important;
           }
-          #printable-barcode-area, #printable-barcode-area * {
-            visibility: visible;
+          #app-header, #app-footer, .no-print, header, footer, aside, nav {
+            display: none !important;
           }
+
+          /* Reset modal container to act as a transparent wrapper */
+          #barcode-printer-modal {
+            background: transparent !important;
+            backdrop-filter: none !important;
+            padding: 0 !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          #barcode-printer-modal > div:first-child {
+            display: none !important; /* Hide UI interface card */
+          }
+
+          /* Display the print area as a direct visible block */
           #printable-barcode-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 0;
+            display: block !important;
+            visibility: visible !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          #printable-barcode-area * {
+            visibility: visible !important;
           }
           .no-print {
             display: none !important;
@@ -774,7 +772,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
                       {/* Line 2: Barcode SVG */}
                       <div className="flex flex-col items-center justify-center my-auto py-0.5">
-                        <BarcodeSvg text={label.barcode} height={18} width={130} />
+                        <BarcodeSvg text={label.barcode} height={18} barWidth={1.2} />
                         <span className="font-mono text-[8px] font-black tracking-wider leading-none mt-0.5">
                           {label.displayCode}
                         </span>
@@ -860,7 +858,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
                 {/* Visual Barcode & Alphanumeric Code */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: 'auto 0' }}>
-                  <BarcodeSvg text={label.barcode} height={20} width={140} />
+                  <BarcodeSvg text={label.barcode} height={20} barWidth={1.2} />
                   <span style={{ fontFamily: 'monospace', fontSize: '8px', fontWeight: 'bold', letterSpacing: '0.5px', marginTop: '0.4mm' }}>
                     {label.displayCode}
                   </span>
@@ -896,7 +894,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
                 {/* Visual Barcode & Alphanumeric Code */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: 'auto 0' }}>
-                  <BarcodeSvg text={label.barcode} height={18} width={130} />
+                  <BarcodeSvg text={label.barcode} height={18} barWidth={1.1} />
                   <span style={{ fontFamily: 'monospace', fontSize: '7.5px', fontWeight: 'bold', letterSpacing: '0.5px' }}>
                     {label.displayCode}
                   </span>

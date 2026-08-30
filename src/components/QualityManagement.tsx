@@ -15,6 +15,7 @@ interface QualityManagementProps {
   lotConfigs: QcLotConfig[];
   onAddQcRecord: (record: QcRecord) => void;
   onUpdateLotConfigs: (configs: QcLotConfig[]) => void;
+  onDeleteLotConfig?: (lotNumber: string) => void;
   eqaRecords: EqaRecord[];
   onAddEqaRecord: (record: EqaRecord) => void;
   initialSubTab?: 'iqc' | 'eqa';
@@ -27,6 +28,7 @@ export default function QualityManagement({
   lotConfigs,
   onAddQcRecord,
   onUpdateLotConfigs,
+  onDeleteLotConfig,
   eqaRecords,
   onAddEqaRecord,
   initialSubTab = 'iqc',
@@ -91,6 +93,7 @@ export default function QualityManagement({
           lotConfigs={lotConfigs}
           onAddQcRecord={onAddQcRecord}
           onUpdateLotConfigs={onUpdateLotConfigs}
+          onDeleteLotConfig={onDeleteLotConfig}
           role={role}
         />
       ) : (

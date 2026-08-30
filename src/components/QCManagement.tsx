@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import CustomSelect from "./CustomSelect";
-import { DtxMachine, QcRecord, QcLotConfig, MasterWard } from '../types';
+import { DtxMachine, QcRecord, QcLotConfig, MasterWard, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
 import { 
   SlidersVertical, Activity, Plus, TrendingUp, AlertTriangle, 
@@ -13,7 +13,8 @@ import {
   Lightbulb, Eye, Check, Calendar, User, Zap, BarChart3, 
   FileSpreadsheet, ShieldAlert, Sparkles, Filter, RefreshCw,
   Clock, Hourglass, Bell, Send, Share2, Copy, AlertOctagon, Info,
-  TableProperties, CheckSquare, Layers, Trash2, Calculator, Package
+  TableProperties, CheckSquare, Layers, Trash2, Calculator, Package,
+  PackageCheck
 } from 'lucide-react';
 
 export interface LotExpInfo {
@@ -148,6 +149,7 @@ interface QCManagementProps {
   lotConfigs: QcLotConfig[];
   onAddQcRecord: (record: QcRecord) => void;
   onUpdateLotConfigs: (configs: QcLotConfig[]) => void;
+  onDeleteLotConfig?: (lotNumber: string) => void;
   role?: string;
   initialTab?: 'batch' | 'history' | 'config';
 }
@@ -158,6 +160,7 @@ export default function QCManagement({
   lotConfigs,
   onAddQcRecord,
   onUpdateLotConfigs,
+  onDeleteLotConfig,
   role = 'admin',
   initialTab = 'batch'
 }: QCManagementProps) {
@@ -212,6 +215,138 @@ export default function QCManagement({
   // Pagination for History Table
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 15;
+
+  // Reagent Strip Stock items source of truth
+  const [stockItems, setStockItems] = useState<StripReagentItem[]>([]);
+  const [isLoadingStock, setIsLoadingStock] = useState<boolean>(false);
+
+  const loadStockItems = async () => {
+    setIsLoadingStock(true);
+    try {
+      const items = await dbService.getStripReagentItems();
+      if (Array.isArray(items)) {
+        setStockItems(items);
+      }
+    } catch (err) {
+      console.warn('Failed to load strip stock items in QCManagement:', err);
+    } finally {
+      setIsLoadingStock(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStockItems();
+  }, []);
+
+  // Unique LOTs grouped from Reagent Strip Stock
+  const stockLots = useMemo(() => {
+    const map = new Map<string, {
+      lotNumber: string;
+      manufacturer: string;
+      itemType: string;
+      receivedDate?: string;
+      expDate?: string;
+      totalBoxes: number;
+      inStockCount: number;
+      inUseCount: number;
+      depletedCount: number;
+    }>();
+
+    stockItems.forEach(item => {
+      const lot = item.lotNumber?.trim();
+      if (!lot) return;
+      const key = lot.toUpperCase();
+      const existing = map.get(key) || {
+        lotNumber: lot,
+        manufacturer: item.manufacturer || 'VivaChek Fad',
+        itemType: item.itemType || 'strip',
+        receivedDate: item.receivedDate,
+        expDate: item.expDate,
+        totalBoxes: 0,
+        inStockCount: 0,
+        inUseCount: 0,
+        depletedCount: 0
+      };
+      existing.totalBoxes += 1;
+      if (item.status === 'in_stock') existing.inStockCount += 1;
+      else if (item.status === 'in_use') existing.inUseCount += 1;
+      else if (item.status === 'depleted') existing.depletedCount += 1;
+      if (!existing.expDate && item.expDate) existing.expDate = item.expDate;
+      if (!existing.receivedDate && item.receivedDate) existing.receivedDate = item.receivedDate;
+      map.set(key, existing);
+    });
+
+    return Array.from(map.values());
+  }, [stockItems]);
+
+  // Unified LOT list combining Reagent Strip Stock LOTs with QC Target Range configs
+  const unifiedLotList = useMemo(() => {
+    const map = new Map<string, {
+      lotNumber: string;
+      manufacturer?: string;
+      itemType?: string;
+      expDate?: string;
+      openDate?: string;
+      openExpDays?: number;
+      receivedDate?: string;
+      notes?: string;
+      stockInfo?: {
+        totalBoxes: number;
+        inStockCount: number;
+        inUseCount: number;
+        depletedCount: number;
+      };
+      config?: QcLotConfig;
+      isConfigured: boolean;
+    }>();
+
+    // 1. First add all LOTs physically present in Reagent Strip Stock
+    stockLots.forEach(s => {
+      const key = s.lotNumber.trim().toUpperCase();
+      map.set(key, {
+        lotNumber: s.lotNumber.trim(),
+        manufacturer: s.manufacturer,
+        itemType: s.itemType,
+        expDate: s.expDate,
+        receivedDate: s.receivedDate,
+        stockInfo: {
+          totalBoxes: s.totalBoxes,
+          inStockCount: s.inStockCount,
+          inUseCount: s.inUseCount,
+          depletedCount: s.depletedCount
+        },
+        isConfigured: false
+      });
+    });
+
+    // 2. Attach or merge existing QC Target Range configurations
+    lotConfigs.forEach(cfg => {
+      if (!cfg || !cfg.lotNumber) return;
+      const key = cfg.lotNumber.trim().toUpperCase();
+      const existing = map.get(key);
+      if (existing) {
+        existing.config = cfg;
+        existing.isConfigured = true;
+        if (!existing.expDate && cfg.expDate) existing.expDate = cfg.expDate;
+        if (!existing.openDate && cfg.openDate) existing.openDate = cfg.openDate;
+        if (!existing.notes && cfg.notes) existing.notes = cfg.notes;
+        if (!existing.manufacturer && cfg.manufacturer) existing.manufacturer = cfg.manufacturer;
+      } else {
+        map.set(key, {
+          lotNumber: cfg.lotNumber.trim(),
+          manufacturer: cfg.manufacturer || 'VivaChek Fad',
+          expDate: cfg.expDate,
+          openDate: cfg.openDate,
+          openExpDays: cfg.openExpDays,
+          notes: cfg.notes,
+          config: cfg,
+          isConfigured: true
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [stockLots, lotConfigs]);
 
   // Lot Config editing
   const [editingLotIdx, setEditingLotIdx] = useState<number | null>(null);
@@ -725,35 +860,166 @@ export default function QCManagement({
     document.body.removeChild(link);
   };
 
-  // Lot config management
-  const handleStartEditLot = (idx: number) => {
-    setEditingLotIdx(idx);
-    setEditedLot({ ...lotConfigs[idx] });
+  // Lot config management & Stock Target Range configuration
+  const handleStartEditLot = (cfg: QcLotConfig) => {
+    const idx = lotConfigs.findIndex(c => c.lotNumber === cfg.lotNumber);
+    setEditingLotIdx(idx >= 0 ? idx : lotConfigs.length);
+    setEditedLot({ ...cfg });
+  };
+
+  const handleStartConfigureStockLot = (lotNum: string) => {
+    const stockInfo = stockLots.find(s => s.lotNumber === lotNum);
+    const existingConfig = lotConfigs.find(c => c.lotNumber === lotNum);
+    
+    if (existingConfig) {
+      const idx = lotConfigs.findIndex(c => c.lotNumber === lotNum);
+      setEditingLotIdx(idx >= 0 ? idx : lotConfigs.length);
+      setEditedLot({ ...existingConfig });
+    } else {
+      setEditingLotIdx(lotConfigs.length);
+      setEditedLot({
+        lotNumber: lotNum,
+        manufacturer: stockInfo?.manufacturer || 'VivaChek Fad',
+        expDate: stockInfo?.expDate || '',
+        receivedDate: stockInfo?.receivedDate || '',
+        openExpDays: 90,
+        level1Target: 0, level1Min: 0, level1Max: 0, level1SD: 0,
+        level2Target: 0, level2Min: 0, level2Max: 0, level2SD: 0,
+        level3Target: 0, level3Min: 0, level3Max: 0, level3SD: 0,
+      });
+    }
+  };
+
+  const handleOpenAddLotModal = () => {
+    // Pick first unconfigured stock lot, or first stock lot, or default
+    const unconfigured = stockLots.find(s => !lotConfigs.some(lc => lc.lotNumber === s.lotNumber));
+    const targetLot = unconfigured || stockLots[0];
+    if (targetLot) {
+      handleStartConfigureStockLot(targetLot.lotNumber);
+    } else {
+      setEditingLotIdx(lotConfigs.length);
+      setEditedLot({
+        lotNumber: '',
+        manufacturer: 'VivaChek Fad',
+        expDate: '',
+        openExpDays: 90,
+        level1Target: 0, level1Min: 0, level1Max: 0, level1SD: 0,
+        level2Target: 0, level2Min: 0, level2Max: 0, level2SD: 0,
+        level3Target: 0, level3Min: 0, level3Max: 0, level3SD: 0,
+      });
+    }
+  };
+
+  const handleDeleteLotConfig = async (lotNumber: string) => {
+    if (!lotNumber || !lotNumber.trim()) return;
+    const cleanLot = lotNumber.trim();
+    const confirmed = window.confirm(`คุณต้องการลบการตั้งค่าช่วงค่ามาตรฐานสำหรับ LOT "${cleanLot}" ใช่หรือไม่?\n(ข้อมูลประวัติ QC เดิมจะยังคงอยู่)`);
+    if (!confirmed) return;
+
+    try {
+      if (onDeleteLotConfig) {
+        await onDeleteLotConfig(cleanLot);
+      } else {
+        await dbService.deleteLotConfig(cleanLot);
+        const updatedConfigs = lotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase());
+        onUpdateLotConfigs(updatedConfigs);
+      }
+      if (editingLotIdx !== null) {
+        setEditingLotIdx(null);
+        setEditedLot(null);
+      }
+      alert(`✓ ลบการตั้งค่าช่วงมาตรฐาน LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
+    } catch (err: any) {
+      console.error('Failed to delete lot config:', err);
+      alert(`เกิดข้อผิดพลาดในการลบการตั้งค่า LOT: ${err?.message || err}`);
+    }
+  };
+
+  // Dynamic automatic calculation of QC Target Range (Target/Mean, SD, Min, Max)
+  const updateLevelValues = (
+    level: 1 | 2 | 3,
+    field: 'target' | 'sd' | 'min' | 'max',
+    val: number
+  ) => {
+    if (!editedLot) return;
+    
+    const targetKey = `level${level}Target` as keyof QcLotConfig;
+    const sdKey = `level${level}SD` as keyof QcLotConfig;
+    const minKey = `level${level}Min` as keyof QcLotConfig;
+    const maxKey = `level${level}Max` as keyof QcLotConfig;
+
+    let target = (editedLot[targetKey] as number) || 0;
+    let sd = (editedLot[sdKey] as number) || 0;
+    let min = (editedLot[minKey] as number) || 0;
+    let max = (editedLot[maxKey] as number) || 0;
+
+    if (field === 'min') {
+      min = val;
+      if (min > 0 && max > min) {
+        // Auto-calculate Mean/Target and SD from Min & Max (side of box range)
+        target = Math.round(((min + max) / 2) * 10) / 10;
+        sd = Math.round(((max - min) / 4) * 10) / 10;
+      }
+    } else if (field === 'max') {
+      max = val;
+      if (min > 0 && max > min) {
+        // Auto-calculate Mean/Target and SD from Min & Max (side of box range)
+        target = Math.round(((min + max) / 2) * 10) / 10;
+        sd = Math.round(((max - min) / 4) * 10) / 10;
+      }
+    } else if (field === 'target') {
+      target = val;
+      if (target > 0 && sd > 0) {
+        min = Math.max(0, Math.round((target - 2 * sd) * 10) / 10);
+        max = Math.round((target + 2 * sd) * 10) / 10;
+      } else if (target > 0 && min > 0 && target > min) {
+        max = Math.round((target + (target - min)) * 10) / 10;
+        sd = Math.round(((target - min) / 2) * 10) / 10;
+      }
+    } else if (field === 'sd') {
+      sd = val;
+      if (target > 0 && sd > 0) {
+        min = Math.max(0, Math.round((target - 2 * sd) * 10) / 10);
+        max = Math.round((target + 2 * sd) * 10) / 10;
+      }
+    }
+
+    setEditedLot({
+      ...editedLot,
+      [targetKey]: target,
+      [sdKey]: sd,
+      [minKey]: min,
+      [maxKey]: max,
+    });
+  };
+
+  // Quick auto-calculate all levels from current Min & Max
+  const handleAutoCalcAllLevels = () => {
+    if (!editedLot) return;
+    const updated: any = { ...editedLot };
+    [1, 2, 3].forEach((lvl) => {
+      const min = (updated[`level${lvl}Min`] as number) || 0;
+      const max = (updated[`level${lvl}Max`] as number) || 0;
+      if (min > 0 && max > min) {
+        updated[`level${lvl}Target`] = Math.round(((min + max) / 2) * 10) / 10;
+        updated[`level${lvl}SD`] = Math.round(((max - min) / 4) * 10) / 10;
+      }
+    });
+    setEditedLot(updated);
   };
 
   const handleSaveLotConfig = () => {
-    if (!editedLot) return;
-    const newConfigs = [...lotConfigs];
-    if (editingLotIdx === lotConfigs.length) {
-      newConfigs.push(editedLot);
-    } else {
-      newConfigs[editingLotIdx!] = editedLot;
+    if (!editedLot || !editedLot.lotNumber.trim()) {
+      alert('กรุณาระบุหรือเลือกล็อต (LOT Number)');
+      return;
     }
-    onUpdateLotConfigs(newConfigs);
+    const cleanLot = editedLot.lotNumber.trim();
+    const filtered = lotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase());
+    const toSave: QcLotConfig = { ...editedLot, lotNumber: cleanLot };
+    
+    onUpdateLotConfigs([...filtered, toSave]);
     setEditingLotIdx(null);
     setEditedLot(null);
-  };
-
-  const handleAddLotConfig = () => {
-    setEditingLotIdx(lotConfigs.length);
-    setEditedLot({
-      lotNumber: 'LOT-2026-NEW',
-      manufacturer: 'VivaChek Fad',
-      expDate: '',
-      level1Target: 45, level1Min: 35, level1Max: 55, level1SD: 3.5,
-      level2Target: 120, level2Min: 100, level2Max: 140, level2SD: 6.0,
-      level3Target: 300, level3Min: 260, level3Max: 340, level3SD: 12.0,
-    });
   };
 
   return (
@@ -2445,148 +2711,285 @@ export default function QCManagement({
         </div>
       )}
 
-      {/* VIEW 4: LOT & TARGET RANGE CONFIGURATION */}
+      {/* VIEW 4: LOT & TARGET RANGE CONFIGURATION (DERIVED FROM REAGENT STRIP STOCK) */}
       {activeTab === 'config' && (
-        <div className="space-y-4" id="qc-config-view">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-extrabold text-slate-800">Setting Range by LOT (ตั้งค่าช่วงค่ามาตรฐานตาม LOT ในคลัง)</h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                  {lotConfigs.length} LOTs ในคลัง
+        <div className="space-y-5" id="qc-config-view">
+          {/* Top Header Card */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-800 flex items-center gap-2">
+                  <PackageCheck size={18} className="text-sky-600" />
+                  <span>Setting Range by LOT (ตั้งค่าช่วงค่ามาตรฐานตาม LOT แถบตรวจในคลัง)</span>
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                  {stockLots.length} LOTs ในคลังพัสดุ
                 </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  {unifiedLotList.filter(l => l.isConfigured).length} ตั้งค่าแล้ว
+                </span>
+                {unifiedLotList.filter(l => !l.isConfigured).length > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 animate-pulse">
+                    {unifiedLotList.filter(l => !l.isConfigured).length} รอกำหนดช่วงค่า
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                กำหนดค่า Target, S.D. และช่วง Min/Max (mg/dL) จากข้อมูล LOT พัสดุที่เบิกรับเข้าคลังเพื่อใช้อนุมัติผล IQC
+              <p className="text-xs text-slate-500">
+                นำข้อมูล LOT จากกล่องแถบตรวจในคลังพัสดุ (Reagent Strip Stock) มากำหนดค่า Target, S.D., และ Min/Max (mg/dL) เพื่อใช้ประเมินผล IQC ประจำวัน
               </p>
             </div>
+
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={loadStockItems}
+                disabled={isLoadingStock}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-all"
+                title="รีเฟรชข้อมูล LOT จากคลังพัสดุ"
+              >
+                <RefreshCw size={13} className={isLoadingStock ? 'animate-spin' : ''} />
+                <span>รีเฟรชสต็อก</span>
+              </button>
+
               {role === 'admin' && (
                 <button
                   type="button"
-                  onClick={handleAddLotConfig}
-                  className="bg-sky-600 hover:bg-sky-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs transition-all"
+                  onClick={handleOpenAddLotModal}
+                  className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs transition-all"
                 >
                   <Plus size={15} />
-                  <span>เพิ่ม LOT ใหม่</span>
+                  <span>เลือก LOT จากคลังเพื่อตั้งค่า Target</span>
                 </button>
               )}
             </div>
           </div>
 
+          {/* Pending Stock LOTs Notice Banner */}
+          {unifiedLotList.filter(l => !l.isConfigured).length > 0 && (
+            <div className="bg-amber-50/80 border border-amber-200/90 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-start space-x-2.5">
+                <AlertTriangle size={17} className="text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-extrabold text-amber-900">
+                    พบ {unifiedLotList.filter(l => !l.isConfigured).length} รายการ LOT ในคลังพัสดุที่ยังไม่ได้ตั้งค่า Target Range
+                  </h4>
+                  <p className="text-[11px] text-amber-700 mt-0.5">
+                    มีแถบตรวจที่รับเข้าคลังแล้วแต่ยังไม่ได้กำหนดค่ามาตรฐานข้างกล่อง L1, L2, L3 — กรุณากดปุ่มเพื่อตั้งค่าก่อนนำไปตรวจ QC
+                  </p>
+                </div>
+              </div>
+              {role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstUnconfigured = unifiedLotList.find(l => !l.isConfigured);
+                    if (firstUnconfigured) {
+                      handleStartConfigureStockLot(firstUnconfigured.lotNumber);
+                    }
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3.5 py-1.5 rounded-xl shrink-0 cursor-pointer shadow-2xs"
+                >
+                  ⚙️ ตั้งค่า LOT แรกที่รอดำเนินการ
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Empty State when no lots found */}
+          {unifiedLotList.length === 0 && (
+            <div className="bg-white p-12 rounded-2xl border border-slate-200/90 text-center space-y-3">
+              <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                <Package size={24} />
+              </div>
+              <h4 className="text-sm font-bold text-slate-800">ยังไม่พบข้อมูล LOT ในคลังพัสดุ</h4>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                หน้านี้จะดึง LOT จาก "คลังแถบตรวจและน้ำยา (Reagent Strip Stock)" โดยอัตโนมัติ กรุณารับเข้าแถบตรวจที่เมนูคลังพัสดุก่อนเพื่อนำมาตั้งค่า Target Range
+              </p>
+            </div>
+          )}
+
+          {/* Grid of LOT Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {lotConfigs.map((cfg, idx) => {
-              const expInfo = calculateLotExpInfo(cfg);
+            {unifiedLotList.map((item, idx) => {
+              const cfg = item.config;
+              const expInfo = cfg ? calculateLotExpInfo(cfg) : {
+                lotNumber: item.lotNumber,
+                status: 'valid' as const,
+                statusText: item.expDate ? `หมดอายุ: ${item.expDate}` : 'ยังไม่ระบุวันหมดอายุ',
+                colorClass: 'text-slate-700',
+                badgeBg: 'bg-slate-100 text-slate-700 border-slate-200',
+                effectiveExpDate: item.expDate
+              };
+
               return (
-                <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm space-y-4 flex flex-col justify-between">
+                <div 
+                  key={idx} 
+                  className={`bg-white p-5 rounded-2xl border shadow-sm space-y-4 flex flex-col justify-between transition-all ${
+                    item.isConfigured 
+                      ? 'border-slate-200/90' 
+                      : 'border-amber-300 ring-1 ring-amber-200 bg-amber-50/20'
+                  }`}
+                >
                   <div className="space-y-3">
-                    {/* Header & Status */}
+                    {/* Header & Badges */}
                     <div className="flex items-start justify-between border-b border-slate-100 pb-3">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Control Lot</span>
-                          {cfg.manufacturer && (
-                            <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                              {cfg.manufacturer}
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            {item.itemType === 'control_solution' ? 'Control Solution' : 'Test Strip LOT'}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded">
+                            {item.manufacturer || 'VivaChek Fad'}
+                          </span>
+                          {item.isConfigured ? (
+                            <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                              ✓ ตั้งค่าแล้ว
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded animate-pulse">
+                              ⏳ รอตั้งค่า Target
                             </span>
                           )}
                         </div>
-                        <h4 className="text-base font-black text-slate-900">{cfg.lotNumber}</h4>
+                        <h4 className="text-base font-black text-slate-900 font-mono">{item.lotNumber}</h4>
                       </div>
 
                       <div className="flex items-center gap-1.5">
                         {role === 'admin' && (
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditLot(idx)}
-                            className="text-xs font-bold text-sky-600 hover:text-sky-800 bg-sky-50 hover:bg-sky-100 px-2.5 py-1 rounded-lg transition-all"
-                          >
-                            แก้ไข
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleStartConfigureStockLot(item.lotNumber)}
+                              className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                                item.isConfigured
+                                  ? 'text-sky-600 hover:text-sky-800 bg-sky-50 hover:bg-sky-100'
+                                  : 'text-white bg-amber-600 hover:bg-amber-700'
+                              }`}
+                            >
+                              {item.isConfigured ? 'แก้ไข' : 'ตั้งค่า'}
+                            </button>
+                            {item.isConfigured && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLotConfig(item.lotNumber)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title={`ลบการตั้งค่ามาตรฐาน LOT ${item.lotNumber}`}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
 
-                    {/* Expiration Card Section */}
-                    <div className="p-3 rounded-xl border border-slate-200/80 bg-slate-50/70 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                          <Clock size={12} className="text-slate-500" />
-                          <span>สถานะวันหมดอายุ (EXP)</span>
-                        </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${expInfo.badgeBg}`}>
-                          {expInfo.statusText}
-                        </span>
-                      </div>
+                    {/* Stock & Expiration Info Box */}
+                    <div className="p-3 rounded-xl border border-slate-200/80 bg-slate-50/70 space-y-2 text-xs">
+                      {/* Stock quantity if available */}
+                      {item.stockInfo ? (
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 pb-1.5 border-b border-slate-200/60">
+                          <span className="flex items-center gap-1 text-slate-600">
+                            <Package size={13} className="text-amber-600" />
+                            <span>พัสดุในคลัง (Stock):</span>
+                          </span>
+                          <span className="text-slate-800">
+                            {item.stockInfo.totalBoxes} กล่อง ({item.stockInfo.inStockCount} พร้อมใช้, {item.stockInfo.inUseCount} กำลังใช้)
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 pb-1.5 border-b border-slate-200/60">
+                          <span>แหล่งข้อมูล:</span>
+                          <span className="font-semibold text-slate-700">บันทึกเป้าหมาย QC</span>
+                        </div>
+                      )}
 
-                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1 border-t border-slate-200/60">
+                      {/* Expiration Details */}
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-0.5">
                         <div>
-                          <span className="text-slate-400 block text-[10px]">วันหมดอายุฉลาก</span>
-                          <strong className="text-slate-800">{cfg.expDate || '-'}</strong>
+                          <span className="text-slate-400 block text-[10px]">วันหมดอายุฉลาก (EXP)</span>
+                          <strong className="text-slate-800 font-mono">{item.expDate || '-'}</strong>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px]">วันเปิดขวด (อายุ {cfg.openExpDays || 90} วัน)</span>
-                          <strong className="text-slate-800">{cfg.openDate || 'ยังไม่เปิด'}</strong>
+                          <span className="text-slate-400 block text-[10px]">วันเปิดขวด (อายุ {cfg?.openExpDays || 90} วัน)</span>
+                          <strong className="text-slate-800 font-mono">{cfg?.openDate || 'ยังไม่เปิด'}</strong>
                         </div>
                       </div>
 
                       {expInfo.effectiveExpDate && (
                         <div className="bg-white p-2 rounded-lg border border-slate-200/80 flex items-center justify-between text-[11px]">
                           <span className="text-slate-500 font-medium">วันหมดอายุใช้งานจริง:</span>
-                          <strong className={`font-black ${expInfo.colorClass}`}>{expInfo.effectiveExpDate}</strong>
+                          <strong className={`font-black font-mono ${expInfo.colorClass}`}>{expInfo.effectiveExpDate}</strong>
                         </div>
                       )}
 
-                      {cfg.notes && (
+                      {cfg?.notes && (
                         <p className="text-[10px] text-slate-500 italic bg-white/60 p-1.5 rounded border border-slate-100">
                           {cfg.notes}
                         </p>
                       )}
                     </div>
 
-                    {/* Target Ranges */}
-                    <div className="space-y-1.5 text-xs">
-                      {/* Level 1 */}
-                      <div className="p-2 bg-emerald-50/50 rounded-xl border border-emerald-100 flex items-center justify-between text-[11px]">
-                        <span className="font-extrabold text-emerald-900">L1 (Low)</span>
-                        <div className="space-x-2 text-slate-600">
-                          <span>Target: <strong>{cfg.level1Target}</strong> (SD {cfg.level1SD})</span>
-                          <span>Range: <strong>{cfg.level1Min}-{cfg.level1Max}</strong></span>
+                    {/* Target Ranges or Unconfigured Prompt */}
+                    {item.isConfigured && cfg ? (
+                      <div className="space-y-1.5 text-xs">
+                        {/* Level 1 */}
+                        <div className="p-2 bg-emerald-50/50 rounded-xl border border-emerald-100 flex items-center justify-between text-[11px]">
+                          <span className="font-extrabold text-emerald-900">L1 (Low)</span>
+                          <div className="space-x-2 text-slate-600 font-mono">
+                            <span>Target: <strong>{cfg.level1Target}</strong> (SD {cfg.level1SD})</span>
+                            <span>Range: <strong>{cfg.level1Min}-{cfg.level1Max}</strong></span>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Level 2 */}
-                      <div className="p-2 bg-sky-50/50 rounded-xl border border-sky-100 flex items-center justify-between text-[11px]">
-                        <span className="font-extrabold text-sky-900">L2 (Normal)</span>
-                        <div className="space-x-2 text-slate-600">
-                          <span>Target: <strong>{cfg.level2Target}</strong> (SD {cfg.level2SD})</span>
-                          <span>Range: <strong>{cfg.level2Min}-{cfg.level2Max}</strong></span>
+                        {/* Level 2 */}
+                        <div className="p-2 bg-sky-50/50 rounded-xl border border-sky-100 flex items-center justify-between text-[11px]">
+                          <span className="font-extrabold text-sky-900">L2 (Normal)</span>
+                          <div className="space-x-2 text-slate-600 font-mono">
+                            <span>Target: <strong>{cfg.level2Target}</strong> (SD {cfg.level2SD})</span>
+                            <span>Range: <strong>{cfg.level2Min}-{cfg.level2Max}</strong></span>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Level 3 */}
-                      <div className="p-2 bg-purple-50/50 rounded-xl border border-purple-100 flex items-center justify-between text-[11px]">
-                        <span className="font-extrabold text-purple-900">L3 (High)</span>
-                        <div className="space-x-2 text-slate-600">
-                          <span>Target: <strong>{cfg.level3Target}</strong> (SD {cfg.level3SD})</span>
-                          <span>Range: <strong>{cfg.level3Min}-{cfg.level3Max}</strong></span>
+                        {/* Level 3 */}
+                        <div className="p-2 bg-purple-50/50 rounded-xl border border-purple-100 flex items-center justify-between text-[11px]">
+                          <span className="font-extrabold text-purple-900">L3 (High)</span>
+                          <div className="space-x-2 text-slate-600 font-mono">
+                            <span>Target: <strong>{cfg.level3Target}</strong> (SD {cfg.level3SD})</span>
+                            <span>Range: <strong>{cfg.level3Min}-{cfg.level3Max}</strong></span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center space-y-2">
+                        <p className="text-[11px] text-amber-800 font-bold">
+                          ยังไม่ได้กำหนด Target Ranges (L1, L2, L3) ข้างกล่อง
+                        </p>
+                        {role === 'admin' && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartConfigureStockLot(item.lotNumber)}
+                            className="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>ตั้งค่าช่วงค่ามาตรฐานสำหรับ LOT นี้</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Edit / Add Lot Modal */}
+          {/* Edit / Configure Lot Modal */}
           {editingLotIdx !== null && editedLot && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
               <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-slate-100 text-xs">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900">
-                      {editingLotIdx === lotConfigs.length ? 'ตั้งค่าช่วง Target Range สำหรับ LOT พัสดุใหม่' : `Setting Range by LOT (ตั้งค่าเป้าหมาย LOT ${editedLot.lotNumber})`}
+                      {`ตั้งค่าเป้าหมาย Target Range สำหรับ LOT ${editedLot.lotNumber || '(เลือกจากคลัง)'}`}
                     </h3>
                     <p className="text-[11px] text-amber-700 dark:text-amber-400 font-bold mt-0.5">
                       📌 หมายเหตุ: ช่วงเป้าหมาย QC (Target Range L1, L2, L3) ถูกกำหนดอยู่บน [ข้างกล่องแผ่นตรวจ Strip Box] ไม่ใช่น้ำยาควบคุม
@@ -2613,40 +3016,55 @@ export default function QCManagement({
                       <span>ยี่ห้อเครื่องตรวจ/พัสดุ DTX:</span>
                     </span>
                     <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-lg bg-sky-600 text-white shadow-2xs">
-                      VivaChek Fad
+                      {editedLot.manufacturer || 'VivaChek Fad'}
                     </span>
                   </div>
 
-                  {/* LOT Number & Expiration Date Form */}
+                  {/* LOT Source from Reagent Strip Stock */}
                   <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
-                    {/* Optional Pull from Stock Helper */}
-                    {lotConfigs.length > 0 && (
-                      <div className="p-2 bg-white rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
-                          <Package size={12} className="text-amber-600" />
-                          <span>เลือกรอดึงจากคลังพัสดุ (Stock):</span>
-                        </span>
+                    {/* Pull from Stock Dropdown */}
+                    {stockLots.length > 0 && (
+                      <div className="p-2.5 bg-white rounded-xl border border-slate-200/90 space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                          <Package size={13} className="text-amber-600" />
+                          <span>เลือกล็อตจากคลังพัสดุ (Reagent Strip Stock):</span>
+                        </label>
                         <select
-                          className="text-[11px] font-bold px-2 py-1 bg-slate-50 border border-slate-300 rounded-md text-slate-800 outline-none cursor-pointer"
+                          className="w-full text-xs font-bold p-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 outline-none cursor-pointer focus:ring-2 focus:ring-sky-500"
+                          value={editedLot.lotNumber}
                           onChange={(e) => {
-                            const found = lotConfigs.find(l => l.lotNumber === e.target.value);
-                            if (found) {
+                            const selectedVal = e.target.value;
+                            const matchedStock = stockLots.find(s => s.lotNumber === selectedVal);
+                            const matchedConfig = lotConfigs.find(l => l.lotNumber === selectedVal);
+                            
+                            if (matchedConfig) {
+                              setEditedLot({
+                                ...matchedConfig,
+                                lotNumber: selectedVal,
+                                manufacturer: matchedStock?.manufacturer || matchedConfig.manufacturer || 'VivaChek Fad',
+                                expDate: matchedStock?.expDate || matchedConfig.expDate || editedLot.expDate,
+                                receivedDate: matchedStock?.receivedDate || matchedConfig.receivedDate || editedLot.receivedDate
+                              });
+                            } else if (matchedStock) {
                               setEditedLot({
                                 ...editedLot,
-                                lotNumber: found.lotNumber,
-                                expDate: found.expDate || editedLot.expDate,
-                                manufacturer: 'VivaChek Fad'
+                                lotNumber: matchedStock.lotNumber,
+                                manufacturer: matchedStock.manufacturer || 'VivaChek Fad',
+                                expDate: matchedStock.expDate || editedLot.expDate,
+                                receivedDate: matchedStock.receivedDate || editedLot.receivedDate
                               });
                             }
                           }}
-                          defaultValue=""
                         >
                           <option value="" disabled>-- เลือก LOT จากคลังพัสดุ --</option>
-                          {lotConfigs.map((lc, i) => (
-                            <option key={i} value={lc.lotNumber}>
-                              {lc.lotNumber} {lc.expDate ? `(หมดอายุ: ${lc.expDate})` : ''}
-                            </option>
-                          ))}
+                          {stockLots.map((sl, i) => {
+                            const isConfigured = lotConfigs.some(lc => lc.lotNumber === sl.lotNumber);
+                            return (
+                              <option key={i} value={sl.lotNumber}>
+                                {sl.lotNumber} ({sl.itemType === 'control_solution' ? 'น้ำยา QC' : 'Strip'}) {sl.expDate ? `• EXP: ${sl.expDate}` : ''} {isConfigured ? '✓ (ตั้งค่าแล้ว)' : '⏳ (ยังไม่ตั้งค่า)'}
+                              </option>
+                            );
+                          })}
                         </select>
                       </div>
                     )}
@@ -2659,13 +3077,13 @@ export default function QCManagement({
                         <input
                           type="text"
                           value={editedLot.lotNumber}
-                          onChange={(e) => setEditedLot({ ...editedLot, lotNumber: e.target.value, manufacturer: 'VivaChek Fad' })}
+                          onChange={(e) => setEditedLot({ ...editedLot, lotNumber: e.target.value })}
                           className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-mono font-bold focus:ring-2 focus:ring-sky-500 outline-none"
-                          placeholder="เช่น LOT-2026-NEW"
+                          placeholder="เช่น LOT2026-A"
                           required
                         />
                         <span className="text-[10px] text-slate-500 mt-1 block">
-                          (รอดึงจาก stock หากไม่มีในระบบสามารถกรอกใหม่ได้)
+                          (อ้างอิงจาก Reagent Strip Stock ในคลัง)
                         </span>
                       </div>
                       <div>
@@ -2676,7 +3094,7 @@ export default function QCManagement({
                           type="date"
                           value={editedLot.expDate || ''}
                           onChange={(e) => setEditedLot({ ...editedLot, expDate: e.target.value })}
-                          className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-bold focus:ring-2 focus:ring-sky-500 outline-none"
+                          className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-bold focus:ring-2 focus:ring-sky-500 outline-none font-mono"
                           required
                         />
                         <span className="text-[10px] text-slate-500 mt-1 block">
@@ -2686,72 +3104,107 @@ export default function QCManagement({
                     </div>
                   </div>
 
-                  {/* Target Range Form Header with Auto Calc button */}
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="font-extrabold text-slate-900 text-xs flex items-center space-x-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
-                      <span>กำหนดช่วงค่ามาตรฐาน QC (Target Ranges ข้างกล่อง)</span>
-                    </span>
+                  {/* Target Range Form Header with Auto Calc buttons */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                    <div>
+                      <span className="font-extrabold text-slate-900 text-xs flex items-center space-x-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+                        <span>กำหนดช่วงค่ามาตรฐาน QC (Target Ranges ข้างกล่อง)</span>
+                      </span>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        💡 กรอก Min & Max ข้างกล่อง ระบบจะคำนวณค่า Mean (Target) และ S.D. ให้อัตโนมัติทันที
+                      </p>
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditedLot({
-                          ...editedLot,
-                          level1Min: Math.max(0, Math.round((editedLot.level1Target || 0) - 2 * (editedLot.level1SD || 0))),
-                          level1Max: Math.round((editedLot.level1Target || 0) + 2 * (editedLot.level1SD || 0)),
-                          level2Min: Math.max(0, Math.round((editedLot.level2Target || 0) - 2 * (editedLot.level2SD || 0))),
-                          level2Max: Math.round((editedLot.level2Target || 0) + 2 * (editedLot.level2SD || 0)),
-                          level3Min: Math.max(0, Math.round((editedLot.level3Target || 0) - 2 * (editedLot.level3SD || 0))),
-                          level3Max: Math.round((editedLot.level3Target || 0) + 2 * (editedLot.level3SD || 0)),
-                        });
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-800 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-all"
-                    >
-                      <Calculator size={12} />
-                      <span>คำนวณ Min/Max (Target ± 2SD)</span>
-                    </button>
+                    <div className="flex items-center space-x-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleAutoCalcAllLevels}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-all shadow-xs"
+                        title="คำนวณ Target (Mean) และ S.D. จากช่วง Min/Max ข้างกล่อง"
+                      >
+                        <Sparkles size={12} />
+                        <span>คำนวณ Target & SD จาก Min/Max</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditedLot({
+                            ...editedLot,
+                            level1Min: Math.max(0, Math.round(((editedLot.level1Target || 0) - 2 * (editedLot.level1SD || 0)) * 10) / 10),
+                            level1Max: Math.round(((editedLot.level1Target || 0) + 2 * (editedLot.level1SD || 0)) * 10) / 10,
+                            level2Min: Math.max(0, Math.round(((editedLot.level2Target || 0) - 2 * (editedLot.level2SD || 0)) * 10) / 10),
+                            level2Max: Math.round(((editedLot.level2Target || 0) + 2 * (editedLot.level2SD || 0)) * 10) / 10,
+                            level3Min: Math.max(0, Math.round(((editedLot.level3Target || 0) - 2 * (editedLot.level3SD || 0)) * 10) / 10),
+                            level3Max: Math.round(((editedLot.level3Target || 0) + 2 * (editedLot.level3SD || 0)) * 10) / 10,
+                          });
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-800 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-all"
+                        title="คำนวณ Min/Max จาก Target ± 2SD"
+                      >
+                        <Calculator size={12} />
+                        <span>Target ± 2SD</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Level 1 Inputs */}
                   <div className="p-3.5 bg-emerald-50/70 rounded-xl border border-emerald-200 space-y-2">
-                    <span className="font-extrabold text-emerald-900 block text-xs">Level 1 (Low Range)</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-emerald-900 block text-xs">Level 1 (Low Range)</span>
+                      <span className="text-[10px] text-emerald-700 font-medium">กรอก Min & Max ข้างกล่อง เพื่อคำนวณ Target/Mean และ SD</span>
+                    </div>
                     <div className="grid grid-cols-4 gap-2">
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Target</label>
+                        <label className="text-[10px] text-slate-700 font-bold block mb-0.5">
+                          Min ข้างกล่อง <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="number"
-                          value={editedLot.level1Target}
-                          onChange={(e) => setEditedLot({ ...editedLot, level1Target: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold"
+                          placeholder="เช่น 35"
+                          value={editedLot.level1Min || ''}
+                          onChange={(e) => updateLevelValues(1, 'min', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-emerald-300 bg-white text-center font-bold text-emerald-700 font-mono focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">S.D.</label>
+                        <label className="text-[10px] text-slate-700 font-bold block mb-0.5">
+                          Max ข้างกล่อง <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="เช่น 55"
+                          value={editedLot.level1Max || ''}
+                          onChange={(e) => updateLevelValues(1, 'max', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-emerald-300 bg-white text-center font-bold text-emerald-700 font-mono focus:ring-2 focus:ring-emerald-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5 flex items-center justify-center gap-1">
+                          <span>Target (Mean)</span>
+                          <span className="text-[9px] px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded font-semibold">Auto</span>
+                        </label>
                         <input
                           type="number"
                           step="0.1"
-                          value={editedLot.level1SD}
-                          onChange={(e) => setEditedLot({ ...editedLot, level1SD: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold"
+                          placeholder="เช่น 45"
+                          value={editedLot.level1Target || ''}
+                          onChange={(e) => updateLevelValues(1, 'target', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-emerald-50/40 text-center font-bold font-mono focus:ring-2 focus:ring-sky-500 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Min</label>
+                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5 flex items-center justify-center gap-1">
+                          <span>S.D.</span>
+                          <span className="text-[9px] px-1 py-0.2 bg-emerald-100 text-emerald-800 rounded font-semibold">Auto</span>
+                        </label>
                         <input
                           type="number"
-                          value={editedLot.level1Min}
-                          onChange={(e) => setEditedLot({ ...editedLot, level1Min: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold text-emerald-700"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Max</label>
-                        <input
-                          type="number"
-                          value={editedLot.level1Max}
-                          onChange={(e) => setEditedLot({ ...editedLot, level1Max: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold text-emerald-700"
+                          step="0.1"
+                          placeholder="เช่น 5.0"
+                          value={editedLot.level1SD || ''}
+                          onChange={(e) => updateLevelValues(1, 'sd', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-emerald-50/40 text-center font-bold font-mono focus:ring-2 focus:ring-sky-500 outline-none"
                         />
                       </div>
                     </div>
@@ -2759,43 +3212,61 @@ export default function QCManagement({
 
                   {/* Level 2 Inputs */}
                   <div className="p-3.5 bg-sky-50/70 rounded-xl border border-sky-200 space-y-2">
-                    <span className="font-extrabold text-sky-900 block text-xs">Level 2 (Normal Range)</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-sky-900 block text-xs">Level 2 (Normal Range)</span>
+                      <span className="text-[10px] text-sky-700 font-medium">กรอก Min & Max ข้างกล่อง เพื่อคำนวณ Target/Mean และ SD</span>
+                    </div>
                     <div className="grid grid-cols-4 gap-2">
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Target</label>
+                        <label className="text-[10px] text-slate-700 font-bold block mb-0.5">
+                          Min ข้างกล่อง <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="number"
-                          value={editedLot.level2Target}
-                          onChange={(e) => setEditedLot({ ...editedLot, level2Target: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold"
+                          placeholder="เช่น 100"
+                          value={editedLot.level2Min || ''}
+                          onChange={(e) => updateLevelValues(2, 'min', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-sky-300 bg-white text-center font-bold text-sky-700 font-mono focus:ring-2 focus:ring-sky-500 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">S.D.</label>
+                        <label className="text-[10px] text-slate-700 font-bold block mb-0.5">
+                          Max ข้างกล่อง <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="เช่น 140"
+                          value={editedLot.level2Max || ''}
+                          onChange={(e) => updateLevelValues(2, 'max', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-sky-300 bg-white text-center font-bold text-sky-700 font-mono focus:ring-2 focus:ring-sky-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5 flex items-center justify-center gap-1">
+                          <span>Target (Mean)</span>
+                          <span className="text-[9px] px-1 py-0.2 bg-sky-100 text-sky-800 rounded font-semibold">Auto</span>
+                        </label>
                         <input
                           type="number"
                           step="0.1"
-                          value={editedLot.level2SD}
-                          onChange={(e) => setEditedLot({ ...editedLot, level2SD: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold"
+                          placeholder="เช่น 120"
+                          value={editedLot.level2Target || ''}
+                          onChange={(e) => updateLevelValues(2, 'target', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-sky-50/40 text-center font-bold font-mono focus:ring-2 focus:ring-sky-500 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Min</label>
+                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5 flex items-center justify-center gap-1">
+                          <span>S.D.</span>
+                          <span className="text-[9px] px-1 py-0.2 bg-sky-100 text-sky-800 rounded font-semibold">Auto</span>
+                        </label>
                         <input
                           type="number"
-                          value={editedLot.level2Min}
-                          onChange={(e) => setEditedLot({ ...editedLot, level2Min: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold text-sky-700"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Max</label>
-                        <input
-                          type="number"
-                          value={editedLot.level2Max}
-                          onChange={(e) => setEditedLot({ ...editedLot, level2Max: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold text-sky-700"
+                          step="0.1"
+                          placeholder="เช่น 10.0"
+                          value={editedLot.level2SD || ''}
+                          onChange={(e) => updateLevelValues(2, 'sd', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-sky-50/40 text-center font-bold font-mono focus:ring-2 focus:ring-sky-500 outline-none"
                         />
                       </div>
                     </div>
@@ -2803,43 +3274,61 @@ export default function QCManagement({
 
                   {/* Level 3 Inputs */}
                   <div className="p-3.5 bg-purple-50/70 rounded-xl border border-purple-200 space-y-2">
-                    <span className="font-extrabold text-purple-900 block text-xs">Level 3 (High Range)</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-purple-900 block text-xs">Level 3 (High Range)</span>
+                      <span className="text-[10px] text-purple-700 font-medium">กรอก Min & Max ข้างกล่อง เพื่อคำนวณ Target/Mean และ SD</span>
+                    </div>
                     <div className="grid grid-cols-4 gap-2">
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Target</label>
+                        <label className="text-[10px] text-slate-700 font-bold block mb-0.5">
+                          Min ข้างกล่อง <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="number"
-                          value={editedLot.level3Target}
-                          onChange={(e) => setEditedLot({ ...editedLot, level3Target: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold"
+                          placeholder="เช่น 260"
+                          value={editedLot.level3Min || ''}
+                          onChange={(e) => updateLevelValues(3, 'min', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-purple-300 bg-white text-center font-bold text-purple-700 font-mono focus:ring-2 focus:ring-purple-500 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">S.D.</label>
+                        <label className="text-[10px] text-slate-700 font-bold block mb-0.5">
+                          Max ข้างกล่อง <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="เช่น 340"
+                          value={editedLot.level3Max || ''}
+                          onChange={(e) => updateLevelValues(3, 'max', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-purple-300 bg-white text-center font-bold text-purple-700 font-mono focus:ring-2 focus:ring-purple-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5 flex items-center justify-center gap-1">
+                          <span>Target (Mean)</span>
+                          <span className="text-[9px] px-1 py-0.2 bg-purple-100 text-purple-800 rounded font-semibold">Auto</span>
+                        </label>
                         <input
                           type="number"
                           step="0.1"
-                          value={editedLot.level3SD}
-                          onChange={(e) => setEditedLot({ ...editedLot, level3SD: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold"
+                          placeholder="เช่น 300"
+                          value={editedLot.level3Target || ''}
+                          onChange={(e) => updateLevelValues(3, 'target', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-purple-50/40 text-center font-bold font-mono focus:ring-2 focus:ring-purple-500 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Min</label>
+                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5 flex items-center justify-center gap-1">
+                          <span>S.D.</span>
+                          <span className="text-[9px] px-1 py-0.2 bg-purple-100 text-purple-800 rounded font-semibold">Auto</span>
+                        </label>
                         <input
                           type="number"
-                          value={editedLot.level3Min}
-                          onChange={(e) => setEditedLot({ ...editedLot, level3Min: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold text-purple-700"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-600 font-bold block mb-0.5">Max</label>
-                        <input
-                          type="number"
-                          value={editedLot.level3Max}
-                          onChange={(e) => setEditedLot({ ...editedLot, level3Max: Number(e.target.value) })}
-                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-white text-center font-bold text-purple-700"
+                          step="0.1"
+                          placeholder="เช่น 20.0"
+                          value={editedLot.level3SD || ''}
+                          onChange={(e) => updateLevelValues(3, 'sd', e.target.value === '' ? 0 : Number(e.target.value))}
+                          className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-purple-50/40 text-center font-bold font-mono focus:ring-2 focus:ring-purple-500 outline-none"
                         />
                       </div>
                     </div>
@@ -2847,24 +3336,39 @@ export default function QCManagement({
 
                 </div>
 
-                <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingLotIdx(null);
-                      setEditedLot(null);
-                    }}
-                    className="px-4 py-2 rounded-xl text-slate-600 bg-slate-100 font-bold cursor-pointer"
-                  >
-                    ยกเลิก
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveLotConfig}
-                    className="px-4 py-2 rounded-xl text-white bg-sky-600 hover:bg-sky-500 font-bold cursor-pointer shadow-xs"
-                  >
-                    บันทึกการตั้งค่า
-                  </button>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                  {role === 'admin' && editedLot.lotNumber && editedLot.lotNumber.trim().length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLotConfig(editedLot.lotNumber)}
+                      className="px-3.5 py-2 rounded-xl text-rose-600 hover:text-white bg-rose-50 hover:bg-rose-600 font-bold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+                    >
+                      <Trash2 size={14} />
+                      <span>ลบการตั้งค่า LOT นี้</span>
+                    </button>
+                  ) : (
+                    <div></div>
+                  )}
+
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingLotIdx(null);
+                        setEditedLot(null);
+                      }}
+                      className="px-4 py-2 rounded-xl text-slate-600 bg-slate-100 font-bold cursor-pointer hover:bg-slate-200"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveLotConfig}
+                      className="px-4 py-2 rounded-xl text-white bg-sky-600 hover:bg-sky-500 font-bold cursor-pointer shadow-xs"
+                    >
+                      บันทึกการตั้งค่า Target Range
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
+import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
 import { 
   Zap, 
@@ -26,7 +27,10 @@ import {
   PackageCheck,
   Printer,
   Barcode as BarcodeIcon,
-  RefreshCw
+  RefreshCw,
+  ListFilter,
+  Search,
+  Box
 } from 'lucide-react';
 
 interface StaffQuickPortalProps {
@@ -218,11 +222,14 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           ? evaluateValue(row.level3, activeLotConfig.level3Min, activeLotConfig.level3Max, activeLotConfig.level3Target, activeLotConfig.level3SD)
           : 'normal';
 
+        const nowStr = new Date().toISOString();
+        const recordDate = batchDate ? `${batchDate}T${nowStr.split('T')[1] || '08:00:00.000Z'}` : nowStr;
+
         const record: QcRecord = {
           id: `QC-LAB-${Date.now()}-${Math.floor(Math.random()*1000)}`,
-          date: batchDate,
-          receiveDate: batchDate,
-          returnDate: batchDate,
+          date: recordDate,
+          receiveDate: recordDate,
+          returnDate: recordDate,
           ward: row.ward || 'งานชันสูตรสาธารณสุข',
           serialNumber: row.serialNumber,
           operator: operator.trim(),
@@ -448,7 +455,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
     const newChk: DailyChecklist = {
       id: `CHK-${Date.now()}-${chkSerial}`,
-      date: todayStr,
+      date: new Date().toISOString(),
       serialNumber: chkSerial,
       ward: wardName,
       chkBodyClean,
@@ -503,6 +510,10 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   };
 
   const [supplyRequests, setSupplyRequests] = useState<SupplyRequest[]>([]);
+  const [supplySelectionMode, setSupplySelectionMode] = useState<'item' | 'lot' | 'barcode'>('item');
+  const [stockSearchQuery, setStockSearchQuery] = useState<string>('');
+  const [selectedItemId, setSelectedItemId] = useState<string>('');
+  const [selectedItemCode, setSelectedItemCode] = useState<string>('');
   const [supItemType, setSupItemType] = useState<'strip' | 'control_solution'>('strip');
   const [supLotNumber, setSupLotNumber] = useState<string>('');
   const [supExpiryDate, setSupExpiryDate] = useState<string>('');
@@ -522,55 +533,150 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   // Checklist Detail Modal
   const [selectedChecklistDetail, setSelectedChecklistDetail] = useState<DailyChecklist | null>(null);
 
-  // Merge prop lotConfigs with any unique lots found in internalStockItems to ensure dropdown is never empty
-  const activeLotConfigs = React.useMemo(() => {
-    const map = new Map<string, QcLotConfig>();
-    
-    // 1. Add from props (highest priority)
-    if (Array.isArray(lotConfigs)) {
-      lotConfigs.forEach(cfg => {
-        if (cfg && cfg.lotNumber) map.set(cfg.lotNumber, cfg);
+  // Individual selectable physical items from Lab Internal Stock (with search query)
+  const filteredIndividualItems = React.useMemo(() => {
+    const q = stockSearchQuery.trim().toLowerCase();
+    const items = internalStockItems.filter(i => i.status !== 'depleted');
+    if (!q) return items;
+    return items.filter(i => 
+      (i.itemCode && i.itemCode.toLowerCase().includes(q)) ||
+      (i.lotNumber && i.lotNumber.toLowerCase().includes(q)) ||
+      (i.manufacturer && i.manufacturer.toLowerCase().includes(q)) ||
+      (i.itemType && i.itemType.toLowerCase().includes(q)) ||
+      (i.itemType === 'strip' && 'แผ่นตรวจ'.includes(q)) ||
+      (i.itemType === 'control_solution' && 'น้ำยาควบคุม'.includes(q))
+    );
+  }, [internalStockItems, stockSearchQuery]);
+
+  // Group items from Lab Internal Stock (Test Strip & Control Solution) with live counts
+  const availableStockOptions = React.useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      lotNumber: string;
+      itemType: 'strip' | 'control_solution';
+      manufacturer: string;
+      expDate: string;
+      barcode?: string;
+      totalAvailable: number; // in_stock + in_use
+      inStockCount: number;
+      inUseCount: number;
+      postOpenDays?: number;
+      receivedDate?: string;
+    }>();
+
+    // 1. Group from real Lab Internal Stock (StripReagentItem)
+    if (Array.isArray(internalStockItems) && internalStockItems.length > 0) {
+      internalStockItems.forEach(item => {
+        if (!item || !item.lotNumber) return;
+        const type: 'strip' | 'control_solution' = item.itemType === 'control_solution' ? 'control_solution' : 'strip';
+        const key = `${type}_${item.lotNumber.trim()}`;
+        const existing = map.get(key) || {
+          key,
+          lotNumber: item.lotNumber.trim(),
+          itemType: type,
+          manufacturer: item.manufacturer || 'VivaChek Fad',
+          expDate: item.expDate || '',
+          barcode: item.itemCode || '',
+          totalAvailable: 0,
+          inStockCount: 0,
+          inUseCount: 0,
+          postOpenDays: 90,
+          receivedDate: item.receivedDate || ''
+        };
+        if (item.status === 'in_stock') {
+          existing.inStockCount += 1;
+          existing.totalAvailable += 1;
+        } else if (item.status === 'in_use') {
+          existing.inUseCount += 1;
+          existing.totalAvailable += 1;
+        }
+        if (!existing.expDate && item.expDate) existing.expDate = item.expDate;
+        if (!existing.receivedDate && item.receivedDate) existing.receivedDate = item.receivedDate;
+        map.set(key, existing);
       });
     }
-    
-    // 2. Add from internal stock items as fallback
-    if (Array.isArray(internalStockItems)) {
-      internalStockItems.forEach(item => {
-        if (item && item.lotNumber && !map.has(item.lotNumber)) {
-          map.set(item.lotNumber, {
-            lotNumber: item.lotNumber,
-            expDate: item.expDate,
-            level1Target: 0, level1Min: 0, level1Max: 0, level1SD: 0,
-            level2Target: 0, level2Min: 0, level2Max: 0, level2SD: 0,
-            level3Target: 0, level3Min: 0, level3Max: 0, level3SD: 0
+
+    // 2. Also incorporate lotConfigs if not already listed
+    if (Array.isArray(lotConfigs)) {
+      lotConfigs.forEach(cfg => {
+        if (!cfg || !cfg.lotNumber) return;
+        const key = `strip_${cfg.lotNumber.trim()}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            lotNumber: cfg.lotNumber.trim(),
+            itemType: 'strip',
+            manufacturer: cfg.manufacturer || 'VivaChek Fad',
+            expDate: cfg.expDate || '',
+            barcode: cfg.barcode || '',
+            totalAvailable: 0,
+            inStockCount: 0,
+            inUseCount: 0,
+            postOpenDays: cfg.openExpDays || 90,
+            receivedDate: cfg.receivedDate || ''
           });
         }
       });
     }
-    
+
     return Array.from(map.values());
   }, [lotConfigs, internalStockItems]);
 
-  const handleSelectLotConfig = (selectedLotNum: string) => {
-    setSupLotNumber(selectedLotNum);
-    const cfg = activeLotConfigs.find(c => c.lotNumber === selectedLotNum);
-    if (cfg) {
-      if (cfg.barcode) setSupBarcode(cfg.barcode);
-      if (cfg.expDate) setSupExpiryDate(cfg.expDate);
-      if (cfg.testsPerBox) setSupTestsPerBox(cfg.testsPerBox);
-      if (cfg.openExpDays) setSupPostOpenDays(String(cfg.openExpDays));
-      if (cfg.receivedDate) setSupReceivedDate(cfg.receivedDate);
+  // Filtered lot options based on search query
+  const filteredLotOptions = React.useMemo(() => {
+    const q = stockSearchQuery.trim().toLowerCase();
+    if (!q) return availableStockOptions;
+    return availableStockOptions.filter(s =>
+      s.lotNumber.toLowerCase().includes(q) ||
+      s.manufacturer.toLowerCase().includes(q) ||
+      (s.barcode && s.barcode.toLowerCase().includes(q)) ||
+      (s.itemType === 'strip' && 'แผ่นตรวจ test strip'.includes(q)) ||
+      (s.itemType === 'control_solution' && 'น้ำยาควบคุม control'.includes(q))
+    );
+  }, [availableStockOptions, stockSearchQuery]);
+
+  const handleSelectIndividualItem = (item: StripReagentItem) => {
+    setSelectedItemId(item.id);
+    setSelectedItemCode(item.itemCode);
+    setSupItemType(item.itemType === 'control_solution' ? 'control_solution' : 'strip');
+    setSupLotNumber(item.lotNumber);
+    setSupBarcode(item.itemCode || '');
+    if (item.expDate) setSupExpiryDate(item.expDate);
+    if (item.receivedDate) setSupReceivedDate(item.receivedDate);
+    setSupQuantity(1);
+  };
+
+  const handleSelectStockOption = (selectedKey: string) => {
+    setSelectedItemId('');
+    setSelectedItemCode('');
+    const found = availableStockOptions.find(s => s.key === selectedKey || s.lotNumber === selectedKey);
+    if (found) {
+      setSupItemType(found.itemType);
+      setSupLotNumber(found.lotNumber);
+      if (found.barcode) setSupBarcode(found.barcode);
+      if (found.expDate) setSupExpiryDate(found.expDate);
+      if (found.postOpenDays) setSupPostOpenDays(String(found.postOpenDays));
+      if (found.receivedDate) setSupReceivedDate(found.receivedDate);
+    } else {
+      setSupLotNumber(selectedKey);
     }
   };
 
   const handleBarcodeChange = (code: string) => {
     setSupBarcode(code);
-    const matched = activeLotConfigs.find(c => c.barcode && c.barcode.trim() === code.trim());
+    const itemMatch = internalStockItems.find(i => i.itemCode && i.itemCode.trim().toLowerCase() === code.trim().toLowerCase());
+    if (itemMatch) {
+      handleSelectIndividualItem(itemMatch);
+      return;
+    }
+    const matched = availableStockOptions.find(c => (c.barcode && c.barcode.trim() === code.trim()) || c.lotNumber.trim() === code.trim());
     if (matched) {
+      setSelectedItemId('');
+      setSelectedItemCode('');
+      setSupItemType(matched.itemType);
       setSupLotNumber(matched.lotNumber);
       if (matched.expDate) setSupExpiryDate(matched.expDate);
-      if (matched.testsPerBox) setSupTestsPerBox(matched.testsPerBox);
-      if (matched.openExpDays) setSupPostOpenDays(String(matched.openExpDays));
+      if (matched.postOpenDays) setSupPostOpenDays(String(matched.postOpenDays));
       if (matched.receivedDate) setSupReceivedDate(matched.receivedDate);
     }
   };
@@ -578,7 +684,9 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   useEffect(() => {
     dbService.getSupplies().then((supplies) => {
       if (supplies) {
-        setSupplyRequests(supplies.filter(s => s.ward === 'งานชันสูตรสาธารณสุข' || s.itemType === 'strip' || s.itemType === 'control_solution'));
+        const filtered = supplies.filter(s => s.ward === 'งานชันสูตรสาธารณสุข' || s.itemType === 'strip' || s.itemType === 'control_solution' || !s.ward);
+        const sorted = filtered.sort((a, b) => new Date(b.requestDate || 0).getTime() - new Date(a.requestDate || 0).getTime());
+        setSupplyRequests(sorted);
       }
     }).catch(err => {
       console.error('Error fetching supplies:', err);
@@ -592,21 +700,33 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       return;
     }
     if (!supLotNumber.trim()) {
-      alert('กรุณาเลือกล็อตพัสดุในคลังเพื่อเบิกจ่าย');
+      alert('กรุณาเลือกพัสดุในคลังเพื่อเบิกจ่าย');
       return;
     }
 
     setIsSavingSupply(true);
     setSupplyToast('');
 
+    const matchingLotCfg = lotConfigs.find(c => c.lotNumber.trim() === supLotNumber.trim());
     const details: any = {
       lotNumber: supLotNumber.trim(),
       barcode: supBarcode.trim(),
-      expiryDate: supExpiryDate || undefined,
+      expiryDate: supExpiryDate || matchingLotCfg?.expDate || undefined,
       testsPerBox: supTestsPerBox || 50,
-      postOpenDays: Number(supPostOpenDays) || 90,
+      postOpenDays: Number(supPostOpenDays) || matchingLotCfg?.openExpDays || 90,
       receivedDate: supReceivedDate || getThaiTodayDate(),
       openStabilityDays: supOpenStability,
+      level1Min: matchingLotCfg?.level1Min,
+      level1Max: matchingLotCfg?.level1Max,
+      level1Target: matchingLotCfg?.level1Target,
+      level2Min: matchingLotCfg?.level2Min,
+      level2Max: matchingLotCfg?.level2Max,
+      level2Target: matchingLotCfg?.level2Target,
+      level3Min: matchingLotCfg?.level3Min,
+      level3Max: matchingLotCfg?.level3Max,
+      level3Target: matchingLotCfg?.level3Target,
+      itemId: selectedItemId || undefined,
+      itemCode: selectedItemCode || supBarcode.trim() || undefined
     };
 
     const newSupply: SupplyRequest = {
@@ -616,21 +736,81 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       itemType: supItemType,
       quantity: Number(supQuantity) || 1,
       reason: supReason.trim() || 'เบิกใช้งานประจำวัน',
-      requestDate: getThaiTodayDate(),
-      issueDate: supIssueDate || getThaiTodayDate(),
+      requestDate: new Date().toISOString(),
+      issueDate: supIssueDate ? `${supIssueDate}T${new Date().toTimeString().split(' ')[0]}` : new Date().toISOString(),
       status: 'approved', // ตัดสต็อกทันทีเมื่อทำการเบิก
       details: details
     };
 
     try {
-      const savedSupply = await dbService.insertSupply(newSupply);
+      // 1. Cut stock for physical items (mark as 'depleted')
+      const today = getThaiTodayDate();
+      let updatedItemsList = [...internalStockItems];
+
+      if (selectedItemId) {
+        const targetItem = updatedItemsList.find(i => i.id === selectedItemId);
+        if (targetItem) {
+          const depletedItem: StripReagentItem = {
+            ...targetItem,
+            status: 'depleted',
+            lastUsedDate: today
+          };
+          try {
+            await dbService.updateStripReagentItem(targetItem.id, depletedItem);
+          } catch (e) {
+            console.warn('Failed to update item status in Supabase:', e);
+          }
+          updatedItemsList = updatedItemsList.map(i => i.id === targetItem.id ? depletedItem : i);
+        }
+      } else if (supLotNumber) {
+        const candidateItems = updatedItemsList.filter(i => 
+          i.status !== 'depleted' &&
+          i.lotNumber.trim() === supLotNumber.trim() &&
+          (supItemType === 'control_solution' ? i.itemType === 'control_solution' : i.itemType !== 'control_solution')
+        );
+        const itemsToDeplete = candidateItems.slice(0, Number(supQuantity) || 1);
+        
+        for (const itemToDeplete of itemsToDeplete) {
+          const depletedItem: StripReagentItem = {
+            ...itemToDeplete,
+            status: 'depleted',
+            lastUsedDate: today
+          };
+          try {
+            await dbService.updateStripReagentItem(itemToDeplete.id, depletedItem);
+          } catch (e) {
+            console.warn('Failed to update item status in Supabase:', e);
+          }
+          updatedItemsList = updatedItemsList.map(i => i.id === itemToDeplete.id ? depletedItem : i);
+        }
+      }
+
+      setInternalStockItems(updatedItemsList);
+      try {
+        localStorage.setItem('dtx_strip_items', JSON.stringify(updatedItemsList));
+      } catch (e) {}
+
+      // 2. Insert supply request to Supabase and parent state
+      let savedSupply = await dbService.insertSupply(newSupply);
+      if (onAddSupply) {
+        try {
+          const res = await onAddSupply(newSupply);
+          if (res) savedSupply = res;
+        } catch (e) {
+          console.warn('onAddSupply error:', e);
+        }
+      }
+
       setSupplyRequests(prev => [savedSupply || newSupply, ...prev]);
       setSupplyToast(`✓ ทำการเบิก ${supItemType === 'strip' ? 'Test Strip (แผ่นตรวจ)' : 'Control Solution (น้ำยาควบคุม)'} จำนวน ${supQuantity} ${supItemType === 'strip' ? 'กล่อง' : 'ขวด'} สำเร็จเรียบร้อยแล้ว!\n🏷️ LOT: ${supLotNumber || '-'}`);
       setTimeout(() => setSupplyToast(''), 6000);
+
       // Reset form
       setSupLotNumber('');
       setSupBarcode('');
       setSupExpiryDate('');
+      setSelectedItemId('');
+      setSelectedItemCode('');
       setSupQuantity(1);
       setSupReason('เบิกใช้งานประจำวัน งานชันสูตร');
     } catch (err) {
@@ -699,7 +879,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-black">
               {activeTab === 'batch_qc' && 'QC daily'}
               {activeTab === 'checklist' && 'daily maintenance'}
-              {activeTab === 'maintenance' && 'ซ่อมบำรุงเปลี่ยนถ่าน'}
+              {activeTab === 'maintenance' && 'ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)'}
               {activeTab === 'supply_request' && 'เบิก Strip/Control'}
               {activeTab === 'new_machine_request' && 'เบิกเครื่องใหม่'}
             </span>
@@ -713,7 +893,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             >
               <option value="batch_qc">📋 QC daily (บันทึกผล QC รายวัน)</option>
               <option value="checklist">✅ daily maintenance (บำรุงรักษาประจำวัน)</option>
-              <option value="maintenance">🔧 ซ่อมบำรุงเปลี่ยนถ่าน</option>
+              <option value="maintenance">🔧 ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)</option>
               <option value="supply_request">📦 เบิก Strip / Control (สแกนบาร์โค้ด & ตัดสต็อก)</option>
               <option value="new_machine_request">📟 เบิกเครื่องใหม่ (ยังไม่เปิดใช้งาน)</option>
             </select>
@@ -762,7 +942,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             id="staff-tab-maintenance"
           >
             <Wrench size={15} />
-            <span>ซ่อมบำรุงเปลี่ยนถ่าน</span>
+            <span>ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)</span>
           </button>
           <button
             type="button"
@@ -1095,7 +1275,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                          <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">{req.date}</td>
+                          <td className="py-3 px-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">{formatThaiDateTime(req.date)}</td>
                           <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-300">
                             {req.serialNumber}
                           </td>
@@ -1137,141 +1317,26 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
         </div>
       )}
 
-      {/* TAB 2: MAINTENANCE & BATTERY CHANGE */}
+      {/* TAB 2: MAINTENANCE & BATTERY CHANGE (NOT ACTIVE YET) */}
       {activeTab === 'maintenance' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 max-w-2xl mx-auto text-center space-y-6 shadow-sm animate-fade-in">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-500 flex items-center justify-center font-black shadow-xs">
+            <Wrench size={32} />
+          </div>
           
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/80 text-amber-600 rounded-xl">
-                <Battery size={20} />
-              </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  บันทึกซ่อมบำรุง / เปลี่ยนถ่าน
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">บันทึกการเปลี่ยนถ่าน บำรุงรักษาเครื่องแล็บ</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleAddMaintenance} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  เลือกรหัสเครื่อง DTX (ประจำแลป)
-                </label>
-                <select
-                  value={maintSerial}
-                  onChange={(e) => setMaintSerial(e.target.value)}
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white"
-                >
-                  {sortedMachinesForSelect.map((m, idx) => {
-                    const primarySN = m.machineSerial || m.serialNumber;
-                    return (
-                      <option key={idx} value={m.serialNumber}>
-                        {m.serialNumber} {primarySN && primarySN !== m.serialNumber ? `(S/N: ${primarySN})` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  ประเภทงานบำรุงรักษา
-                </label>
-                <select
-                  value={maintType}
-                  onChange={(e: any) => setMaintType(e.target.value)}
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white"
-                >
-                  <option value="battery_change">เปลี่ยนถ่าน (Battery Replacement)</option>
-                  <option value="cleaning">ทำความสะอาดช่องตรวจ / เลนส์ (Cleaning)</option>
-                  <option value="calibration">ตรวจสอบความเที่ยงตรง (Calibration Check)</option>
-                  <option value="repair">ซ่อมแซมแก้ไขเบื้องต้น (Minor Repair)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  รายละเอียดการดำเนินการ
-                </label>
-                <textarea
-                  rows={3}
-                  value={maintDesc}
-                  onChange={(e) => setMaintDesc(e.target.value)}
-                  placeholder="เช่น เปลี่ยนถ่าน AAA ใหม่ 2 ก้อน ทำความสะอาดคราบเลือดและช่องใส่ Test Strip เรียบร้อย"
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white"
-                />
-              </div>
-
-              {maintToast && (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs font-bold animate-pulse">
-                  {maintToast}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isSavingMaint}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center space-x-2 shadow-xs cursor-pointer transition-all disabled:opacity-50"
-              >
-                {isSavingMaint ? (
-                  <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-                ) : (
-                  <CheckCircle2 size={15} />
-                )}
-                <span>{isSavingMaint ? 'กำลังบันทึกข้อมูล...' : 'บันทึกประวัติการบำรุงรักษา'}</span>
-              </button>
-            </form>
-          </div>
-
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-              <Wrench size={16} className="text-emerald-600" />
-              <span>ประวัติการเปลี่ยนถ่านและซ่อมบำรุงเครื่องแล็บ</span>
+          <div className="space-y-2">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+              ระบบซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)
             </h3>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 font-bold">
-                  <tr>
-                    <th className="py-3 px-3">วันที่</th>
-                    <th className="py-3 px-3 font-mono">รหัสเครื่อง S/N</th>
-                    <th className="py-3 px-3">ประเภทงาน</th>
-                    <th className="py-3 px-3">รายละเอียด</th>
-                    <th className="py-3 px-3">ผู้บันทึก</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                  {maintenanceLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="text-center py-10 text-slate-400">ยังไม่มีประวัติการบำรุงรักษา</td>
-                    </tr>
-                  ) : (
-                    maintenanceLogs.map((log, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                        <td className="py-3 px-3 font-mono text-slate-500">{log.date}</td>
-                        <td className="py-3 px-3 font-mono font-bold text-emerald-700 dark:text-emerald-400">{log.serialNumber}</td>
-                        <td className="py-3 px-3">
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                            log.actionType === 'battery_change' ? 'bg-amber-100 text-amber-800' :
-                            log.actionType === 'cleaning' ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {log.actionType === 'battery_change' ? 'เปลี่ยนถ่าน' :
-                             log.actionType === 'cleaning' ? 'ทำความสะอาด' :
-                             log.actionType === 'calibration' ? 'ตรวจสอบความเที่ยงตรง' : 'ซ่อมแซม'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-700 dark:text-slate-300">{log.description}</td>
-                        <td className="py-3 px-3 font-bold text-slate-600 dark:text-slate-400">{log.operator}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-md mx-auto">
+              บริการบันทึกการซ่อมบำรุงและเปลี่ยนถ่านเครื่องตรวจ DTX ประจำห้องปฏิบัติการ
+              <br />ฟังก์ชันนี้อยู่ระหว่างพัฒนา
+            </p>
           </div>
 
+          <p className="text-[11px] text-slate-400">
+            หากต้องการทดแทนเครื่องชำรุดหรือเปลี่ยนถ่านด่วน กรุณาติดต่อผู้รับผิดชอบงาน POCT โดยตรง
+          </p>
         </div>
       )}
 
@@ -1468,7 +1533,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                          <td className="py-3 px-3 font-mono text-slate-500">{chk.date}</td>
+                          <td className="py-3 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">{formatThaiDateTime(chk.date)}</td>
                           <td className="py-3 px-3 font-mono font-bold text-emerald-700 dark:text-emerald-400">{chk.serialNumber}</td>
                           <td className="py-3 px-3">
                             {failures.length === 0 ? (
@@ -1711,63 +1776,209 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
               {/* Step 2: Select Stock Item / Scan Barcode */}
               <div className="p-4 bg-emerald-50/40 dark:bg-slate-950/50 rounded-2xl border border-emerald-100 dark:border-slate-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                    <QrCode size={16} className="text-emerald-600" />
-                    <span>เลือกล็อตวัสดุในคลัง (Stock Item Selector)</span>
-                  </span>
-                  <span className="text-[11px] text-slate-500 font-medium">ดึงข้อมูลล็อตและวันหมดอายุอัตโนมัติ</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                      <QrCode size={16} className="text-emerald-600" />
+                      <span>ระบุพัสดุที่ต้องการเบิก (Stock Item Selection)</span>
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      เลือกได้ทั้งแบบรายกล่อง/ขวดเดี่ยว, เลือกล็อตพร้อมตัดสต็อก, หรือสแกนบาร์โค้ด
+                    </p>
+                  </div>
+                  
+                  {/* Mode Selector Toggle */}
+                  <div className="flex items-center p-1 bg-slate-200/70 dark:bg-slate-800 rounded-xl w-fit">
+                    <button
+                      type="button"
+                      onClick={() => setSupplySelectionMode('item')}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        supplySelectionMode === 'item'
+                          ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Box size={14} />
+                      <span>เลือกรายกล่อง/ขวด</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSupplySelectionMode('barcode')}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        supplySelectionMode === 'barcode'
+                          ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <BarcodeIcon size={14} />
+                      <span>สแกนบาร์โค้ด</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Barcode Scanner Input */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                      <BarcodeIcon size={14} className="text-slate-400" />
-                      <span>สแกนบาร์โค้ดวัสดุ (Barcode Scan)</span>
-                    </label>
+                {/* Search Bar for items/lots */}
+                {(supplySelectionMode === 'item' || supplySelectionMode === 'lot') && (
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="คลิกที่นี่แล้วยิงบาร์โค้ด..."
-                      value={supBarcode}
-                      onChange={(e) => handleBarcodeChange(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
+                      placeholder="🔍 ค้นหารายการ (พิมพ์ LOT, รหัสกล่อง/บาร์โค้ด, ชนิดแผ่นตรวจ/น้ำยา, หรือผู้ผลิต)..."
+                      value={stockSearchQuery}
+                      onChange={(e) => setStockSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
                     />
+                    {stockSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setStockSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
+                )}
 
-                  {/* Select Lot from Inventory */}
+                {/* Input according to chosen mode */}
+                {supplySelectionMode === 'barcode' && (
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                      รายการและล็อตคงเหลือในคลัง <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <BarcodeIcon size={14} className="text-emerald-600" />
+                      <span>สแกนบาร์โค้ดวัสดุ (Barcode Scan) <span className="text-rose-500">*</span></span>
                     </label>
-                    <select
-                      value={supLotNumber}
-                      onChange={(e) => handleSelectLotConfig(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-extrabold focus:ring-2 focus:ring-emerald-500 outline-none cursor-pointer shadow-xs"
-                    >
-                      <option value="">-- เลือกล็อตพัสดุในคลังเพื่อเบิกจ่าย ({activeLotConfigs.length} รายการ) --</option>
-                      {activeLotConfigs.map(cfg => (
-                        <option key={cfg.lotNumber} value={cfg.lotNumber}>
-                          LOT: {cfg.lotNumber} {cfg.manufacturer ? `(${cfg.manufacturer})` : ''} — หมดอายุ: {cfg.expDate || 'ไม่ระบุ'} {cfg.barcode ? `| Barcode: ${cfg.barcode}` : ''}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="คลิกที่นี่แล้วยิงบาร์โค้ดจากกล่อง..."
+                        value={supBarcode}
+                        onChange={(e) => handleBarcodeChange(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-xs font-bold focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
+                      />
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                        <BarcodeIcon size={16} />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      ระบบจะค้นหาล็อตและวันหมดอายุของพัสดุในคลังให้อัตโนมัติเมื่อยิงบาร์โค้ด
+                    </p>
                   </div>
-                </div>
+                )}
+
+                {supplySelectionMode === 'item' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Box size={14} className="text-emerald-600" />
+                        <span>เลือกกล่อง/ขวดเดี่ยวที่ต้องการเบิกใช้งาน ({filteredIndividualItems.length} ชิ้นที่พร้อมใช้) <span className="text-rose-500">*</span></span>
+                      </label>
+                      <span className="text-[10px] text-slate-500">คลิกเลือกรายการที่หยิบมาใช้ได้ทันที</span>
+                    </div>
+
+                    {filteredIndividualItems.length === 0 ? (
+                      <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+                        {stockSearchQuery ? `ไม่พบรายการที่ตรงกับ "${stockSearchQuery}"` : 'ยังไม่มีรายการพัสดุในคลัง'}
+                      </div>
+                    ) : (
+                      <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+                        {filteredIndividualItems.map((item) => {
+                          const isSelected = selectedItemId === item.id || (supLotNumber === item.lotNumber && supBarcode === item.itemCode);
+                          const isStrip = item.itemType === 'strip';
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => handleSelectIndividualItem(item)}
+                              className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 text-xs ${
+                                isSelected
+                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-xs'
+                                  : 'bg-white dark:bg-slate-900 hover:bg-emerald-50/50 dark:hover:bg-slate-800/80 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2.5 min-w-0">
+                                <div className={`p-1.5 rounded-lg shrink-0 ${isSelected ? 'bg-white/20 text-white' : isStrip ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'}`}>
+                                  {isStrip ? <Package size={14} /> : <Droplet size={14} />}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-extrabold truncate">
+                                      {item.itemCode || 'ไม่มีรหัส'}
+                                    </span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
+                                      isSelected
+                                        ? 'bg-white/30 text-white'
+                                        : item.status === 'in_stock'
+                                        ? 'bg-sky-100 text-sky-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {item.status === 'in_stock' ? 'พร้อมใช้' : 'กำลังใช้'}
+                                    </span>
+                                  </div>
+                                  <div className={`text-[11px] truncate ${isSelected ? 'text-white/90' : 'text-slate-500'}`}>
+                                    LOT: <strong className={isSelected ? 'text-white' : 'text-slate-700 dark:text-slate-300'}>{item.lotNumber}</strong>
+                                    {item.expDate ? ` • EXP: ${item.expDate}` : ''}
+                                    {item.manufacturer ? ` • ${item.manufacturer}` : ''}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-colors ${
+                                  isSelected
+                                    ? 'bg-white text-emerald-800 shadow-xs'
+                                    : 'bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800'
+                                }`}
+                              >
+                                {isSelected ? '✓ เลือกแล้ว' : 'เลือกชิ้นนี้'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+
 
                 {/* Auto-populated Stock Information Card (Non-editable summary) */}
                 {supLotNumber && (
-                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-800/60 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center space-x-2">
-                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-extrabold text-[11px]">
-                        LOT: {supLotNumber}
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-800/60 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs animate-fade-in">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold text-[11px]">
+                        {selectedItemCode ? `รหัสชิ้น: ${selectedItemCode}` : `LOT: ${supLotNumber}`}
+                      </span>
+                      {selectedItemCode && (
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-[11px]">
+                          LOT: {supLotNumber}
+                        </span>
+                      )}
+                      <span className="text-slate-600 dark:text-slate-300 font-medium">
+                        ประเภท: <strong className="text-slate-800 dark:text-white">{supItemType === 'strip' ? 'แผ่นตรวจ (Test Strip)' : 'น้ำยาควบคุม (Control Solution)'}</strong>
                       </span>
                       <span className="text-slate-600 dark:text-slate-300 font-medium">
                         วันหมดอายุ: <strong className="text-slate-800 dark:text-white">{supExpiryDate || 'ไม่ระบุ'}</strong>
                       </span>
                     </div>
-                    <div className="text-slate-500 text-[11px] font-mono">
-                      {supBarcode ? `บาร์โค้ด: ${supBarcode}` : ''}
+                    <div className="flex items-center space-x-2">
+                      {supBarcode && (
+                        <span className="text-slate-500 text-[11px] font-mono">
+                          บาร์โค้ด: {supBarcode}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSupLotNumber('');
+                          setSelectedItemId('');
+                          setSelectedItemCode('');
+                          setSupBarcode('');
+                          setSupExpiryDate('');
+                        }}
+                        className="text-[11px] text-rose-600 hover:text-rose-700 font-bold cursor-pointer underline"
+                      >
+                        เปลี่ยน
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1865,7 +2076,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       const det = req.details || {};
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                          <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">{req.requestDate}</td>
+                          <td className="py-3 px-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">{formatThaiDateTime(req.requestDate)}</td>
                           <td className="py-3 px-3">
                             {req.itemType === 'strip' ? (
                               <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 font-bold">

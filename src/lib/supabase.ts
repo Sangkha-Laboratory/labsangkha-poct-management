@@ -1306,19 +1306,35 @@ export const dbService = {
 
   // --- qc_lot_configs ---
   async getLotConfigs(): Promise<QcLotConfig[]> {
+    let list: QcLotConfig[] = [];
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
         (c, tbl) => c.from(tbl).select('*'),
         'qc_lot_configs',
         ['lot_configs', 'qc_lots']
       );
-      if (!error && data) return (data as any[]).map(mapDbToLotConfig);
-      if (error && !isMissingTable) {
+      if (!error && data) {
+        list = (data as any[]).map(mapDbToLotConfig);
+      } else if (error && !isMissingTable) {
         console.warn('Supabase getLotConfigs notice:', error.message || error);
       }
     }
-    const data = await safeApiFetch('/api/lot-configs');
-    return data ? (data as any[]).map(mapDbToLotConfig) : [];
+    if (list.length === 0) {
+      const data = await safeApiFetch('/api/lot-configs');
+      if (data && Array.isArray(data)) {
+        list = (data as any[]).map(mapDbToLotConfig);
+      }
+    }
+    // Deduplicate by normalized case-insensitive lotNumber
+    const uniqueMap = new Map<string, QcLotConfig>();
+    list.forEach(cfg => {
+      if (!cfg || !cfg.lotNumber) return;
+      const key = cfg.lotNumber.trim().toUpperCase();
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, { ...cfg, lotNumber: cfg.lotNumber.trim() });
+      }
+    });
+    return Array.from(uniqueMap.values());
   },
 
   async insertLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
@@ -1383,18 +1399,33 @@ export const dbService = {
   },
 
   async deleteLotConfig(lotNumber: string): Promise<void> {
+    const cleanLot = lotNumber.trim();
     if (getSupabaseClient()) {
+      // 1. Try dtx_system schema directly with case-insensitive ilike
+      try {
+        const dtxClient = getSupabaseClient()!.schema('dtx_system');
+        const { error: dtxErr } = await dtxClient.from('qc_lot_configs').delete().ilike('lot_number', cleanLot);
+        if (!dtxErr) {
+          await safeApiFetch(`/api/lot-configs/${encodeURIComponent(cleanLot)}`, { method: 'DELETE' });
+          return;
+        }
+      } catch {}
+
+      // 2. Try querySupabaseClient fallback with case-insensitive ilike
       const { error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).delete().eq('lot_number', lotNumber),
+        (c, tbl) => c.from(tbl).delete().ilike('lot_number', cleanLot),
         'qc_lot_configs',
-        ['lot_configs']
+        ['lot_configs', 'dtx_qc_lot_configs']
       );
-      if (!error) return;
+      if (!error) {
+        await safeApiFetch(`/api/lot-configs/${encodeURIComponent(cleanLot)}`, { method: 'DELETE' });
+        return;
+      }
       if (error && !isMissingTable) {
         console.warn('Supabase deleteLotConfig notice:', error.message || error);
       }
     }
-    await safeApiFetch(`/api/lot-configs/${lotNumber}`, { method: 'DELETE' });
+    await safeApiFetch(`/api/lot-configs/${encodeURIComponent(cleanLot)}`, { method: 'DELETE' });
   },
 
   // --- eqa_records ---

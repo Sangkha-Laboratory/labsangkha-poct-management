@@ -560,8 +560,14 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           
           {/* ROLE 1: WARD USER */}
           <div 
-            onClick={() => onSelectRole('user')}
-            className={`group bg-white dark:bg-slate-900 rounded-2xl border p-6 flex flex-col justify-between transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-1 ${
+            onClick={() => {
+              if (isAdminLoggedIn) {
+                onSelectRole('user');
+              } else {
+                window.location.href = 'https://labsangkha.my.canva.site/dtx-management';
+              }
+            }}
+            className={`group bg-white dark:bg-slate-900 rounded-2xl border p-6 flex flex-col justify-between transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-1 relative overflow-hidden ${
               currentRole === 'user'
                 ? 'border-sky-500 ring-2 ring-sky-500/20'
                 : 'border-slate-200 dark:border-slate-800 hover:border-sky-300 dark:hover:border-sky-700'
@@ -573,9 +579,14 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 <div className="w-12 h-12 rounded-2xl bg-sky-50 dark:bg-sky-950/80 border border-sky-100 dark:border-sky-900/60 flex items-center justify-center text-sky-600 dark:text-sky-400 group-hover:scale-105 transition-transform">
                   <Building2 size={24} />
                 </div>
-                <span className="text-[11px] font-extrabold px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg">
-                  สำหรับ ward
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-black px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded-md animate-pulse">
+                    Coming soon...
+                  </span>
+                  <span className="text-[11px] font-extrabold px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg">
+                    สำหรับ ward
+                  </span>
+                </div>
               </div>
 
               <div>
@@ -585,6 +596,10 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                   พยาบาลและบุคลากรประจำหอผู้ป่วยหรือแผนกต่างๆ ทั่วโรงพยาบาล
                 </p>
+                <div className="mt-2.5 p-2.5 bg-amber-50/80 dark:bg-amber-950/30 rounded-xl border border-amber-200/80 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+                  <Clock size={13} className="shrink-0 text-amber-600" />
+                  <span>ระบบใหม่สำหรับ Ward กำลังอยู่ระหว่างการพัฒนา (Coming soon...)</span>
+                </div>
               </div>
 
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2">
@@ -607,14 +622,36 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
               </div>
             </div>
 
-            <div className="pt-6 mt-4">
-              <button
-                type="button"
-                className="w-full bg-slate-100 dark:bg-slate-800 group-hover:bg-sky-600 text-slate-700 dark:text-slate-200 group-hover:text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer"
+            <div className="pt-6 mt-4 space-y-2">
+              <a
+                href="https://labsangkha.my.canva.site/dtx-management"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-xs"
+                id="btn-ward-legacy-system"
               >
-                <span>เข้าสู่หน้า ward </span>
-                <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-              </button>
+                <span>🌐 ใช้ระบบเดิม (Canva Site)</span>
+                <ArrowRight size={14} />
+              </a>
+
+              {isAdminLoggedIn ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectRole('user');
+                  }}
+                  className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold py-2 px-3 rounded-xl text-[11px] flex items-center justify-center space-x-1.5 transition-all cursor-pointer border border-slate-200 dark:border-slate-700"
+                >
+                  <Lock size={12} className="text-indigo-500" />
+                  <span>เข้าสู่หน้า Ward (สำหรับ Admin ทดสอบ/พัฒนา)</span>
+                </button>
+              ) : (
+                <div className="text-center text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                  * กรุณาใช้ระบบเดิม หรือเข้าสู่ระบบแอดมินเพื่อดูหน้าพัฒนา
+                </div>
+              )}
             </div>
           </div>
 

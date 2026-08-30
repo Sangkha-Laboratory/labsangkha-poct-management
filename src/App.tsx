@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./components/CustomSelect";
 import { dbService } from './lib/supabase';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from './types';
-import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin } from 'lucide-react';
+import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, ArrowRight, Building2, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin } from 'lucide-react';
 
 import { DEFAULT_HOSPITAL_LOGO_BASE64 } from './assets/hospitalLogoBase64';
 
@@ -23,7 +23,6 @@ import QualityManagement from './components/QualityManagement';
 import LineNotifyConfig from './components/LineNotifyConfig';
 import SupabaseConfig from './components/SupabaseConfig';
 import DocumentsAndAnnouncementsManager from './components/DocumentsAndAnnouncementsManager';
-import PrivacyPolicyModal from './components/PrivacyPolicyModal';
 import { RoleSelector } from './components/RoleSelector';
 import { StaffQuickPortal } from './components/StaffQuickPortal';
 
@@ -213,7 +212,6 @@ export default function App() {
     return saved;
   });
   const [showLogoModal, setShowLogoModal] = useState<boolean>(false);
-  const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [footerLogoError, setFooterLogoError] = useState<boolean>(false);
 
@@ -489,6 +487,18 @@ export default function App() {
       setShowToast('อัปเดตกำหนดค่าเป้าหมาย LOT น้ำยาบนระบบฐานข้อมูลแล้ว');
     } catch (err: any) {
       console.error('Failed to sync lot configs:', err);
+    }
+  };
+
+  const handleDeleteLotConfig = async (lotNumber: string) => {
+    const cleanLot = lotNumber.trim();
+    setLotConfigs(prev => prev.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase()));
+    try {
+      await dbService.deleteLotConfig(cleanLot);
+      setShowToast(`ลบการตั้งค่าช่วงมาตรฐาน LOT ${cleanLot} สำเร็จ`);
+    } catch (err: any) {
+      console.error('Failed to delete lot config:', err);
+      setShowToast(`ลบในเครื่องแล้ว แต่เกิดข้อผิดพลาดกับฐานข้อมูล: ${err?.message || err}`);
     }
   };
 
@@ -898,21 +908,58 @@ export default function App() {
             onClose={() => setIsSelectingRole(false)}
           />
         ) : role === 'user' ? (
-          // USER STAFF LANDING PAGE
-          <LandingPage
-            machines={machines}
-            repairs={repairs}
-            supplies={supplies}
-            onAddRepair={handleAddRepair}
-            onAddSupply={handleAddSupply}
-            lineNotifyToken={lineNotifyToken}
-            activeTab={activeUserTab}
-            onActiveTabChange={setActiveUserTab}
-            manuals={manuals}
-            announcements={announcements}
-            onOpenPrivacy={() => setShowPrivacyModal(true)}
-            onSwitchToRoleSelector={() => setIsSelectingRole(true)}
-          />
+          // USER STAFF LANDING PAGE (Visible to Admin logged in for testing/development, or fallback to Coming Soon)
+          isAdminLoggedIn ? (
+            <LandingPage
+              machines={machines}
+              repairs={repairs}
+              supplies={supplies}
+              onAddRepair={handleAddRepair}
+              onAddSupply={handleAddSupply}
+              lineNotifyToken={lineNotifyToken}
+              activeTab={activeUserTab}
+              onActiveTabChange={setActiveUserTab}
+              manuals={manuals}
+              announcements={announcements}
+              onSwitchToRoleSelector={() => setIsSelectingRole(true)}
+            />
+          ) : (
+            <div className="max-w-xl mx-auto my-8 bg-white dark:bg-slate-900 rounded-3xl border border-amber-200 dark:border-amber-900/60 p-8 shadow-xl text-center space-y-6 animate-fade-in">
+              <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/80 border border-amber-200 dark:border-amber-900/60 flex items-center justify-center text-amber-600 dark:text-amber-400 mx-auto">
+                <Building2 size={32} />
+              </div>
+              <div className="space-y-2">
+                <span className="inline-flex items-center px-3 py-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 rounded-full text-xs font-black">
+                  Coming soon...
+                </span>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">
+                  ระบบ Ward DTX Management (กำลังอยู่ระหว่างพัฒนา)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
+                  ขณะนี้ระบบสำหรับหอผู้ป่วย (Ward) กำลังเตรียมความพร้อม กรุณาใช้งานผ่านระบบเดิม หรือเข้าสู่ระบบแอดมินเพื่อดูหน้าพัฒนา
+                </p>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center">
+                <a
+                  href="https://labsangkha.my.canva.site/dtx-management"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 px-6 rounded-xl text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-md"
+                >
+                  <span>🌐 ไปยังระบบเดิม (Canva Site)</span>
+                  <ArrowRight size={14} />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setIsSelectingRole(true)}
+                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold py-3 px-5 rounded-xl text-xs transition-all cursor-pointer"
+                >
+                  เลือกประเภทผู้ใช้งานอื่น
+                </button>
+              </div>
+            </div>
+          )
         ) : role === 'staff' ? (
           // LAB STAFF QUICK PORTAL (MEMBER WORKFLOW)
           <StaffQuickPortal
@@ -1253,6 +1300,7 @@ export default function App() {
                   lotConfigs={lotConfigs}
                   onAddQcRecord={handleAddQcRecord}
                   onUpdateLotConfigs={handleUpdateLotConfigs}
+                  onDeleteLotConfig={handleDeleteLotConfig}
                   role={role}
                 />
               )}
@@ -1271,6 +1319,7 @@ export default function App() {
                   lotConfigs={lotConfigs}
                   onAddQcRecord={handleAddQcRecord}
                   onUpdateLotConfigs={handleUpdateLotConfigs}
+                  onDeleteLotConfig={handleDeleteLotConfig}
                   eqaRecords={eqaRecords}
                   onAddEqaRecord={handleAddEqaRecord}
                   role={role}
@@ -1399,16 +1448,6 @@ export default function App() {
               <span>Blood Glucose POCT Management System</span>
               <div className="flex items-center space-x-2 flex-wrap pt-0.5">
                 <span>Version 2.0.0 • Developed by MT. S. Singsard</span>
-                <span className="text-slate-300 dark:text-slate-700">•</span>
-                <button
-                  type="button"
-                  onClick={() => setShowPrivacyModal(true)}
-                  className="text-sky-600 dark:text-sky-400 hover:text-sky-700 dark:hover:text-sky-300 hover:underline font-medium cursor-pointer inline-flex items-center space-x-1"
-                  id="footer-privacy-policy-btn"
-                >
-                  <ShieldCheck size={12} className="text-sky-600 dark:text-sky-400" />
-                  <span>ประกาศความเป็นส่วนตัว (Privacy Notice)</span>
-                </button>
               </div>
             </div>
           </div>
@@ -1431,12 +1470,6 @@ export default function App() {
           </div>
         </div>
       </footer>
-
-      {/* Institutional Privacy Policy Modal */}
-      <PrivacyPolicyModal 
-        isOpen={showPrivacyModal} 
-        onClose={() => setShowPrivacyModal(false)} 
-      />
 
       {/* Floating System Toast Alerts */}
       {showToast && (

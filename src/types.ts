@@ -146,6 +146,7 @@ export interface StripReagentItem {
   expDate: string;
   openDate?: string;
   openExpDate?: string;
+  lastUsedDate?: string;
   status: 'in_stock' | 'in_use' | 'depleted';
   openedBy?: string;
   notes?: string;

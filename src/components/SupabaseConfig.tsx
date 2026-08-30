@@ -847,28 +847,44 @@ CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, a
 CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "users_all_policy" ON dtx_system.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 3. สร้าง Public Views และให้สิทธิ์เข้าถึงทั้งหมดเพื่อความเข้ากันได้กับไคลเอนต์เริ่มต้น
+-- 3. สร้าง Public Views และให้สิทธิ์เข้าถึงทั้งหมดเพื่อความเข้ากันได้กับไคลเอนต์เริ่มต้น (ทุก View ต้องมี dtx_ prefix)
+DROP VIEW IF EXISTS public.repair_requests CASCADE;
+DROP VIEW IF EXISTS public.supply_requests CASCADE;
+DROP VIEW IF EXISTS public.qc_records CASCADE;
+DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
+DROP VIEW IF EXISTS public.eqa_records CASCADE;
+DROP VIEW IF EXISTS public.user_manuals CASCADE;
+DROP VIEW IF EXISTS public.announcements CASCADE;
+DROP VIEW IF EXISTS public.maintenance_logs CASCADE;
+DROP VIEW IF EXISTS public.strip_reagent_items CASCADE;
+
 CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM dtx_system.dtx_machines;
-CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM dtx_system.repair_requests;
-CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM dtx_system.supply_requests;
-CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM dtx_system.qc_records;
-CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
-CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM dtx_system.eqa_records;
-CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM dtx_system.user_manuals;
-CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM dtx_system.announcements;
+CREATE OR REPLACE VIEW public.dtx_repair_requests AS SELECT * FROM dtx_system.repair_requests;
+CREATE OR REPLACE VIEW public.dtx_supply_requests AS SELECT * FROM dtx_system.supply_requests;
+CREATE OR REPLACE VIEW public.dtx_qc_records AS SELECT * FROM dtx_system.qc_records;
+CREATE OR REPLACE VIEW public.dtx_qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
+CREATE OR REPLACE VIEW public.dtx_eqa_records AS SELECT * FROM dtx_system.eqa_records;
+CREATE OR REPLACE VIEW public.dtx_user_manuals AS SELECT * FROM dtx_system.user_manuals;
+CREATE OR REPLACE VIEW public.dtx_announcements AS SELECT * FROM dtx_system.announcements;
+CREATE OR REPLACE VIEW public.dtx_maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
+CREATE OR REPLACE VIEW public.dtx_daily_checklists AS SELECT * FROM dtx_system.daily_checklists;
+CREATE OR REPLACE VIEW public.dtx_strip_reagent_items AS SELECT * FROM dtx_system.strip_reagent_items;
 CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
 CREATE OR REPLACE VIEW public.dtx_system_users AS 
 SELECT id, username, full_name, email, position, pos, ward, is_active, role 
 FROM dtx_system.users;
 
 GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.repair_requests TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.supply_requests TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.qc_records TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.eqa_records TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.user_manuals TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.announcements TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_repair_requests TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_supply_requests TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_qc_records TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_qc_lot_configs TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_eqa_records TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_user_manuals TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_announcements TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_maintenance_logs TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_daily_checklists TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_strip_reagent_items TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.master_wards TO anon, authenticated, service_role, postgres;
 GRANT SELECT ON public.dtx_system_users TO anon, authenticated, service_role, postgres;
 
@@ -1184,33 +1200,45 @@ CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO 
 CREATE POLICY "users_all_policy" ON dtx_system.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "maintenance_all_policy" ON dtx_system.maintenance_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 6. Create Views in public schema for direct default client compatibility
+-- 6. Create Views in public schema for direct default client compatibility (All with dtx_ prefix)
+DROP VIEW IF EXISTS public.repair_requests CASCADE;
+DROP VIEW IF EXISTS public.supply_requests CASCADE;
+DROP VIEW IF EXISTS public.qc_records CASCADE;
+DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
+DROP VIEW IF EXISTS public.eqa_records CASCADE;
+DROP VIEW IF EXISTS public.user_manuals CASCADE;
+DROP VIEW IF EXISTS public.announcements CASCADE;
+DROP VIEW IF EXISTS public.maintenance_logs CASCADE;
+DROP VIEW IF EXISTS public.strip_reagent_items CASCADE;
+
 CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM dtx_system.dtx_machines;
-CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM dtx_system.repair_requests;
-CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM dtx_system.supply_requests;
-CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM dtx_system.qc_records;
-CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
-CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM dtx_system.eqa_records;
-CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM dtx_system.user_manuals;
-CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM dtx_system.announcements;
-CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
-CREATE OR REPLACE VIEW public.maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
+CREATE OR REPLACE VIEW public.dtx_repair_requests AS SELECT * FROM dtx_system.repair_requests;
+CREATE OR REPLACE VIEW public.dtx_supply_requests AS SELECT * FROM dtx_system.supply_requests;
+CREATE OR REPLACE VIEW public.dtx_qc_records AS SELECT * FROM dtx_system.qc_records;
+CREATE OR REPLACE VIEW public.dtx_qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
+CREATE OR REPLACE VIEW public.dtx_eqa_records AS SELECT * FROM dtx_system.eqa_records;
+CREATE OR REPLACE VIEW public.dtx_user_manuals AS SELECT * FROM dtx_system.user_manuals;
+CREATE OR REPLACE VIEW public.dtx_announcements AS SELECT * FROM dtx_system.announcements;
 CREATE OR REPLACE VIEW public.dtx_maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
+CREATE OR REPLACE VIEW public.dtx_daily_checklists AS SELECT * FROM dtx_system.daily_checklists;
+CREATE OR REPLACE VIEW public.dtx_strip_reagent_items AS SELECT * FROM dtx_system.strip_reagent_items;
+CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
 CREATE OR REPLACE VIEW public.dtx_system_users AS 
 SELECT id, username, full_name, email, position, pos, ward, is_active, role 
 FROM dtx_system.users;
 
 GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role;
-GRANT ALL ON public.repair_requests TO anon, authenticated, service_role;
-GRANT ALL ON public.supply_requests TO anon, authenticated, service_role;
-GRANT ALL ON public.qc_records TO anon, authenticated, service_role;
-GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role;
-GRANT ALL ON public.eqa_records TO anon, authenticated, service_role;
-GRANT ALL ON public.user_manuals TO anon, authenticated, service_role;
-GRANT ALL ON public.announcements TO anon, authenticated, service_role;
-GRANT ALL ON public.master_wards TO anon, authenticated, service_role;
-GRANT ALL ON public.maintenance_logs TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_repair_requests TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_supply_requests TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_qc_records TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_qc_lot_configs TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_eqa_records TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_user_manuals TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_announcements TO anon, authenticated, service_role;
 GRANT ALL ON public.dtx_maintenance_logs TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_daily_checklists TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_strip_reagent_items TO anon, authenticated, service_role;
+GRANT ALL ON public.master_wards TO anon, authenticated, service_role;
 GRANT SELECT ON public.dtx_system_users TO anon, authenticated, service_role;
 
 -- 7. Reload Data API Schema Cache

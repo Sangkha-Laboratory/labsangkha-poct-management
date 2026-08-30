@@ -135,8 +135,8 @@ async function executeSupabaseWrite<T>(
     try {
       const dtxClient = supabase.schema('dtx_system');
       const { data: dtxData, error: dtxError } = await queryFn(dtxClient);
-      if (!dtxError && dtxData !== null && dtxData !== undefined) {
-        return dtxData;
+      if (!dtxError) {
+        return (dtxData !== undefined ? dtxData : true) as unknown as T;
       }
       if (dtxError) {
         console.warn("dtx_system write notice:", dtxError.message || dtxError);
@@ -152,13 +152,13 @@ async function executeSupabaseWrite<T>(
     try {
       const proxyClient = createSchemaAwareClient(pubClient, true);
       const { data: pubData, error: pubError } = await queryFn(proxyClient);
-      if (!pubError && pubData !== null && pubData !== undefined) {
-        return pubData;
+      if (!pubError) {
+        return (pubData !== undefined ? pubData : true) as unknown as T;
       }
       // Retry direct
       const { data: rawData, error: rawError } = await queryFn(pubClient);
-      if (!rawError && rawData !== null && rawData !== undefined) {
-        return rawData;
+      if (!rawError) {
+        return (rawData !== undefined ? rawData : true) as unknown as T;
       }
       if (pubError || rawError) {
         throw (pubError || rawError);
