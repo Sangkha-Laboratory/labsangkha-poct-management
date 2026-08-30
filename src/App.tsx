@@ -110,8 +110,18 @@ export default function App() {
   });
 
   const [isSelectingRole, setIsSelectingRole] = useState<boolean>(() => {
-    // ถ้าเคยเลือก role ไว้แล้ว (จำใน localStorage) ให้ข้ามหน้าเลือก role ตอน refresh
-    // ไปหน้าที่ตรงกับ role/สถานะ login เดิมทันที แทนที่จะย้อนกลับไปหน้าแรกเสมอ
+    // ใช้ sessionStorage เป็นตัวบอกว่า "แท็บ/เซสชันนี้เคยโหลดแอปมาแล้วหรือยัง"
+    // sessionStorage จะยังอยู่ตอนกด Refresh หน้าเดิม แต่จะหายไปเมื่อเปิดลิงก์ใหม่ในแท็บ/หน้าต่างใหม่
+    const hasSessionStarted = sessionStorage.getItem('dtx_session_active');
+
+    if (!hasSessionStarted) {
+      // เปิดลิงก์ใหม่ (เซสชันใหม่) -> บังคับมาที่หน้าเลือกประเภทผู้ใช้งานเสมอ (Landing Page)
+      sessionStorage.setItem('dtx_session_active', 'true');
+      return true;
+    }
+
+    // Refresh หน้าเดิมในเซสชันเดียวกัน -> คงพฤติกรรมเดิม: ถ้าเคยเลือก role ไว้แล้ว (จำใน localStorage)
+    // ให้ข้ามหน้าเลือก role ไปหน้าที่ตรงกับ role/สถานะ login เดิมทันที
     return !localStorage.getItem('dtx_role');
   });
   const [roleSelectorAuthMode, setRoleSelectorAuthMode] = useState<'selector' | 'staff_quick_login' | 'staff_full_login' | 'admin_login'>('selector');
