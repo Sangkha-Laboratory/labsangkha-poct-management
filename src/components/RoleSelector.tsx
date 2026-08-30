@@ -293,7 +293,6 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
       {authMode !== 'staff_quick_login' && (
         <div className="text-center max-w-2xl mx-auto space-y-3 mb-8 sm:mb-10">
           <div className="inline-flex items-center space-x-2 px-3 py-1 bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800/80 rounded-full text-xs font-bold text-sky-700 dark:text-sky-300">
-            <Sparkles size={13} className="text-sky-600" />
             <span>ระบบบริหารจัดการเครื่องตรวจน้ำตาลในเลือดปลายนิ้ว (DTX)</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
@@ -304,7 +303,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">
             {authMode === 'staff_full_login'
               ? 'ระบบยืนยันตัวสำหรับเจ้าหน้าที่'
-              : 'กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ • กรุณาเลือกบทบาทเพื่อเข้าสู่ฟังก์ชันที่ตรงกับงานของคุณ'}
+              : 'กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ • กรุณาเลือกบทบาทเพื่อเข้าสู่หน้างานของคุณ'}
           </p>
         </div>
       )}
@@ -341,7 +340,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                   Quick Win Portal
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed max-w-xs mx-auto">
-                  ระบบบันทึกผลควบคุมคุณภาพ (QC) และการจัดการเครื่องตรวจ DTX ประจำวัน
+                  ระบบบันทึกผลควบคุมคุณภาพ และการตรวจสอบรายการบำรุงรักษาเครื่องตรวจ DTX ประจำวัน
                 </p>
               </div>
             </div>
@@ -594,7 +593,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                   ผู้ใช้งานทั่วไป / ward
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                  พยาบาลและบุคลากรประจำหอผู้ป่วยหรือแผนกต่างๆ ทั่วโรงพยาบาล
+                  พยาบาลและบุคลากรประจำหอผู้ป่วย หรือหน่วยงานภายในโรงพยาบาล
                 </p>
                 <div className="mt-2.5 p-2.5 bg-amber-50/80 dark:bg-amber-950/30 rounded-xl border border-amber-200/80 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
                   <Clock size={13} className="shrink-0 text-amber-600" />
@@ -649,7 +648,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 </button>
               ) : (
                 <div className="text-center text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                  * กรุณาใช้ระบบเดิม หรือเข้าสู่ระบบแอดมินเพื่อดูหน้าพัฒนา
+                  * หากต้องการแจ้งซ่อมหรือส่งคำขอเบิกกรุณาเข้าใช้งานผ่านระบบเดิมจนกว่าระบบใหม่จะเสร็จสิ้น
                 </div>
               )}
             </div>
@@ -681,18 +680,18 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                   เจ้าหน้าที่งานชันสูตร (Lab Staff)
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                  บันทึกผล QC ทั้งหมด, กราฟ Levey-Jennings, ดูประวัติ IQC/EQA และจัดการเครื่องตรวจน้ำตาล
+                  บันทึกผล QC และ Checklist บำรุงรักษารายวัน
                 </p>
               </div>
 
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2">
                 <div className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
                   <Zap size={13} className="text-emerald-500 shrink-0" />
-                  <span>Quick Win: เลือกชื่อเข้าใช้ทันที</span>
+                  <span>Quick Win: เลือกชื่อเข้าใช้ทันที สำหรับรายการใช้งานประจำวัน</span>
                 </div>
                 <div className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
                   <BarChart3 size={13} className="text-emerald-500 shrink-0" />
-                  <span>ดูกราฟและประวัติ IQC</span>
+                  <span>ระบบ Staff Portal: เข้าสู่ระบบเพื่อดูรายละเอียดเชิงลึก</span>
                 </div>
               </div>
             </div>

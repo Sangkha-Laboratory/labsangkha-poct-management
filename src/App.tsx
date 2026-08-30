@@ -109,7 +109,11 @@ export default function App() {
     return savedRole === 'admin' ? 'admin' : savedRole === 'staff' ? 'staff' : 'user';
   });
 
-  const [isSelectingRole, setIsSelectingRole] = useState<boolean>(true);
+  const [isSelectingRole, setIsSelectingRole] = useState<boolean>(() => {
+    // ถ้าเคยเลือก role ไว้แล้ว (จำใน localStorage) ให้ข้ามหน้าเลือก role ตอน refresh
+    // ไปหน้าที่ตรงกับ role/สถานะ login เดิมทันที แทนที่จะย้อนกลับไปหน้าแรกเสมอ
+    return !localStorage.getItem('dtx_role');
+  });
   const [roleSelectorAuthMode, setRoleSelectorAuthMode] = useState<'selector' | 'staff_quick_login' | 'staff_full_login' | 'admin_login'>('selector');
 
   const [activeUserTab, setActiveUserTab] = useState<'repair' | 'supply' | 'track' | 'guide'>(() => {
@@ -996,8 +1000,13 @@ export default function App() {
                 <div className="w-12 h-12 bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-400 rounded-full flex items-center justify-center mx-auto shadow-xs">
                   <Lock size={22} />
                 </div>
-                <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">เข้าสู่ระบบเจ้าหน้าที่ & ผู้ดูแลระบบ (Staff / Admin Login)</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">เฉพาะเจ้าหน้าที่ห้องปฏิบัติการและผู้ดูแลระบบที่ได้รับอนุญาต</p>
+                <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                 เข้าสู่ระบบสำหรับผู้ดูแล <br />
+                 (Admin Login)
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                 เฉพาะหัวหน้าห้องปฏิบัติการและผู้ดูแลระบบที่ได้รับอนุญาต
+                </p>
 
                 {/* Info Notice: Landing Page is Public */}
                 <div className="bg-sky-50/80 dark:bg-sky-950/50 p-3 rounded-xl border border-sky-100 dark:border-sky-900/60 text-left text-[11px] text-sky-900 dark:text-sky-300 space-y-1">
@@ -1006,7 +1015,7 @@ export default function App() {
                     <span>สำหรับหน่วยงานภายนอก / ผู้ใช้งานทั่วไป:</span>
                   </span>
                   <p className="text-slate-600 dark:text-slate-300">
-                    สามารถใช้งานระบบแจ้งส่งซ่อม, บันทึก QC/EQA, เบิกอุปกรณ์ และดาวน์โหลดคู่มือ บน<strong className="text-sky-700 dark:text-sky-400">หน้าแรก (Landing Page) ได้ทันทีโดยไม่ต้องเข้าสู่ระบบ</strong>
+                    สามารถใช้งานระบบแจ้งส่งซ่อม, เบิกเครื่องตรวจ และดาวน์โหลดคู่มือ บน <strong className="text-sky-700 dark:text-sky-400">หน้าต่างสำหรับ ผู้ใช้งานทั่วไป / ward ได้ทันทีโดยไม่ต้องเข้าสู่ระบบ</strong>
                   </p>
                 </div>
 
@@ -1015,12 +1024,12 @@ export default function App() {
                   {isSupabaseConfigured() ? (
                     <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>พร้อมเชื่อมต่อ Supabase Auth</span>
+                      <span>พร้อมเชื่อมต่อฐานข้อมูล</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span>โหมดออฟไลน์ (ยังไม่ได้เชื่อมต่อ Supabase)</span>
+                      <span>โหมดออฟไลน์ (ยังไม่ได้เชื่อมต่อฐานข้อมูล)</span>
                     </span>
                   )}
                 </div>
@@ -1058,7 +1067,7 @@ export default function App() {
                   <label className="font-bold text-slate-700 dark:text-slate-300">ชื่อผู้ใช้งาน หรือ อีเมล (Username / Email) *</label>
                   <input
                     type="text"
-                    placeholder="เช่น admin หรือ user@sangkha-hospital.com"
+                    placeholder="เช่น username หรือ email@medlab.local"
                     value={adminUsername}
                     onChange={(e) => setAdminUsername(e.target.value)}
                     className="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 focus:border-sky-500 bg-slate-50/50 dark:bg-slate-800 font-medium"

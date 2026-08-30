@@ -838,14 +838,14 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
-                ระบบปฏิบัติการงานชันสูตร (Staff Quick Portal)
+                ระบบงานเจ้าหน้าที่งานชันสูตรฯ (Staff Quick Portal)
               </h2>
               <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full font-extrabold">
                 Lab Member Quick Win
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              โฟกัสเฉพาะเครื่องประจำห้องปฏิบัติการ (งานชันสูตร) • ลงผล QC แบบชุด, เปลี่ยนถ่าน/ซ่อมบำรุง และ Checklist รายวัน
+              เฉพาะเครื่องประจำห้องปฏิบัติการ • ลงผล QC • บันทึกรายการบำรุงรักษาประจำวัน • เบิกวัสดุสำหรับใช้งาน
             </p>
           </div>
         </div>
@@ -896,11 +896,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               className="w-full pl-3 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-xs font-extrabold rounded-xl border border-slate-200 dark:border-slate-700 appearance-none focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer shadow-xs"
               id="staff-mobile-nav-select"
             >
-              <option value="batch_qc">📋 QC daily (บันทึกผล QC รายวัน)</option>
-              <option value="checklist">✅ daily maintenance (บำรุงรักษาประจำวัน)</option>
-              <option value="maintenance">🔧 ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)</option>
-              <option value="supply_request">📦 เบิก Strip / Control (ยังไม่เปิดใช้งาน)</option>
-              <option value="new_machine_request">📟 เบิกเครื่องใหม่ (ยังไม่เปิดใช้งาน)</option>
+              <option value="batch_qc"> QC daily (บันทึกผล QC รายวัน)</option>
+              <option value="checklist"> daily maintenance (บำรุงรักษาประจำวัน)</option>
+              <option value="maintenance"> ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)</option>
+              <option value="supply_request"> เบิก Strip / Control (ยังไม่เปิดใช้งาน)</option>
+              <option value="new_machine_request"> เบิกเครื่องใหม่ (ยังไม่เปิดใช้งาน)</option>
             </select>
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
               <ChevronDown size={18} />
@@ -947,7 +947,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             id="staff-tab-maintenance"
           >
             <Wrench size={15} />
-            <span>ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)</span>
+            <span>ซ่อมบำรุงเปลี่ยนถ่าน <br / >
+            (coming soon..)</span>
           </button>
           <button
             type="button"
@@ -960,7 +961,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             id="staff-tab-supply-request"
           >
             <Package size={15} />
-            <span>เบิก Strip/Control (ยังไม่เปิดใช้งาน)</span>
+            <span>เบิก Strip/Control <br / >
+            (coming soon..)</span>
           </button>
           <button
             type="button"
@@ -972,7 +974,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             }`}
             id="staff-tab-new-machine-request"
           >
-            <span>เบิกเครื่องใหม่ (ยังไม่เปิดใช้งาน)</span>
+            <span>เบิกเครื่องใหม่ <br />
+            (coming soon..)</span>
           </button>
         </div>
       </div>
@@ -986,11 +989,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                   <TableProperties size={16} className="text-emerald-600" />
-                  <span>บันทึกผล QC เครื่องห้องปฏิบัติการ (งานชันสูตร) แบบชุดหลายเครื่อง</span>
+                  <span>บันทึกผล QC เครื่องตรวจน้ำตาลปลายนิ้ว</span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  ระบบถูกตั้งค่าเริ่มต้นสำหรับงานชันสูตรโดยเฉพาะ เพื่อความรวดเร็วในการลงผล IQC รอบเช้า
-                </p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -1024,16 +1024,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
             <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
               <div className="flex items-center gap-2">
-                {activeLotConfig && (
-                  <button
-                    type="button"
-                    onClick={() => handleBatchFillSample(activeLotConfig.level1Target, activeLotConfig.level2Target, activeLotConfig.level3Target)}
-                    className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1 cursor-pointer transition-all"
-                  >
-                    <Sparkles size={13} className="text-amber-500" />
-                    <span>เติมค่า Target อัตโนมัติ</span>
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={handleBatchClearValues}
@@ -1094,7 +1084,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     </th>
                     <th className="py-3 px-3.5 w-12 text-center">#</th>
                     <th className="py-3 px-3.5">หน่วยงาน</th>
-                    <th className="py-3 px-3.5 font-mono">รหัสเครื่อง DTX (S/N)</th>
+                    <th className="py-3 px-3.5 font-mono">รหัสเครื่อง DTX </th>
                     <th className="py-3 px-3.5 text-center bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300 w-36">Level 1 (Low)</th>
                     <th className="py-3 px-3.5 text-center bg-sky-50/50 dark:bg-sky-950/30 text-sky-900 dark:text-sky-300 w-36">Level 2 (Normal)</th>
                     <th className="py-3 px-3.5 text-center bg-purple-50/50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-300 w-36">Level 3 (High)</th>
@@ -1137,7 +1127,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               step="0.1"
                               value={row.level1}
                               onChange={(e) => handleRowChange(row.serialNumber, 'level1', e.target.value)}
-                              placeholder={`tgt ${activeLotConfig?.level1Target || ''}`}
+                              placeholder="ค่าที่วัดได้"
                               className={`w-28 text-center text-xs py-1.5 px-2 rounded-lg border font-mono font-bold transition-all ${
                                 l1Status === 'out_of_control' 
                                   ? 'bg-rose-100 border-rose-400 text-rose-900' 
@@ -1154,7 +1144,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               step="0.1"
                               value={row.level2}
                               onChange={(e) => handleRowChange(row.serialNumber, 'level2', e.target.value)}
-                              placeholder={`tgt ${activeLotConfig?.level2Target || ''}`}
+                              placeholder="ค่าที่วัดได้"
                               className={`w-28 text-center text-xs py-1.5 px-2 rounded-lg border font-mono font-bold transition-all ${
                                 l2Status === 'out_of_control' 
                                   ? 'bg-rose-100 border-rose-400 text-rose-900' 
@@ -1171,7 +1161,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               step="0.1"
                               value={row.level3}
                               onChange={(e) => handleRowChange(row.serialNumber, 'level3', e.target.value)}
-                              placeholder={`tgt ${activeLotConfig?.level3Target || ''}`}
+                              placeholder="ค่าที่วัดได้"
                               className={`w-28 text-center text-xs py-1.5 px-2 rounded-lg border font-mono font-bold transition-all ${
                                 l3Status === 'out_of_control' 
                                   ? 'bg-rose-100 border-rose-400 text-rose-900' 
@@ -1207,7 +1197,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
             <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
               <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                เลือกบันทึกเฉพาะเครื่องที่ติ๊กเลือกและกรอกครบทั้ง 3 ระดับ
+                *เลือกเฉพาะรายการที่ต้องการและกรอกค่าให้ครบทั้ง 3 ระดับ
               </div>
               <button
                 type="button"
@@ -1226,7 +1216,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                  ประวัติผลควบคุมคุณภาพ (QC Daily) งานชันสูตรสาธารณสุข
+                  ประวัติผลควบคุมคุณภาพ (QC Daily)
                 </h3>
                 <p className="text-[10px] text-slate-400">รายการบันทึกผลควบคุมคุณภาพเครื่องประจำห้องปฏิบัติการทั้งหมด</p>
               </div>
@@ -1235,7 +1225,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               <div className="flex items-center gap-2 flex-wrap">
                 <input
                   type="text"
-                  placeholder="ค้นหาตาม S/N..."
+                  placeholder="ค้นหา..."
                   value={qcSearchSerial}
                   onChange={(e) => setQcSearchSerial(e.target.value)}
                   className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:ring-1 focus:ring-emerald-500 outline-none w-32 dark:text-white"
@@ -1257,7 +1247,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-150 dark:border-slate-800 text-slate-500 font-bold text-[10px] uppercase">
                     <th className="py-2.5 px-3">วันที่ตรวจ</th>
-                    <th className="py-2.5 px-3">เครื่อง DTX (S/N)</th>
+                    <th className="py-2.5 px-3">เครื่อง DTX </th>
                     <th className="py-2.5 px-3">Lot Number</th>
                     <th className="py-2.5 px-3 text-center">Level 1</th>
                     <th className="py-2.5 px-3 text-center">Level 2</th>
@@ -1331,7 +1321,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           
           <div className="space-y-2">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-              ระบบซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)
+              ระบบซ่อมบำรุงเปลี่ยนถ่าน <br />
+              (ยังไม่เปิดใช้งาน)
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-md mx-auto">
               บริการบันทึกการซ่อมบำรุงและเปลี่ยนถ่านเครื่องตรวจ DTX ประจำห้องปฏิบัติการ
@@ -1340,7 +1331,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           </div>
 
           <p className="text-[11px] text-slate-400">
-            หากต้องการทดแทนเครื่องชำรุดหรือเปลี่ยนถ่านด่วน กรุณาติดต่อผู้รับผิดชอบงาน POCT โดยตรง
+            หากต้องการทดแทนเครื่องชำรุดหรือเปลี่ยนถ่าน กรุณาติดต่อผู้รับผิดชอบโดยตรง
           </p>
         </div>
       )}
@@ -1685,14 +1676,13 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               ระบบเบิก Strip/Control (ยังไม่เปิดใช้งาน)
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-md mx-auto">
-              ฟังก์ชันเบิก Test Strip และ Control Solution พร้อมสแกนบาร์โค้ด & ตัดสต็อกอัตโนมัติ
+              ฟังก์ชันเบิก Test Strip และ Control Solution 
               <br />อยู่ระหว่างเตรียมความพร้อมด้านการตั้งค่าระบบ
-              <br />ขณะนี้ให้ใช้งานเฉพาะ QC daily และ daily maintenance ก่อน
             </p>
           </div>
 
           <p className="text-[11px] text-slate-400">
-            หากมีความจำเป็นเร่งด่วนเรื่องเบิกวัสดุ กรุณาติดต่อผู้รับผิดชอบงาน POCT โดยตรง
+            หากมีความจำเป็นกรุณาติดต่อผู้รับผิดชอบโดยตรง
           </p>
         </div>
       )}
