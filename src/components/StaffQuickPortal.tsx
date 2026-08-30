@@ -56,6 +56,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   onUpdateLotConfigs,
   onSwitchToRoleSelector
 }) => {
+  // Feature flag: ปิดใช้งานฟังก์ชัน "เบิก Strip/Control" ชั่วคราว เนื่องจากยัง config ระบบไม่ทัน
+  // ให้เปิดใช้งานเฉพาะ QC daily และ daily maintenance ก่อน
+  // เมื่อพร้อมใช้งานจริง ให้เปลี่ยนค่านี้กลับเป็น true
+  const STRIP_CONTROL_ENABLED = false;
+
   // Smart filter for Lab machines, with graceful fallback to all machines if none matched
   const labMachines = machines.filter(m => {
     const w = (m.ward || '').toLowerCase();
@@ -880,7 +885,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               {activeTab === 'batch_qc' && 'QC daily'}
               {activeTab === 'checklist' && 'daily maintenance'}
               {activeTab === 'maintenance' && 'ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)'}
-              {activeTab === 'supply_request' && 'เบิก Strip/Control'}
+              {activeTab === 'supply_request' && 'เบิก Strip/Control (ยังไม่เปิดใช้งาน)'}
               {activeTab === 'new_machine_request' && 'เบิกเครื่องใหม่'}
             </span>
           </label>
@@ -894,7 +899,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               <option value="batch_qc">📋 QC daily (บันทึกผล QC รายวัน)</option>
               <option value="checklist">✅ daily maintenance (บำรุงรักษาประจำวัน)</option>
               <option value="maintenance">🔧 ซ่อมบำรุงเปลี่ยนถ่าน (ยังไม่เปิดใช้งาน)</option>
-              <option value="supply_request">📦 เบิก Strip / Control (สแกนบาร์โค้ด & ตัดสต็อก)</option>
+              <option value="supply_request">📦 เบิก Strip / Control (ยังไม่เปิดใช้งาน)</option>
               <option value="new_machine_request">📟 เบิกเครื่องใหม่ (ยังไม่เปิดใช้งาน)</option>
             </select>
             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
@@ -955,7 +960,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             id="staff-tab-supply-request"
           >
             <Package size={15} />
-            <span>เบิก Strip/Control</span>
+            <span>เบิก Strip/Control (ยังไม่เปิดใช้งาน)</span>
           </button>
           <button
             type="button"
@@ -1669,7 +1674,30 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       )}
 
       {/* TAB 4: SUPPLY REQUEST & LAB STOCK MANAGEMENT */}
-      {activeTab === 'supply_request' && (
+      {activeTab === 'supply_request' && !STRIP_CONTROL_ENABLED && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 max-w-2xl mx-auto text-center space-y-6 shadow-sm animate-fade-in">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-500 flex items-center justify-center font-black shadow-xs">
+            <Package size={32} />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+              ระบบเบิก Strip/Control (ยังไม่เปิดใช้งาน)
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-md mx-auto">
+              ฟังก์ชันเบิก Test Strip และ Control Solution พร้อมสแกนบาร์โค้ด & ตัดสต็อกอัตโนมัติ
+              <br />อยู่ระหว่างเตรียมความพร้อมด้านการตั้งค่าระบบ
+              <br />ขณะนี้ให้ใช้งานเฉพาะ QC daily และ daily maintenance ก่อน
+            </p>
+          </div>
+
+          <p className="text-[11px] text-slate-400">
+            หากมีความจำเป็นเร่งด่วนเรื่องเบิกวัสดุ กรุณาติดต่อผู้รับผิดชอบงาน POCT โดยตรง
+          </p>
+        </div>
+      )}
+
+      {activeTab === 'supply_request' && STRIP_CONTROL_ENABLED && (
         <div className="space-y-6 animate-fade-in">
           
           {/* Stock KPI Summary Cards */}
