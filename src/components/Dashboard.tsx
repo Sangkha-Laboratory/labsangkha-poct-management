@@ -202,7 +202,7 @@ export default function Dashboard({ machines, repairs, onNavigateTab }: Dashboar
               </span>
             </div>
             <div className="text-xs text-slate-400 dark:text-slate-500 font-light">
-              ซ่อมเสร็จแล้วคืนวอร์ด {completedRepairsCount} เครื่อง
+              ซ่อมเสร็จแล้วคืน Ward {completedRepairsCount} เครื่อง
             </div>
           </div>
           <div className="w-12 h-12 bg-sky-50 dark:bg-sky-950/60 text-sky-500 rounded-2xl flex items-center justify-center shrink-0">

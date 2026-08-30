@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
+import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog } from '../types';
 
 // Helper to validate standard UUID format
 export const isUuid = (val?: string): boolean => {
@@ -277,7 +277,8 @@ export function resetSupabaseCache() {
 
 /**
  * Robust Query Runner:
- * Queries public schema views (or base tables in dtx_system schema) seamlessly.
+ * Prioritizes dtx_ prefixed public views (e.g. dtx_repair_requests, dtx_machines) and dtx_system schema.
+ * For master_wards, public schema is queried.
  */
 async function querySupabaseClient<T>(
   fn: (client: any, tableName: string) => PromiseLike<{ data: T | null; error: any }> | Promise<{ data: T | null; error: any }>,
@@ -288,30 +289,51 @@ async function querySupabaseClient<T>(
   if (!client) return { data: null, error: new Error('Supabase client not initialized') };
 
   const table = primaryTable || '';
+  // Build candidate table/view names for public schema (prioritizing dtx_ prefix for views)
+  const dtxPrefixed = table.startsWith('dtx_') ? table : `dtx_${table}`;
+  const rawName = table.startsWith('dtx_') ? table.replace(/^dtx_/, '') : table;
+  
+  const publicCandidates = table === 'master_wards'
+    ? ['master_wards']
+    : Array.from(new Set([dtxPrefixed, rawName, ...(_aliases || [])]));
+
+  const dtxCandidates = Array.from(new Set([rawName, dtxPrefixed, ...(_aliases || [])]));
 
   try {
-    // 1. Query public schema view/table first (always exposed and fastest)
-    const publicClient = client.schema('public');
-    const resPublic = (await fn(publicClient, table)) as { data: T | null; error: any };
-    if (!resPublic.error && resPublic.data !== null && resPublic.data !== undefined) {
-      return resPublic;
+    // 1. Try public schema with dtx_ prefixed view name FIRST
+    for (const cand of publicCandidates) {
+      const resDefault = (await fn(client, cand)) as { data: T | null; error: any };
+      if (!resDefault.error) {
+        return resDefault;
+      }
     }
 
-    // 2. If public schema fails or table missing, try dtx_system schema directly
+    // 2. Try dtx_system schema if default client failed
     const dtxClient = client.schema('dtx_system');
-    const resDtx = (await fn(dtxClient, table)) as { data: T | null; error: any };
-    if (!resDtx.error && resDtx.data !== null && resDtx.data !== undefined) {
-      return resDtx;
+    for (const cand of dtxCandidates) {
+      const resDtx = (await fn(dtxClient, cand)) as { data: T | null; error: any };
+      if (!resDtx.error) {
+        return resDtx;
+      }
     }
 
-    const isMissing = resPublic.error?.code === 'PGRST205' || 
-                      resPublic.error?.code === '42P01' || 
-                      resPublic.error?.message?.includes('Could not find the table') || 
-                      resPublic.error?.message?.includes('does not exist') ||
-                      resDtx.error?.code === 'PGRST205' || 
-                      resDtx.error?.code === '42P01';
+    // 3. Fallback to explicit public schema client
+    const publicClient = client.schema('public');
+    for (const cand of publicCandidates) {
+      const resPublic = (await fn(publicClient, cand)) as { data: T | null; error: any };
+      if (!resPublic.error) {
+        return resPublic;
+      }
+    }
 
-    return { data: null, error: resPublic.error || resDtx.error, isMissingTable: isMissing };
+    // If all failed, return last error
+    const lastRes = (await fn(client, dtxPrefixed)) as { data: T | null; error: any };
+    const isMissing = lastRes.error?.code === 'PGRST205' || 
+                      lastRes.error?.code === '42P01' || 
+                      lastRes.error?.message?.includes('Could not find the table') || 
+                      lastRes.error?.message?.includes('does not exist');
+
+    return { data: null, error: lastRes.error, isMissingTable: isMissing };
   } catch (err: any) {
     return { data: null, error: err, isMissingTable: false };
   }
@@ -334,14 +356,15 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
 
   const tables = [
     { name: 'dtx_machines', label: 'เครื่องตรวจน้ำตาล (dtx_machines)' },
-    { name: 'repair_requests', label: 'รายการแจ้งซ่อม (repair_requests)' },
-    { name: 'supply_requests', label: 'รายการเบิกอุปกรณ์ (supply_requests)' },
-    { name: 'qc_records', label: 'บันทึกผล QC (qc_records)' },
-    { name: 'qc_lot_configs', label: 'ค่าเป้าหมาย QC Lot (qc_lot_configs)' },
-    { name: 'eqa_records', label: 'บันทึกผล EQA (eqa_records)' },
-    { name: 'user_manuals', label: 'คู่มือการใช้งาน (user_manuals)' },
-    { name: 'announcements', label: 'ข่าวประกาศ (announcements)' },
-    { name: 'master_wards', label: 'รายชื่อวอร์ด/หน่วยงาน (master_wards)' },
+    { name: 'repair_requests', label: 'รายการแจ้งซ่อม (dtx_repair_requests)' },
+    { name: 'supply_requests', label: 'รายการเบิกอุปกรณ์ (dtx_supply_requests)' },
+    { name: 'qc_records', label: 'บันทึกผล QC (dtx_qc_records)' },
+    { name: 'qc_lot_configs', label: 'ค่าเป้าหมาย QC Lot (dtx_qc_lot_configs)' },
+    { name: 'eqa_records', label: 'บันทึกผล EQA (dtx_eqa_records)' },
+    { name: 'user_manuals', label: 'คู่มือการใช้งาน (dtx_user_manuals)' },
+    { name: 'announcements', label: 'ข่าวประกาศ (dtx_announcements)' },
+    { name: 'master_wards', label: 'รายชื่อ Ward/หน่วยงาน (master_wards)' },
+    { name: 'maintenance_logs', label: 'บันทึกซ่อมบำรุง/เปลี่ยนถ่าน (dtx_maintenance_logs)' },
   ];
 
   const results: TableDiagnosticResult[] = [];
@@ -353,9 +376,12 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
     let publicErr = '';
     let count = 0;
 
+    const dtxPrefixed = t.name.startsWith('dtx_') ? t.name : `dtx_${t.name}`;
+    const rawName = t.name.startsWith('dtx_') ? t.name.replace(/^dtx_/, '') : t.name;
+
     // 1. Check dtx_system schema
     try {
-      const { data, error, count: c } = await client.schema('dtx_system').from(t.name).select('*', { count: 'exact', head: true });
+      const { count: c, error } = await client.schema('dtx_system').from(rawName).select('*', { count: 'exact', head: true });
       if (!error) {
         dtxStatus = 'ok';
         count = c || 0;
@@ -374,9 +400,16 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
       dtxStatus = 'error';
     }
 
-    // 2. Check public schema
+    // 2. Check public schema (check dtx_ prefixed view first, then raw name)
     try {
-      const { data, error, count: c } = await client.from(t.name).select('*', { count: 'exact', head: true });
+      let { count: c, error } = await client.from(dtxPrefixed).select('*', { count: 'exact', head: true });
+      if (error && dtxPrefixed !== rawName) {
+        const fallback = await client.from(rawName).select('*', { count: 'exact', head: true });
+        if (!fallback.error) {
+          c = fallback.count;
+          error = null;
+        }
+      }
       if (!error) {
         publicStatus = 'ok';
         if (count === 0 && c) count = c;
@@ -394,7 +427,7 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
     }
 
     results.push({
-      tableName: t.name,
+      tableName: dtxPrefixed,
       thaiLabel: t.label,
       poctSchemaStatus: dtxStatus,
       poctSchemaError: dtxErr,
@@ -413,18 +446,28 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
 // ==========================================================================
 
 export const mapDbToMachine = (db: any): DtxMachine => {
+  let locationHistory: MachineLocationLog[] = [];
+  if (Array.isArray(db.location_history)) {
+    locationHistory = db.location_history;
+  } else if (typeof db.location_history === 'string' && db.location_history.trim().startsWith('[')) {
+    try {
+      locationHistory = JSON.parse(db.location_history);
+    } catch {}
+  }
+
   return {
     id: db.id,
-    serialNumber: db.bgm_code || '',
-    machineSerial: db.serial_number || '',
+    serialNumber: db.bgm_code || db.serial_number || db.serialNumber || db.code || db.id || '',
+    machineSerial: db.serial_number || db.machineSerial || db.serial || db.bgm_code || '',
     brand: (db.brand || '').trim(),
     model: (db.model || '').trim(),
     ward: db.ward || '',
     status: db.status as any,
-    receiveDate: db.rec_date || '',
-    lastQCDate: db.last_qc_date || undefined,
-    lotNumber: db.lot_number || '',
-    remark: db.remark || undefined
+    receiveDate: db.rec_date || db.receiveDate || db.created_at || '',
+    lastQCDate: db.last_qc_date || db.lastQCDate || undefined,
+    lotNumber: db.lot_number || db.lotNumber || '',
+    remark: db.remark || undefined,
+    locationHistory: locationHistory.length > 0 ? locationHistory : undefined
   };
 };
 
@@ -439,7 +482,8 @@ export const mapMachineToDb = (m: DtxMachine) => {
     rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
     last_qc_date: m.lastQCDate || null,
     lot_number: m.lotNumber || '',
-    remark: m.remark || null
+    remark: m.remark || null,
+    location_history: m.locationHistory || []
   };
 };
 
@@ -499,7 +543,8 @@ export const mapDbToSupply = (db: any): SupplyRequest => ({
   quantity: Number(db.qty || (db.items && db.items.quantity) || 1),
   reason: db.reason || (db.items && db.items.reason) || '',
   requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
-  status: db.status as any
+  status: db.status as any,
+  details: db.details || undefined
 });
 
 export const mapSupplyToDb = (s: SupplyRequest) => ({
@@ -509,7 +554,8 @@ export const mapSupplyToDb = (s: SupplyRequest) => ({
   qty: Number(s.quantity) || 1,
   reason: s.reason || '',
   status: s.status || 'pending',
-  req_date: s.requestDate || new Date().toISOString().split('T')[0]
+  req_date: s.requestDate || new Date().toISOString().split('T')[0],
+  details: s.details || {}
 });
 
 export const mapDbToQcRecord = (db: any): QcRecord => ({
@@ -547,6 +593,11 @@ export const mapQcRecordToDb = (q: QcRecord) => ({
 
 export const mapDbToLotConfig = (db: any): QcLotConfig => ({
   lotNumber: db.lot_number,
+  expDate: db.exp_date || db.expiration_date || db.expiry_date || undefined,
+  openDate: db.open_date || db.opened_date || undefined,
+  openExpDays: db.open_exp_days ? Number(db.open_exp_days) : (db.open_stability_days ? Number(db.open_stability_days) : undefined),
+  manufacturer: db.manufacturer || db.brand || undefined,
+  notes: db.notes || db.remark || undefined,
   level1Target: Number(db.l1_target),
   level1Min: Number(db.l1_min ?? (Number(db.l1_target) - Number(db.l1_sd || 0) * 2)),
   level1Max: Number(db.l1_max ?? (Number(db.l1_target) + Number(db.l1_sd || 0) * 2)),
@@ -561,21 +612,24 @@ export const mapDbToLotConfig = (db: any): QcLotConfig => ({
   level3SD: Number(db.l3_sd || 0)
 });
 
-export const mapLotConfigToDb = (l: QcLotConfig) => ({
-  lot_number: l.lotNumber,
-  l1_target: l.level1Target,
-  l1_min: l.level1Min,
-  l1_max: l.level1Max,
-  l1_sd: l.level1SD,
-  l2_target: l.level2Target,
-  l2_min: l.level2Min,
-  l2_max: l.level2Max,
-  l2_sd: l.level2SD,
-  l3_target: l.level3Target,
-  l3_min: l.level3Min,
-  l3_max: l.level3Max,
-  l3_sd: l.level3SD
-});
+export const mapLotConfigToDb = (l: QcLotConfig) => {
+  const payload: any = {
+    lot_number: l.lotNumber,
+    l1_target: l.level1Target,
+    l1_min: l.level1Min,
+    l1_max: l.level1Max,
+    l1_sd: l.level1SD,
+    l2_target: l.level2Target,
+    l2_min: l.level2Min,
+    l2_max: l.level2Max,
+    l2_sd: l.level2SD,
+    l3_target: l.level3Target,
+    l3_min: l.level3Min,
+    l3_max: l.level3Max,
+    l3_sd: l.level3SD
+  };
+  return payload;
+};
 
 export const mapDbToEqaRecord = (db: any): EqaRecord => ({
   id: db.id,
@@ -824,7 +878,7 @@ export const dbService = {
     const uniqueMachines: DtxMachine[] = [];
 
     for (const m of mapped) {
-      const codeKey = (m.serialNumber || '').trim().toUpperCase();
+      const codeKey = (m.serialNumber || m.machineSerial || '').trim().toUpperCase();
       const idKey = (m.id || '').trim();
 
       if (codeKey && seenCodes.has(codeKey)) continue;
@@ -1271,11 +1325,17 @@ export const dbService = {
     const dbPayload = mapLotConfigToDb(lot);
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).upsert([dbPayload], { onConflict: 'lot_number' }).select().maybeSingle(),
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
         'qc_lot_configs',
         ['lot_configs']
       );
       if (!error && data) return mapDbToLotConfig(data);
+      
+      // Fallback to update on duplicate key conflict (PG error code 23505)
+      if (error && (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('already exists'))) {
+        return this.updateLotConfig(lot.lotNumber, lot);
+      }
+
       if (error && !isMissingTable) {
         console.warn('Supabase insertLotConfig notice:', error.message || error);
       }
@@ -1538,5 +1598,375 @@ export const dbService = {
       }
     }
     await safeApiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
+  },
+
+  // --- maintenance_logs ---
+  async getMaintenanceLogs(): Promise<any[]> {
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*'),
+        'maintenance_logs',
+        ['repair_requests']
+      );
+      if (!error && Array.isArray(data)) {
+        return (data as any[]).map((row) => {
+          if (row.maintenance_type || row.description) {
+            return {
+              id: row.id,
+              date: row.date || row.created_at?.split('T')[0],
+              serialNumber: row.serial_number,
+              actionType: row.maintenance_type,
+              description: row.description,
+              operator: row.operator
+            };
+          } else if (row.problem && row.problem.startsWith('[Maintenance')) {
+            return {
+              id: row.id,
+              date: row.req_date || row.created_at?.split('T')[0],
+              serialNumber: row.bgm_code,
+              actionType: row.diagnosis || 'repair',
+              description: row.problem.replace(/^\[Maintenance: [^\]]+\]\s*/, ''),
+              operator: row.reporter
+            };
+          }
+          return null;
+        }).filter(Boolean).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase getMaintenanceLogs notice:', error.message || error);
+      }
+    }
+    return [];
+  },
+
+  async insertMaintenanceLog(log: any): Promise<any> {
+    const dbPayload = {
+      date: log.date || new Date().toISOString().split('T')[0],
+      serial_number: log.serialNumber,
+      ward: log.ward || 'LAB',
+      maintenance_type: log.actionType,
+      description: log.description,
+      operator: log.operator
+    };
+
+    const repairPayload = {
+      bgm_code: log.serialNumber,
+      ward: log.ward || 'LAB',
+      reporter: log.operator,
+      problem: `[Maintenance: ${log.actionType}] ${log.description}`,
+      diagnosis: log.actionType,
+      action: log.description,
+      status: 'completed',
+      operator: log.operator,
+      req_date: log.date || new Date().toISOString().split('T')[0]
+    };
+
+    if (getSupabaseClient()) {
+      const { data, error } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
+        'maintenance_logs'
+      );
+      
+      await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([repairPayload]),
+        'repair_requests'
+      ).catch(() => {});
+
+      if (error) {
+        throw error;
+      }
+      if (data) {
+        const item = data as any;
+        return {
+          id: item.id,
+          date: item.date,
+          serialNumber: item.serial_number,
+          actionType: item.maintenance_type,
+          description: item.description,
+          operator: item.operator
+        };
+      }
+    }
+
+    return log;
+  },
+
+  // --- strip_reagent_items ---
+  async getStripReagentItems(): Promise<any[]> {
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*'),
+        'strip_reagent_items'
+      );
+      if (!error && Array.isArray(data)) {
+        return (data as any[]).map((row) => ({
+          id: row.id,
+          itemCode: row.item_code,
+          lotNumber: row.lot_number,
+          manufacturer: row.manufacturer,
+          itemType: row.item_type,
+          receivedDate: row.received_date,
+          expDate: row.exp_date,
+          openDate: row.open_date,
+          openExpDate: row.open_exp_date,
+          status: row.status,
+          openedBy: row.opened_by,
+          notes: row.notes,
+          boxIndex: row.box_index,
+          totalBoxes: row.total_boxes
+        })).sort((a, b) => new Date(b.receivedDate || 0).getTime() - new Date(a.receivedDate || 0).getTime());
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase getStripReagentItems notice:', error.message || error);
+      }
+    }
+    return [];
+  },
+
+  async insertStripReagentItems(items: any[]): Promise<any[]> {
+    if (!items || items.length === 0) return [];
+    const dbPayloads = items.map(item => ({
+      item_code: item.itemCode,
+      lot_number: item.lotNumber,
+      manufacturer: item.manufacturer || 'VivaChek Fad',
+      item_type: item.itemType,
+      received_date: item.receivedDate,
+      exp_date: item.expDate,
+      open_date: item.openDate || null,
+      open_exp_date: item.openExpDate || null,
+      status: item.status || 'in_stock',
+      opened_by: item.openedBy || null,
+      notes: item.notes || null,
+      box_index: item.boxIndex || 1,
+      total_boxes: item.totalBoxes || 1
+    }));
+
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert(dbPayloads).select(),
+        'strip_reagent_items'
+      );
+      if (!error && Array.isArray(data)) {
+        return (data as any[]).map(row => ({
+          id: row.id,
+          itemCode: row.item_code,
+          lotNumber: row.lot_number,
+          manufacturer: row.manufacturer,
+          itemType: row.item_type,
+          receivedDate: row.received_date,
+          expDate: row.exp_date,
+          openDate: row.open_date,
+          openExpDate: row.open_exp_date,
+          status: row.status,
+          openedBy: row.opened_by,
+          notes: row.notes,
+          boxIndex: row.box_index,
+          totalBoxes: row.total_boxes
+        }));
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertStripReagentItems notice:', error.message || error);
+      }
+    }
+    return items;
+  },
+
+  async updateStripReagentItem(id: string, updates: Partial<any>): Promise<any> {
+    const dbPayload: any = {};
+    if (updates.status !== undefined) dbPayload.status = updates.status;
+    if (updates.openDate !== undefined) dbPayload.open_date = updates.openDate;
+    if (updates.openExpDate !== undefined) dbPayload.open_exp_date = updates.openExpDate;
+    if (updates.openedBy !== undefined) dbPayload.opened_by = updates.openedBy;
+    if (updates.notes !== undefined) dbPayload.notes = updates.notes;
+    if (updates.itemCode !== undefined) dbPayload.item_code = updates.itemCode;
+    if (updates.lotNumber !== undefined) dbPayload.lot_number = updates.lotNumber;
+    if (updates.manufacturer !== undefined) dbPayload.manufacturer = updates.manufacturer;
+    if (updates.itemType !== undefined) dbPayload.item_type = updates.itemType;
+    if (updates.receivedDate !== undefined) dbPayload.received_date = updates.receivedDate;
+    if (updates.expDate !== undefined) dbPayload.exp_date = updates.expDate;
+    if (updates.boxIndex !== undefined) dbPayload.box_index = updates.boxIndex;
+    if (updates.totalBoxes !== undefined) dbPayload.total_boxes = updates.totalBoxes;
+
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle(),
+        'strip_reagent_items'
+      );
+      if (!error && data) {
+        const row = data as any;
+        return {
+          id: row.id,
+          itemCode: row.item_code,
+          lotNumber: row.lot_number,
+          manufacturer: row.manufacturer,
+          itemType: row.item_type,
+          receivedDate: row.received_date,
+          expDate: row.exp_date,
+          openDate: row.open_date,
+          openExpDate: row.open_exp_date,
+          status: row.status,
+          openedBy: row.opened_by,
+          notes: row.notes,
+          boxIndex: row.box_index,
+          totalBoxes: row.total_boxes
+        };
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateStripReagentItem notice:', error.message || error);
+      }
+    }
+    const data = await safeApiFetch(`/api/strip-reagent-items/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dbPayload)
+    });
+    return data ? data : updates;
+  },
+
+  async deleteStripReagentItem(id: string): Promise<void> {
+    if (getSupabaseClient()) {
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'strip_reagent_items'
+      );
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteStripReagentItem notice:', error.message || error);
+      }
+    }
+    await safeApiFetch(`/api/strip-reagent-items/${id}`, { method: 'DELETE' }).catch(() => {});
+  },
+
+  // --- daily_checklists (Quick Win & Staff Maintenance) ---
+  async getDailyChecklists(): Promise<DailyChecklist[]> {
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*'),
+        'daily_checklists',
+        ['repair_requests']
+      );
+      if (!error && Array.isArray(data)) {
+        return (data as any[]).map((row): DailyChecklist => ({
+          id: row.id,
+          date: row.date || row.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          serialNumber: row.serial_number || '',
+          ward: row.ward || 'งานชันสูตรสาธารณสุข',
+          chkBodyClean: row.chk_body_clean ?? true,
+          chkPowerButton: row.chk_power_button ?? true,
+          chkStripSlot: row.chk_strip_slot ?? true,
+          chkBatterySlot: row.chk_battery_slot ?? true,
+          chkBattery: row.chk_battery ?? true,
+          chkScreenDisplay: row.chk_screen_display ?? true,
+          chkMeasurement: row.chk_measurement ?? true,
+          chkIqcPassed: row.chk_iqc_passed ?? true,
+          status: (row.status === 'issue' || row.status === 'fail') ? 'issue' : 'normal',
+          note: row.remark || row.note || row.notes || '',
+          operator: row.operator || row.inspector || row.staff_name || '',
+          createdAt: row.created_at
+        })).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase getDailyChecklists notice:', error.message || error);
+      }
+    }
+    return [];
+  },
+
+  async insertDailyChecklist(chk: DailyChecklist): Promise<DailyChecklist> {
+    const dbPayload = {
+      date: chk.date || new Date().toISOString().split('T')[0],
+      serial_number: chk.serialNumber, // S/N from manufacturer
+      operator: chk.operator,
+      status: chk.status,
+      chk_body_clean: chk.chkBodyClean,
+      chk_power_button: chk.chkPowerButton,
+      chk_strip_slot: chk.chkStripSlot,
+      chk_battery_slot: chk.chkBatterySlot,
+      chk_battery: chk.chkBattery,
+      chk_screen_display: chk.chkScreenDisplay,
+      chk_measurement: chk.chkMeasurement,
+      chk_iqc_passed: chk.chkIqcPassed,
+      remark: chk.note || ''
+    };
+
+    // Find the machine code (bgm_code) and machineSerial to map to repairPayload
+    let bgmCode = chk.serialNumber;
+    let mfgSerial = chk.serialNumber;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('dtx_machines');
+        if (stored) {
+          const machinesList = JSON.parse(stored);
+          const found = machinesList.find((m: any) => m.machineSerial === chk.serialNumber || m.serialNumber === chk.serialNumber);
+          if (found) {
+            bgmCode = found.serialNumber || found.machineSerial;
+            mfgSerial = found.machineSerial || found.serialNumber;
+          }
+        }
+      } catch {}
+    }
+
+    const repairPayload = {
+      bgm_code: bgmCode,
+      serial_number: mfgSerial,
+      ward: 'LAB', // Internal lab maintenance
+      reporter: chk.operator,
+      problem: `[Daily Checklist: ${chk.status}] Note: ${chk.note || '-'}`,
+      status: chk.status === 'issue' ? 'pending' : 'completed',
+      operator: chk.operator,
+      req_date: chk.date || new Date().toISOString().split('T')[0],
+      checklist: chk
+    };
+
+    if (getSupabaseClient()) {
+      const { data, error } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
+        'daily_checklists'
+      );
+      if (error) {
+        throw error;
+      }
+
+      await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([repairPayload]),
+        'repair_requests'
+      ).catch(() => {});
+
+      if (data) {
+        const row = data as any;
+        return {
+          id: row.id,
+          date: row.date,
+          serialNumber: row.serial_number,
+          ward: row.ward || 'งานชันสูตรสาธารณสุข',
+          chkBodyClean: row.chk_body_clean,
+          chkPowerButton: row.chk_power_button,
+          chkStripSlot: row.chk_strip_slot,
+          chkBatterySlot: row.chk_battery_slot,
+          chkBattery: row.chk_battery,
+          chkScreenDisplay: row.chk_screen_display,
+          chkMeasurement: row.chk_measurement,
+          chkIqcPassed: row.chk_iqc_passed,
+          status: row.status === 'issue' ? 'issue' : 'normal',
+          note: row.remark,
+          operator: row.operator,
+          createdAt: row.created_at
+        };
+      }
+    }
+
+    return chk;
+  },
+
+  async deleteDailyChecklist(id: string): Promise<void> {
+    if (getSupabaseClient()) {
+      const { error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'daily_checklists'
+      );
+      if (error && !isMissingTable) {
+        console.warn('Supabase deleteDailyChecklist notice:', error.message || error);
+      }
+    }
+    await safeApiFetch(`/api/daily-checklists/${id}`, { method: 'DELETE' });
   }
 };

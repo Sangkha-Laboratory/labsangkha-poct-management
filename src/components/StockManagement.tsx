@@ -5,13 +5,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import CustomSelect from "./CustomSelect";
-import { DtxMachine } from '../types';
+import { DtxMachine, MachineLocationLog } from '../types';
 import { dbService } from '../lib/supabase';
 import { 
   Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, 
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
   Upload, Download, FileSpreadsheet, FileDown, AlertTriangle, 
-  AlertCircle, CheckCircle2, Loader2, Sparkles
+  AlertCircle, CheckCircle2, Loader2, Sparkles, History, ArrowRightLeft,
+  Calendar, User, ArrowRight, Clock, Building2, Check, ArrowRightCircle
 } from 'lucide-react';
 
 interface StockManagementProps {
@@ -129,6 +130,19 @@ export default function StockManagement({
   const [remark, setRemark] = useState('');
 
   // =========================================================================
+  // Location History & Transfer States
+  // =========================================================================
+  const [selectedMachineForHistory, setSelectedMachineForHistory] = useState<DtxMachine | null>(null);
+  const [isOpenHistoryModal, setIsOpenHistoryModal] = useState(false);
+  const [transferToWard, setTransferToWard] = useState('');
+  const [transferActionType, setTransferActionType] = useState<MachineLocationLog['actionType']>('transfer');
+  const [transferReason, setTransferReason] = useState('');
+  const [transferOperator, setTransferOperator] = useState('');
+  const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transferStatus, setTransferStatus] = useState<DtxMachine['status']>('active');
+  const [isSavingTransfer, setIsSavingTransfer] = useState(false);
+
+  // =========================================================================
   // CSV Import States
   // =========================================================================
   const [isOpenCsvModal, setIsOpenCsvModal] = useState(false);
@@ -224,7 +238,7 @@ export default function StockManagement({
     const finalBrand = (isCustomBrand ? customBrand.trim() : brand).trim();
     const finalLot = (isCustomLot ? customLot.trim() : lotNumber).trim();
     const finalWard = ward.trim() || 'ไม่ระบุหน่วยงาน';
-    const finalSerial = machineSerial.trim().toUpperCase() || serialNumber.trim().toUpperCase();
+    const finalSerial = machineSerial.trim().toUpperCase() || '-';
 
     if (!serialNumber.trim()) {
       alert('กรุณาระบุรหัสเครื่อง (CODE)');
@@ -234,6 +248,22 @@ export default function StockManagement({
     if (isCodeDuplicate) {
       alert(`ข้อผิดพลาด: รหัสเครื่อง (CODE) "${trimmedCode}" ซ้ำกับเครื่องอื่นในคลัง! กรุณาตรวจสอบรหัสเครื่องใหม่อีกครั้ง`);
       return;
+    }
+
+    const existingMachine = deduplicatedMachines.find(m => m.id === currentMachineId || m.serialNumber === serialNumber.trim().toUpperCase());
+    let history: MachineLocationLog[] = existingMachine?.locationHistory ? [...existingMachine.locationHistory] : [];
+
+    // If editing and the ward was changed, automatically append an edit/transfer log
+    if (modalMode === 'edit' && existingMachine && existingMachine.ward && existingMachine.ward !== finalWard) {
+      history.unshift({
+        id: `LOG-${Date.now()}`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        fromWard: existingMachine.ward,
+        toWard: finalWard,
+        actionType: 'edit',
+        reason: remark.trim() || 'แก้ไขข้อมูลหน่วยงานประจำการ',
+        operator: 'ผู้ดูแลระบบ'
+      });
     }
 
     const machineData: DtxMachine = {
@@ -247,6 +277,7 @@ export default function StockManagement({
       receiveDate: receiveDate || new Date().toISOString().split('T')[0],
       lotNumber: finalLot,
       remark: remark.trim(),
+      locationHistory: history.length > 0 ? history : undefined,
     };
 
     if (modalMode === 'add') {
@@ -256,6 +287,104 @@ export default function StockManagement({
     }
 
     setIsOpenModal(false);
+  };
+
+  const openHistoryModal = (machine: DtxMachine) => {
+    setSelectedMachineForHistory(machine);
+    setTransferToWard('');
+    setTransferActionType('return_to_lab');
+    setTransferReason('');
+    setTransferOperator('');
+    setTransferDate(new Date().toISOString().split('T')[0]);
+    setTransferStatus(machine.status || 'active');
+    setIsOpenHistoryModal(true);
+  };
+
+  const applyReturnToLabPreset = () => {
+    const labWard = wards.find(w => w.thai_name.includes('LAB') || w.thai_name.includes('ห้องปฏิบัติการ'))?.thai_name || 'ห้องปฏิบัติการเทคนิคการแพทย์ (LAB)';
+    setTransferToWard(labWard);
+    setTransferActionType('return_to_lab');
+    setTransferReason('คนไข้ Home Ward สิ้นสุดการรักษา/ส่งคืนแลปเพื่อใช้เป็นเครื่องสำรองหมุนเวียน');
+    setTransferStatus('active');
+  };
+
+  const applyBackupLoanPreset = () => {
+    setTransferActionType('backup_loan');
+    setTransferReason('จ่ายยืมเป็นเครื่องสำรองทดแทนเครื่องส่งซ่อม');
+    setTransferStatus('active');
+  };
+
+  const applyWardTransferPreset = () => {
+    setTransferActionType('transfer');
+    setTransferReason('โอนย้ายสถานที่ติดตั้ง/ประจำการใหม่');
+    setTransferStatus('active');
+  };
+
+  const handleSaveTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMachineForHistory) return;
+    if (!transferToWard) {
+      alert('กรุณาเลือกหน่วยงานปลายทาง');
+      return;
+    }
+
+    setIsSavingTransfer(true);
+    try {
+      const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
+      const newLog: MachineLocationLog = {
+        id: `LOG-${Date.now()}`,
+        date: transferDate ? `${transferDate} ${nowStr.split(' ')[1] || '12:00'}` : nowStr,
+        fromWard: selectedMachineForHistory.ward || 'ไม่ระบุ',
+        toWard: transferToWard,
+        actionType: transferActionType,
+        reason: transferReason.trim() || (transferActionType === 'return_to_lab' ? 'ส่งคืนแลปเพื่อสำรอง' : 'โอนย้ายสถานที่ติดตั้ง'),
+        operator: transferOperator.trim() || 'เจ้าหน้าที่'
+      };
+
+      const existingLogs = selectedMachineForHistory.locationHistory || [];
+      const updatedHistory = [newLog, ...existingLogs];
+
+      const updatedMachine: DtxMachine = {
+        ...selectedMachineForHistory,
+        ward: transferToWard,
+        status: transferStatus,
+        locationHistory: updatedHistory,
+        remark: transferReason.trim() 
+          ? `[${transferActionType === 'return_to_lab' ? 'ส่งคืนแลป' : transferActionType === 'backup_loan' ? 'ยืมสำรอง' : 'โอนย้าย'}] ${transferReason.trim()}`
+          : selectedMachineForHistory.remark
+      };
+
+      await onUpdateMachine(updatedMachine);
+      setSelectedMachineForHistory(updatedMachine);
+      setTransferReason('');
+      alert(`บันทึกประวัติการย้ายเครื่อง ${selectedMachineForHistory.serialNumber} ไปยัง "${transferToWard}" เรียบร้อยแล้ว`);
+    } catch (err: any) {
+      console.error(err);
+      alert(`เกิดข้อผิดพลาดในการบันทึก: ${err.message}`);
+    } finally {
+      setIsSavingTransfer(false);
+    }
+  };
+
+  const handleCreateInitialLog = async () => {
+    if (!selectedMachineForHistory) return;
+    const initialLog: MachineLocationLog = {
+      id: `LOG-${Date.now()}`,
+      date: selectedMachineForHistory.receiveDate ? `${selectedMachineForHistory.receiveDate} 08:30` : new Date().toISOString().replace('T', ' ').substring(0, 16),
+      fromWard: 'คลังพัสดุ / บริษัทส่งมอบ',
+      toWard: selectedMachineForHistory.ward || 'ไม่ระบุ',
+      actionType: 'initial_deploy',
+      reason: 'บันทึกประวัติแรกเริ่มประจำการเครื่อง',
+      operator: 'ผู้ดูแลระบบ'
+    };
+
+    const updatedMachine: DtxMachine = {
+      ...selectedMachineForHistory,
+      locationHistory: [initialLog]
+    };
+
+    await onUpdateMachine(updatedMachine);
+    setSelectedMachineForHistory(updatedMachine);
   };
 
   const handleDelete = (id: string, serial: string) => {
@@ -986,7 +1115,19 @@ export default function StockManagement({
                     ) : '-'}
                   </td>
                   <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                    <div className="flex items-center justify-center space-x-2">
+                    <div className="flex items-center justify-center space-x-1.5">
+                      <button
+                        onClick={() => openHistoryModal(m)}
+                        className="p-1.5 hover:bg-amber-50 text-amber-600 rounded-lg hover:text-amber-500 transition-colors cursor-pointer relative"
+                        title="ประวัติการโอนย้าย/ส่งคืนแลป/เปลี่ยนสถานที่ประจำการ"
+                      >
+                        <History size={13} />
+                        {m.locationHistory && m.locationHistory.length > 0 && (
+                          <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-white rounded-full text-[8px] font-black flex items-center justify-center shadow-xs">
+                            {m.locationHistory.length}
+                          </span>
+                        )}
+                      </button>
                       <button
                         onClick={() => openEditModal(m)}
                         className="p-1.5 hover:bg-sky-50 text-sky-600 rounded-lg hover:text-sky-500 transition-colors cursor-pointer"
@@ -1503,14 +1644,13 @@ export default function StockManagement({
 
                 {/* Manufacturer Serial Number */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">หมายเลขซีเรียล (S/N) *</label>
+                  <label className="text-[11px] font-bold text-slate-700">หมายเลขซีเรียล (S/N) <span className="font-normal text-slate-400 text-[10px]">(เว้นว่างได้ถ้ายังไม่แกะกล่อง)</span></label>
                   <input
                     type="text"
-                    placeholder="เช่น 103A2002FB7"
+                    placeholder="เช่น 103A2002FB7 หรือเว้นว่าง"
                     value={machineSerial}
                     onChange={(e) => setMachineSerial(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 font-mono font-bold uppercase"
-                    required
                   />
                 </div>
               </div>
@@ -1676,6 +1816,331 @@ export default function StockManagement({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* LOCATION HISTORY & TRANSFER LOG MODAL */}
+      {/* ========================================================================= */}
+      {isOpenHistoryModal && selectedMachineForHistory && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-4 z-[100] animate-fadeIn" id="history-modal-overlay">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-100 max-h-[92vh] flex flex-col overflow-hidden animate-scaleUp">
+            
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                  <History size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    ประวัติการประจำการและโอนย้ายเครื่อง (Movement & History Log)
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    เครื่องรหัส <strong className="text-slate-700 font-mono">{selectedMachineForHistory.serialNumber}</strong> (S/N: {selectedMachineForHistory.machineSerial || '-'})
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsOpenHistoryModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-5 flex-1 text-xs">
+              
+              {/* Machine Quick Summary Card */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50/80 p-3 rounded-xl border border-slate-200/80">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">รหัสเครื่อง (CODE)</span>
+                  <span className="font-bold text-slate-800 font-mono text-xs">{selectedMachineForHistory.serialNumber}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">แบรนด์ / รุ่น</span>
+                  <span className="font-semibold text-slate-700">{selectedMachineForHistory.brand || '-'} ({selectedMachineForHistory.model || '-'})</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">หน่วยงานปัจจุบัน</span>
+                  <span className="font-bold text-sky-700 flex items-center">
+                    <Building2 size={11} className="mr-1 text-sky-600 shrink-0" />
+                    <span className="truncate">{selectedMachineForHistory.ward || '-'}</span>
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold block">สถานะปัจจุบัน</span>
+                  <div className="mt-0.5">{getStatusDisplay(selectedMachineForHistory.status)}</div>
+                </div>
+              </div>
+
+              {/* Action Form: Log New Transfer */}
+              <div className="bg-sky-50/40 p-4 rounded-xl border border-sky-100 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <h4 className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <ArrowRightLeft size={14} className="text-sky-600" />
+                    <span>บันทึกการโอนย้าย / ส่งคืนแลป / เบิกหมุนเวียน</span>
+                  </h4>
+
+                  {/* Fast Action Preset Buttons */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={applyReturnToLabPreset}
+                      className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-emerald-300/60"
+                      title="สำหรับกรณี Home Ward หรือหน่วยงานส่งเครื่องกลับมาไว้แลปเพื่อเวียนใช้"
+                    >
+                      🏢 ส่งคืนแลป (สำรอง/เวียน)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyBackupLoanPreset}
+                      className="bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-purple-300/60"
+                    >
+                      🔁 ยืมสำรองแทนเครื่องซ่อม
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyWardTransferPreset}
+                      className="bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-sky-300/60"
+                    >
+                      ➡️ ย้าย Ward ประจำการ
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveTransfer} className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    
+                    {/* Destination Ward */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">หน่วยงานปลายทาง (ย้ายไปที่) *</label>
+                      <CustomSelect
+                        value={transferToWard}
+                        onChange={(e) => setTransferToWard(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+                        required
+                      >
+                        <option value="">-- เลือกหน่วยงานปลายทาง --</option>
+                        {wards.map((w, idx) => (
+                          <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                        ))}
+                      </CustomSelect>
+                    </div>
+
+                    {/* Action Type */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">ประเภทรายการ *</label>
+                      <CustomSelect
+                        value={transferActionType}
+                        onChange={(e) => setTransferActionType(e.target.value as any)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+                        required
+                      >
+                        <option value="return_to_lab">🏢 ส่งคืนห้องแลป (สำรองหมุนเวียน)</option>
+                        <option value="backup_loan">🔁 จ่ายยืมสำรองทดแทนซ่อม</option>
+                        <option value="transfer">➡️ โอนย้ายเปลี่ยน Ward ประจำการ</option>
+                        <option value="edit">✏️ แก้ไขข้อมูลสถานที่</option>
+                      </CustomSelect>
+                    </div>
+
+                    {/* Transfer Date */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">วันที่ดำเนินการ</label>
+                      <input
+                        type="date"
+                        value={transferDate}
+                        onChange={(e) => setTransferDate(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* Reason / Remarks */}
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-[10px] font-bold text-slate-700">เหตุผล / รายละเอียดการย้าย *</label>
+                      <input
+                        type="text"
+                        placeholder="เช่น คนไข้ Home Ward สิ้นสุดการรักษา ส่งคืนแลปเพื่อใช้สำรองหมุนเวียน"
+                        value={transferReason}
+                        onChange={(e) => setTransferReason(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+                        required
+                      />
+                    </div>
+
+                    {/* Operator */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">ผู้ดำเนินการ / ผู้ส่งมอบ</label>
+                      <input
+                        type="text"
+                        placeholder="ชื่อเจ้าหน้าที่ผู้ดำเนินการ"
+                        value={transferOperator}
+                        onChange={(e) => setTransferOperator(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-bold text-slate-600">ปรับสถานะตัวเครื่องเป็น:</span>
+                      <CustomSelect
+                        value={transferStatus}
+                        onChange={(e) => setTransferStatus(e.target.value as any)}
+                        className="text-xs p-1 px-2 rounded-lg border border-slate-200 bg-white font-bold"
+                      >
+                        <option value="active">active (พร้อมใช้งาน)</option>
+                        <option value="inactive">inactive (ปิดใช้งาน/พักเครื่อง)</option>
+                        <option value="waiting_claim">รอส่งเคลม</option>
+                      </CustomSelect>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSavingTransfer}
+                      className="bg-sky-600 hover:bg-sky-500 disabled:bg-slate-300 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center space-x-1.5 transition-all shadow-sm cursor-pointer"
+                    >
+                      {isSavingTransfer ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin" />
+                          <span>กำลังบันทึก...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={13} />
+                          <span>บันทึกการโอนย้าย</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Section 2: Historical Movement Timeline */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <Clock size={14} className="text-slate-500" />
+                    <span>เส้นทางและประวัติการเคลื่อนย้ายทั้งหมด ({selectedMachineForHistory.locationHistory?.length || 0} รายการ)</span>
+                  </h4>
+
+                  {(!selectedMachineForHistory.locationHistory || selectedMachineForHistory.locationHistory.length === 0) && (
+                    <button
+                      type="button"
+                      onClick={handleCreateInitialLog}
+                      className="text-[11px] font-bold text-sky-600 hover:text-sky-700 bg-sky-50 hover:bg-sky-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer border border-sky-200"
+                    >
+                      + เริ่มบันทึกประวัติเริ่มต้น (ตาม Ward ปัจจุบัน)
+                    </button>
+                  )}
+                </div>
+
+                {(!selectedMachineForHistory.locationHistory || selectedMachineForHistory.locationHistory.length === 0) ? (
+                  <div className="text-center p-6 bg-slate-50/60 rounded-xl border border-slate-100 space-y-2">
+                    <History size={24} className="mx-auto text-slate-300" />
+                    <p className="text-xs text-slate-500 font-medium">ยังไม่มีประวัติการโอนย้ายที่บันทึกไว้สำหรับเครื่องนี้</p>
+                    <p className="text-[11px] text-slate-400 max-w-md mx-auto">
+                      เมื่อมีการส่งคืนแลป โอนย้ายเปลี่ยน Ward หรือบันทึกการจ่ายยืมสำรอง ระบบจะบันทึกประวัติและไทม์ไลน์การเคลื่อนย้ายให้อัตโนมัติ
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 relative before:absolute before:left-3.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                    {selectedMachineForHistory.locationHistory.map((log, idx) => {
+                      const isReturnLab = log.actionType === 'return_to_lab';
+                      const isBackup = log.actionType === 'backup_loan';
+                      const isInitial = log.actionType === 'initial_deploy';
+                      const isEdit = log.actionType === 'edit';
+
+                      return (
+                        <div key={log.id || idx} className="relative pl-8 space-y-1">
+                          {/* Timeline Node Icon */}
+                          <div className={`absolute left-1.5 top-1.5 w-4.5 h-4.5 -ml-0.5 rounded-full flex items-center justify-center text-white text-[9px] font-bold shadow-xs ${
+                            isReturnLab ? 'bg-emerald-500 ring-4 ring-emerald-100' :
+                            isBackup ? 'bg-purple-500 ring-4 ring-purple-100' :
+                            isInitial ? 'bg-slate-500 ring-4 ring-slate-100' :
+                            isEdit ? 'bg-amber-500 ring-4 ring-amber-100' :
+                            'bg-sky-500 ring-4 ring-sky-100'
+                          }`}>
+                            {idx === 0 ? '★' : idx + 1}
+                          </div>
+
+                          <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5 hover:border-slate-300 transition-colors">
+                            <div className="flex flex-wrap items-center justify-between gap-1.5">
+                              {/* Action Badge */}
+                              <div className="flex items-center space-x-1.5">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                  isReturnLab ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                  isBackup ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                  isInitial ? 'bg-slate-100 text-slate-700 border-slate-200' :
+                                  isEdit ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                  'bg-sky-50 text-sky-700 border-sky-200'
+                                }`}>
+                                  {isReturnLab ? '🏢 ส่งคืนห้องปฏิบัติการ (LAB)' :
+                                   isBackup ? '🔁 จ่ายยืมสำรองทดแทนซ่อม' :
+                                   isInitial ? '📦 บันทึกแรกเริ่มประจำการ' :
+                                   isEdit ? '✏️ แก้ไขข้อมูลสถานที่' :
+                                   '➡️ โอนย้ายเปลี่ยน Ward'}
+                                </span>
+
+                                {idx === 0 && (
+                                  <span className="text-[9px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded">
+                                    สถานที่ปัจจุบัน
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Date & Time */}
+                              <span className="text-[11px] text-slate-400 font-mono flex items-center">
+                                <Clock size={11} className="mr-1 text-slate-300" />
+                                {log.date}
+                              </span>
+                            </div>
+
+                            {/* Movement Route */}
+                            <div className="flex items-center space-x-2 text-xs font-bold pt-0.5">
+                              <span className="text-slate-500">{log.fromWard || 'ไม่ระบุ'}</span>
+                              <ArrowRight size={12} className="text-slate-400 shrink-0" />
+                              <span className="text-sky-700 font-black">{log.toWard}</span>
+                            </div>
+
+                            {/* Reason / Details */}
+                            {log.reason && (
+                              <p className="text-slate-600 text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                {log.reason}
+                              </p>
+                            )}
+
+                            {/* Operator */}
+                            <div className="text-[10px] text-slate-400 flex items-center justify-between pt-0.5">
+                              <span className="flex items-center">
+                                <User size={10} className="mr-1 text-slate-300" />
+                                ผู้บันทึก: <strong className="text-slate-600 ml-1">{log.operator || 'เจ้าหน้าที่'}</strong>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsOpenHistoryModal(false)}
+                className="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-colors cursor-pointer shadow-sm"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+
           </div>
         </div>
       )}

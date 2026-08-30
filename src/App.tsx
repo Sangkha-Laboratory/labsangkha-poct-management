@@ -15,6 +15,7 @@ import { DEFAULT_HOSPITAL_LOGO_BASE64 } from './assets/hospitalLogoBase64';
 import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
 import StockManagement from './components/StockManagement';
+import StripReagentStock from './components/StripReagentStock';
 import QCManagement from './components/QCManagement';
 import RepairManagement from './components/RepairManagement';
 import EQAManagement from './components/EQAManagement';
@@ -23,6 +24,8 @@ import LineNotifyConfig from './components/LineNotifyConfig';
 import SupabaseConfig from './components/SupabaseConfig';
 import DocumentsAndAnnouncementsManager from './components/DocumentsAndAnnouncementsManager';
 import PrivacyPolicyModal from './components/PrivacyPolicyModal';
+import { RoleSelector } from './components/RoleSelector';
+import { StaffQuickPortal } from './components/StaffQuickPortal';
 
 // Supabase Imports
 import { isSupabaseConfigured, getSupabaseConfigInfo, loginWithSupabaseAuth } from './lib/supabase';
@@ -42,18 +45,6 @@ export default function App() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const config = await getSupabaseConfigInfo();
-        if (!config.configured) {
-          console.log('Database not configured. Setting empty states.');
-          setMachines([]);
-          setRepairs([]);
-          setSupplies([]);
-          setQcRecords([]);
-          setLotConfigs([]);
-          setEqaRecords([]);
-          return;
-        }
-
         console.log('Fetching data from API/Supabase...');
         const [
           remoteMachines,
@@ -75,24 +66,18 @@ export default function App() {
           dbService.getAnnouncements().catch(() => [])
         ]);
 
-        setMachines(remoteMachines || []);
-        setRepairs(remoteRepairs || []);
-        setSupplies(remoteSupplies || []);
-        setQcRecords(remoteQc || []);
-        setLotConfigs(remoteLot || []);
-        setEqaRecords(remoteEqa || []);
-        if (remoteManuals) setManuals(remoteManuals);
-        if (remoteAnnouncements) setAnnouncements(remoteAnnouncements);
+        if (Array.isArray(remoteMachines)) setMachines(remoteMachines);
+        if (Array.isArray(remoteRepairs)) setRepairs(remoteRepairs);
+        if (Array.isArray(remoteSupplies)) setSupplies(remoteSupplies);
+        if (Array.isArray(remoteQc)) setQcRecords(remoteQc);
+        if (Array.isArray(remoteLot) && remoteLot.length > 0) setLotConfigs(remoteLot);
+        if (Array.isArray(remoteEqa)) setEqaRecords(remoteEqa);
+        if (Array.isArray(remoteManuals) && remoteManuals.length > 0) setManuals(remoteManuals);
+        if (Array.isArray(remoteAnnouncements) && remoteAnnouncements.length > 0) setAnnouncements(remoteAnnouncements);
 
-        setShowToast('เชื่อมต่อและดึงข้อมูลจากระบบ Supabase Cloud เรียบร้อยแล้ว');
+        setShowToast('โหลดข้อมูลระบบ DTX เรียบร้อยแล้ว');
       } catch (err) {
-        console.warn('DB Fetch failed, setting empty states:', err);
-        setMachines([]);
-        setRepairs([]);
-        setSupplies([]);
-        setQcRecords([]);
-        setLotConfigs([]);
-        setEqaRecords([]);
+        console.warn('DB Fetch notice:', err);
       }
     };
     fetchData();
@@ -125,13 +110,16 @@ export default function App() {
     return savedRole === 'admin' ? 'admin' : savedRole === 'staff' ? 'staff' : 'user';
   });
 
+  const [isSelectingRole, setIsSelectingRole] = useState<boolean>(true);
+  const [roleSelectorAuthMode, setRoleSelectorAuthMode] = useState<'selector' | 'staff_quick_login' | 'staff_full_login' | 'admin_login'>('selector');
+
   const [activeUserTab, setActiveUserTab] = useState<'repair' | 'supply' | 'track' | 'guide'>(() => {
     const saved = localStorage.getItem('dtx_active_user_tab');
     return (saved as any) || 'repair';
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAdminProfileOpen, setIsAdminProfileOpen] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'stock' | 'quality' | 'repair' | 'line' | 'supabase' | 'documents'>(() => {
+  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'stock' | 'strip_reagent' | 'iqc' | 'eqa' | 'quality' | 'repair' | 'line' | 'supabase' | 'documents'>(() => {
     const saved = localStorage.getItem('dtx_active_admin_tab');
     return (saved as any) || 'dashboard';
   });
@@ -297,29 +285,39 @@ export default function App() {
     localStorage.setItem('dtx_line_token', lineNotifyToken);
   }, [lineNotifyToken]);
 
-  const handleAddRepair = (newRepair: RepairRequest) => {
+  const handleAddRepair = async (newRepair: RepairRequest) => {
     setRepairs(prev => [newRepair, ...prev]);
-    if (isSupabaseConfigured()) {
-      dbService.insertRepair(newRepair).then(() => {
-        setShowToast('ส่งตั๋วแจ้งซ่อมเข้าสู่ฐานข้อมูลคลาวด์แล้ว');
-      }).catch(err => {
-        setShowToast(`แจ้งซ่อมบันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
-      });
+    try {
+      const saved = await dbService.insertRepair(newRepair);
+      if (saved && saved.id) {
+        setRepairs(prev => prev.map(r => r.id === newRepair.id ? { ...r, ...saved } : r));
+      }
+      setShowToast('ส่งคำขอแจ้งซ่อมเข้าสู่ฐานข้อมูลเรียบร้อยแล้ว');
+      return saved;
+    } catch (err: any) {
+      console.error('Failed to sync repair:', err);
+      setShowToast(`แจ้งซ่อมบันทึกในเครื่องแล้ว แต่เกิดปัญหาซิงก์ขึ้นคลาวด์: ${err?.message || err}`);
+      throw err;
     }
   };
 
-  const handleAddSupply = (newSupply: SupplyRequest) => {
+  const handleAddSupply = async (newSupply: SupplyRequest) => {
     setSupplies(prev => [newSupply, ...prev]);
-    if (isSupabaseConfigured()) {
-      dbService.insertSupply(newSupply).then(() => {
-        setShowToast('ส่งตั๋วเบิกอุปกรณ์เข้าสู่ฐานข้อมูลคลาวด์แล้ว');
-      }).catch(err => {
-        setShowToast(`ตั๋วเบิกบันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
-      });
+    try {
+      const saved = await dbService.insertSupply(newSupply);
+      if (saved && saved.id) {
+        setSupplies(prev => prev.map(s => s.id === newSupply.id ? { ...s, ...saved } : s));
+      }
+      setShowToast('ส่งคำขอเบิกอุปกรณ์เข้าสู่ฐานข้อมูลเรียบร้อยแล้ว');
+      return saved;
+    } catch (err: any) {
+      console.error('Failed to sync supply:', err);
+      setShowToast(`คำขอเบิกบันทึกในเครื่องแล้ว แต่เกิดปัญหาซิงก์ขึ้นคลาวด์: ${err?.message || err}`);
+      throw err;
     }
   };
 
-  const handleUpdateRepair = (updatedRepair: RepairRequest) => {
+  const handleUpdateRepair = async (updatedRepair: RepairRequest) => {
     setRepairs(prev => prev.map(r => r.id === updatedRepair.id ? updatedRepair : r));
     
     // If completed/waiting_claim/claimed, update corresponding machine status
@@ -338,27 +336,24 @@ export default function App() {
       return m;
     }));
 
-    if (isSupabaseConfigured()) {
+    try {
       // 1. Update repair record
-      dbService.updateRepair(updatedRepair.id, updatedRepair).then(() => {
-        setShowToast('อัปเดตสถานะงานซ่อมบนระบบคลาวด์สำเร็จ');
-      }).catch(err => {
-        console.error('Failed to sync updated repair:', err);
-      });
+      await dbService.updateRepair(updatedRepair.id, updatedRepair);
+      setShowToast('อัปเดตสถานะงานซ่อมบนระบบฐานข้อมูลสำเร็จ');
 
       // 2. Update corresponding machine status if affected
       if (affectedMachineId) {
-        dbService.updateMachine(affectedMachineId, {
+        await dbService.updateMachine(affectedMachineId, {
           status: updatedRepair.status === 'completed' ? 'active' : updatedRepair.status as any,
           lastQCDate: updatedRepair.status === 'completed' ? new Date().toISOString().split('T')[0] : undefined
-        }).catch(err => {
-          console.error('Failed to sync machine state:', err);
         });
       }
+    } catch (err: any) {
+      console.error('Failed to sync updated repair:', err);
     }
   };
 
-  const handleAddMachine = (newMachine: DtxMachine) => {
+  const handleAddMachine = async (newMachine: DtxMachine) => {
     const cleanCode = (newMachine.serialNumber || '').trim().toUpperCase();
     setMachines(prev => {
       // Check if machine with same serialNumber or ID already exists
@@ -374,55 +369,36 @@ export default function App() {
       return [...prev, newMachine];
     });
 
-    if (isSupabaseConfigured()) {
-      dbService.insertMachine(newMachine).then((saved) => {
-        if (saved && saved.id) {
-          setMachines(prev => prev.map(m => 
-            (m.serialNumber.trim().toUpperCase() === cleanCode || m.id === newMachine.id)
-              ? { ...m, ...saved, id: saved.id }
-              : m
-          ));
-        }
-        setShowToast('บันทึกเครื่องตรวจน้ำตาลใหม่ขึ้นคลาวด์สำเร็จ');
-      }).catch(err => {
-        setShowToast(`บันทึกเครื่องในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
-      });
+    try {
+      const saved = await dbService.insertMachine(newMachine);
+      if (saved && saved.id) {
+        setMachines(prev => prev.map(m => 
+          (m.serialNumber.trim().toUpperCase() === cleanCode || m.id === newMachine.id)
+            ? { ...m, ...saved, id: saved.id }
+            : m
+        ));
+      }
+      setShowToast('บันทึกเครื่องตรวจน้ำตาลใหม่ขึ้นฐานข้อมูลสำเร็จ');
+    } catch (err: any) {
+      setShowToast(`บันทึกเครื่องในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
     }
   };
 
   const handleBulkAddMachines = async (newMachines: DtxMachine[], overwrite = false): Promise<{ success: number; failed: number }> => {
-    if (isSupabaseConfigured()) {
-      const result = await dbService.insertMachinesBulk(newMachines, overwrite);
-      try {
-        const fresh = await dbService.getMachines();
-        if (fresh && fresh.length > 0) {
-          setMachines(fresh);
-        }
-      } catch (err) {
-        console.warn('Failed to refresh machines after bulk import:', err);
+    const result = await dbService.insertMachinesBulk(newMachines, overwrite);
+    try {
+      const fresh = await dbService.getMachines();
+      if (fresh && fresh.length > 0) {
+        setMachines(fresh);
       }
-      setShowToast(`นำเข้าข้อมูลสำเร็จ ${result.success} รายการ${result.failed > 0 ? ` (ไม่สำเร็จ ${result.failed} รายการ)` : ''}`);
-      return { success: result.success, failed: result.failed };
-    } else {
-      setMachines(prev => {
-        let updated = [...prev];
-        for (const m of newMachines) {
-          const codeVal = m.serialNumber.trim().toUpperCase();
-          const idx = updated.findIndex(item => item.serialNumber.trim().toUpperCase() === codeVal || item.id === m.id);
-          if (idx >= 0) {
-            if (overwrite) updated[idx] = m;
-          } else {
-            updated.push(m);
-          }
-        }
-        return updated;
-      });
-      setShowToast(`นำเข้าข้อมูลในเบราว์เซอร์สำเร็จ ${newMachines.length} รายการ`);
-      return { success: newMachines.length, failed: 0 };
+    } catch (err) {
+      console.warn('Failed to refresh machines after bulk import:', err);
     }
+    setShowToast(`นำเข้าข้อมูลสำเร็จ ${result.success} รายการ${result.failed > 0 ? ` (ไม่สำเร็จ ${result.failed} รายการ)` : ''}`);
+    return { success: result.success, failed: result.failed };
   };
 
-  const handleUpdateMachine = (updatedMachine: DtxMachine) => {
+  const handleUpdateMachine = async (updatedMachine: DtxMachine) => {
     const cleanCode = (updatedMachine.serialNumber || '').trim().toUpperCase();
     setMachines(prev => {
       // Find machine by ID or by CODE
@@ -442,34 +418,32 @@ export default function App() {
       return [...prev, updatedMachine];
     });
 
-    if (isSupabaseConfigured()) {
-      dbService.updateMachine(updatedMachine.id, updatedMachine).then((saved) => {
-        if (saved && saved.id) {
-          setMachines(prev => prev.map(m => 
-            (m.id === updatedMachine.id || (cleanCode && m.serialNumber.trim().toUpperCase() === cleanCode))
-              ? { ...m, ...saved }
-              : m
-          ));
-        }
-        setShowToast('อัปเดตข้อมูลเครื่องตรวจน้ำตาลบนคลาวด์สำเร็จ');
-      }).catch(err => {
-        console.error('Failed to sync updated machine:', err);
-      });
+    try {
+      const saved = await dbService.updateMachine(updatedMachine.id, updatedMachine);
+      if (saved && saved.id) {
+        setMachines(prev => prev.map(m => 
+          (m.id === updatedMachine.id || (cleanCode && m.serialNumber.trim().toUpperCase() === cleanCode))
+            ? { ...m, ...saved }
+            : m
+        ));
+      }
+      setShowToast('อัปเดตข้อมูลเครื่องตรวจน้ำตาลบนฐานข้อมูลสำเร็จ');
+    } catch (err: any) {
+      console.error('Failed to sync updated machine:', err);
     }
   };
 
-  const handleDeleteMachine = (id: string) => {
+  const handleDeleteMachine = async (id: string) => {
     setMachines(prev => prev.filter(m => m.id !== id && m.serialNumber !== id));
-    if (isSupabaseConfigured()) {
-      dbService.deleteMachine(id).then(() => {
-        setShowToast('ลบเครื่องตรวจน้ำตาลจากระบบคลาวด์สำเร็จ');
-      }).catch(err => {
-        console.error('Failed to sync deleted machine:', err);
-      });
+    try {
+      await dbService.deleteMachine(id);
+      setShowToast('ลบเครื่องตรวจน้ำตาลจากระบบฐานข้อมูลสำเร็จ');
+    } catch (err: any) {
+      console.error('Failed to sync deleted machine:', err);
     }
   };
 
-  const handleAddQcRecord = (newRecord: QcRecord) => {
+  const handleAddQcRecord = async (newRecord: QcRecord) => {
     setQcRecords(prev => [newRecord, ...prev]);
     // Also update machine's lastQCDate and active status if normal
     let affectedMachineId = '';
@@ -485,53 +459,46 @@ export default function App() {
       return m;
     }));
 
-    if (isSupabaseConfigured()) {
+    try {
       // 1. Insert QC Record
-      dbService.insertQcRecord(newRecord).then(() => {
-        setShowToast('ผลการตรวจวิเคราะห์คุณภาพ (QC) ถูกส่งขึ้นคลาวด์แล้ว');
-      }).catch(err => {
-        setShowToast(`ผล QC บันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
-      });
+      await dbService.insertQcRecord(newRecord);
+      setShowToast('ผลการตรวจวิเคราะห์คุณภาพ (QC) ถูกส่งขึ้นฐานข้อมูลแล้ว');
 
       // 2. Update machine affected states
       if (affectedMachineId) {
         const isNormal = newRecord.level1Status === 'normal' && newRecord.level2Status === 'normal' && newRecord.level3Status === 'normal';
-        dbService.updateMachine(affectedMachineId, {
+        await dbService.updateMachine(affectedMachineId, {
           lastQCDate: newRecord.date,
           status: isNormal ? 'active' : undefined
-        }).catch(err => {
-          console.error('Failed to sync machine state after QC:', err);
         });
       }
+    } catch (err: any) {
+      setShowToast(`ผล QC บันทึกในเครื่องแล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
     }
   };
 
-  const handleUpdateLotConfigs = (newConfigs: QcLotConfig[]) => {
+  const handleUpdateLotConfigs = async (newConfigs: QcLotConfig[]) => {
     setLotConfigs(newConfigs);
-    if (isSupabaseConfigured()) {
-      // Find which LOT was modified by looking at changes or just sync all
-      Promise.all(newConfigs.map(lot => dbService.insertLotConfig(lot).catch(err => {
-        // If it already exists (duplicate key error), update it instead
+    try {
+      await Promise.all(newConfigs.map(lot => dbService.insertLotConfig(lot).catch(err => {
         if (err.message?.includes('duplicate key') || err.code === '23505') {
           return dbService.updateLotConfig(lot.lotNumber, lot);
         }
         throw err;
-      }))).then(() => {
-        setShowToast('อัปเดตกำหนดค่าเป้าหมาย LOT น้ำยาบนระบบคลาวด์แล้ว');
-      }).catch(err => {
-        console.error('Failed to sync lot configs:', err);
-      });
+      })));
+      setShowToast('อัปเดตกำหนดค่าเป้าหมาย LOT น้ำยาบนระบบฐานข้อมูลแล้ว');
+    } catch (err: any) {
+      console.error('Failed to sync lot configs:', err);
     }
   };
 
-  const handleAddEqaRecord = (newEqa: EqaRecord) => {
+  const handleAddEqaRecord = async (newEqa: EqaRecord) => {
     setEqaRecords(prev => [newEqa, ...prev]);
-    if (isSupabaseConfigured()) {
-      dbService.insertEqaRecord(newEqa).then(() => {
-        setShowToast('ส่งผลประเมินภายนอก (EQA) ขึ้นฐานข้อมูลคลาวด์แล้ว');
-      }).catch(err => {
-        setShowToast(`ผล EQA บันทึกในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
-      });
+    try {
+      await dbService.insertEqaRecord(newEqa);
+      setShowToast('ส่งผลประเมินภายนอก (EQA) ขึ้นฐานข้อมูลเรียบร้อยแล้ว');
+    } catch (err: any) {
+      setShowToast(`ผล EQA บันทึกในเบราว์เซอร์แล้ว แต่ไม่สามารถซิงก์ขึ้นคลาวด์: ${err.message}`);
     }
   };
 
@@ -550,25 +517,30 @@ export default function App() {
       {!(role === 'admin' && isAdminLoggedIn) && (
         <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-sky-100 dark:border-slate-800 sticky top-0 z-40 shadow-md shadow-slate-200/50 dark:shadow-none no-print relative" id="app-header">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div onClick={() => { setRole('user'); localStorage.setItem('dtx_role', 'user'); setActiveUserTab('repair'); }} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer">
-              {/* ไอคอนกล้องจุลทรรศน์ */}
-              <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
-                <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+            <div className="flex items-center space-x-3 sm:space-x-4">
+              <div onClick={() => setIsSelectingRole(true)} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" title="กลับสู่หน้าเลือกประเภทผู้ใช้งาน (Select Role)">
+                {/* ไอคอนกล้องจุลทรรศน์ */}
+                <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
+                  <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                </div>
+                {/* ข้อความชื่อหน่วยงาน */}
+                <div>
+                  <h1 className="text-xs sm:text-sm font-black text-gray-900 dark:text-white leading-tight whitespace-nowrap">
+                    กลุ่มงานเทคนิคการแพทย์
+                  </h1>
+                  <p className="text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-tight">
+                    โรงพยาบาลสังขะ
+                  </p>
+                </div>
               </div>
-              {/* ข้อความชื่อหน่วยงาน */}
-              <div>
-                <h1 className="text-xs sm:text-sm font-black text-gray-900 dark:text-white leading-tight whitespace-nowrap">
-                  กลุ่มงานเทคนิคการแพทย์
-                </h1>
-                <p className="text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase tracking-tight">
-                  โรงพยาบาลสังขะ
-                </p>
-              </div>
+
+
             </div>
 
             {/* PC Navigation: Elegant service tabs directly in header */}
             <div className="hidden md:flex items-center space-x-1 lg:space-x-2 h-16">
-              {role === 'user' ? (
+              
+              {role === 'user' && !isSelectingRole ? (
                 <div className="flex items-center space-x-2 lg:space-x-4 mr-1 lg:mr-2 h-16">
                   <button
                     onClick={() => setActiveUserTab('repair')}
@@ -603,23 +575,7 @@ export default function App() {
                     <span>คู่มือ & เอกสาร</span>
                   </button>
                 </div>
-              ) : (
-                <div className="flex items-center mr-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRole('user');
-                      localStorage.setItem('dtx_role', 'user');
-                    }}
-                    className="bg-sky-50 hover:bg-sky-100 text-sky-700 font-extrabold px-3.5 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition-all shadow-2xs border border-sky-200 cursor-pointer"
-                    id="header-back-main-btn"
-                    title="กลับสู่หน้าหลักสำหรับผู้ใช้งานทั่วไป"
-                  >
-                    <ArrowLeft size={13} className="text-sky-600" />
-                    <span>กลับสู่หน้าหลัก</span>
-                  </button>
-                </div>
-              )}
+              ) : null}
 
               {/* Header Right Tools & Profile Menu */}
               <div className="flex items-center space-x-2 border-l border-slate-200 dark:border-slate-700 pl-4 h-8 relative">
@@ -660,7 +616,8 @@ export default function App() {
             </div>
 
             {/* Mobile Navigation Icons */}
-            <div className="flex md:hidden items-center space-x-2.5">
+            <div className="flex md:hidden items-center space-x-2">
+              
               <button 
                 type="button"
                 onClick={toggleDarkMode}
@@ -675,15 +632,11 @@ export default function App() {
               </button>
               <button 
                 onClick={() => {
-                  setRole('admin');
-                  localStorage.setItem('dtx_role', 'admin');
+                  setIsSelectingRole(true);
                   setIsMobileMenuOpen(false);
-                  if (!isAdminLoggedIn) {
-                    setShowToast('กรุณาเข้าสู่ระบบสำหรับเจ้าหน้าที่และผู้ดูแล');
-                  }
                 }}
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${role === 'admin' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600'}`}
-                title="เข้าสู่ระบบผู้ดูแลระบบ"
+                title="เลือกประเภทผู้ใช้งาน"
               >
                 <User size={14} />
               </button>
@@ -703,11 +656,25 @@ export default function App() {
               <div className="bg-white border border-slate-200/80 rounded-2xl shadow-md p-1.5 space-y-1">
                 <button
                   onClick={() => {
+                    setIsSelectingRole(true);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between p-3.5 text-left text-xs font-bold rounded-xl transition-all bg-sky-50 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-800"
+                >
+                  <div className="flex items-center space-x-3">
+                    <ArrowLeft size={16} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                    <span>ย้อนกลับ</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
                     setRole('user');
+                    setIsSelectingRole(false);
                     setActiveUserTab('repair');
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between p-3.5 text-left text-xs font-semibold rounded-xl transition-all ${role === 'user' && activeUserTab === 'repair' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50/50'}`}
+                  className={`w-full flex items-center justify-between p-3.5 text-left text-xs font-semibold rounded-xl transition-all ${!isSelectingRole && role === 'user' && activeUserTab === 'repair' ? 'bg-sky-50 text-sky-700 font-bold' : 'text-slate-600 hover:bg-slate-50/50'}`}
                 >
                   <div className="flex items-center space-x-3">
                     <Wrench size={14} className={role === 'user' && activeUserTab === 'repair' ? 'text-sky-600' : 'text-slate-400'} />
@@ -774,7 +741,7 @@ export default function App() {
           }`}
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-end space-x-3 pointer-events-none">
-          {/* Live Sync Status Pill */}
+        {/* Live Sync Status Pill */}
           <div className="pointer-events-auto bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-100 dark:border-slate-800 rounded-full px-3.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 shadow-xs flex items-center space-x-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span className="text-emerald-600 dark:text-emerald-400 font-black">LIVE</span>
@@ -783,6 +750,17 @@ export default function App() {
               Last updated: {new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           </div>
+
+          {/* Switch Role Button inside Admin Header */}
+          <button
+            type="button"
+            onClick={() => setIsSelectingRole(true)}
+            className="pointer-events-auto px-3 py-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold shadow-xs flex items-center space-x-1.5 cursor-pointer transition-all"
+            title="สลับประเภทผู้ใช้งาน (Role Switcher)"
+          >
+            <RotateCcw size={12} className="text-sky-500" />
+            <span>สลับบทบาท</span>
+          </button>
 
           {/* Dark Mode Toggle Button */}
           <button
@@ -863,7 +841,63 @@ export default function App() {
         id="app-workspace"
       >
         <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        {role === 'user' ? (
+          {!isSelectingRole && (
+            <div className="flex justify-start no-print" id="global-sub-header-back-button">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectingRole(true);
+                  if (role === 'staff') {
+                    // 1-step back: return to Quick Win login screen (selecting operator name)
+                    setRoleSelectorAuthMode('staff_quick_login');
+                  } else {
+                    setRoleSelectorAuthMode('selector');
+                  }
+                  if (role === 'admin' && isAdminLoggedIn) {
+                    setIsAdminLoggedIn(false);
+                    localStorage.removeItem('dtx_admin_session');
+                    setShowToast('กลับสู่หน้าหลักและออกจากระบบเรียบร้อยแล้ว');
+                  }
+                }}
+                className="inline-flex items-center space-x-2 px-3.5 py-2 bg-white hover:bg-sky-50 dark:bg-slate-900 dark:hover:bg-sky-950/40 border border-slate-200 dark:border-slate-800 hover:border-sky-300 text-slate-700 dark:text-slate-200 text-xs font-black rounded-xl transition-all cursor-pointer shadow-3xs"
+                title="ย้อนกลับ"
+              >
+                <ArrowLeft size={14} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                <span>ย้อนกลับ</span>
+              </button>
+            </div>
+          )}
+          {isSelectingRole ? (
+          // DEDICATED ROLE SELECTION SCREEN
+          <RoleSelector
+            currentRole={role}
+            isAdminLoggedIn={isAdminLoggedIn}
+            initialAuthMode={roleSelectorAuthMode}
+            onSelectRole={(selectedRole, staffInfo) => {
+              setRole(selectedRole);
+              localStorage.setItem('dtx_role', selectedRole);
+              setIsSelectingRole(false);
+              if (selectedRole === 'user') {
+                setActiveUserTab('repair');
+                setShowToast('เข้าสู่โหมดผู้ใช้งาน Ward (Ward Portal)');
+              } else if (selectedRole === 'staff') {
+                setActiveAdminTab('quality');
+                if (staffInfo && staffInfo.full_name) {
+                  localStorage.setItem('dtx_qc_operator', staffInfo.full_name);
+                }
+                setShowToast(`ยินดีต้อนรับเจ้าหน้าที่ ${staffInfo?.full_name || 'งานชันสูตร'}`);
+              } else if (selectedRole === 'admin') {
+                setActiveAdminTab('dashboard');
+                if (!isAdminLoggedIn) {
+                  setShowToast('กรุณากรอกรหัสผ่านเพื่อเข้าสู่ระบบผู้ดูแล');
+                } else {
+                  setShowToast('เข้าสู่ระบบผู้ดูแลระบบ (Admin Panel)');
+                }
+              }
+            }}
+            onClose={() => setIsSelectingRole(false)}
+          />
+        ) : role === 'user' ? (
           // USER STAFF LANDING PAGE
           <LandingPage
             machines={machines}
@@ -877,21 +911,22 @@ export default function App() {
             manuals={manuals}
             announcements={announcements}
             onOpenPrivacy={() => setShowPrivacyModal(true)}
+            onSwitchToRoleSelector={() => setIsSelectingRole(true)}
+          />
+        ) : role === 'staff' ? (
+          // LAB STAFF QUICK PORTAL (MEMBER WORKFLOW)
+          <StaffQuickPortal
+            machines={machines}
+            qcRecords={qcRecords}
+            lotConfigs={lotConfigs}
+            supplies={supplies}
+            onAddQcRecord={handleAddQcRecord}
+            onAddSupply={handleAddSupply}
+            onSwitchToRoleSelector={() => setIsSelectingRole(true)}
           />
         ) : !isAdminLoggedIn ? (
           // ADMIN LOGIN FORM
           <div className="max-w-md mx-auto space-y-4 mt-8">
-            <button
-              type="button"
-              onClick={() => {
-                setRole('user');
-                localStorage.setItem('dtx_role', 'user');
-              }}
-              className="inline-flex items-center space-x-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-            >
-              <ArrowLeft size={14} className="text-sky-600" />
-              <span>กลับสู่หน้าหลัก</span>
-            </button>
 
             {showTimeoutNotice && (
               <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex items-start space-x-2.5 shadow-2xs animate-fade-in" id="timeout-alert-banner">
@@ -1056,15 +1091,22 @@ export default function App() {
                       groupLabel: 'MAIN',
                       items: [
                         { id: 'dashboard', label: 'Overview', icon: LayoutGrid },
-                        { id: 'stock', label: 'All Stock', icon: Layers, badge: machines.length },
+                        { id: 'stock', label: 'DTX Machines Stock', icon: Layers, badge: machines.length },
+                        { id: 'strip_reagent', label: 'Strip & Reagent Stock', icon: Package },
                         { id: 'repair', label: 'Repairs', icon: Wrench, badge: repairs.filter(r => r.status !== 'completed').length },
                       ]
                     },
                     {
-                      groupLabel: 'CONTENT',
+                      groupLabel: 'QUALITY & POCT',
+                      items: [
+                        { id: 'iqc', label: 'IQC Management', icon: Activity },
+                        { id: 'eqa', label: 'EQA Management', icon: ShieldCheck },
+                      ]
+                    },
+                    {
+                      groupLabel: 'SYSTEM & GUIDES',
                       items: [
                         { id: 'documents', label: 'Announcements', icon: Megaphone },
-                        { id: 'quality', label: 'Support IQC/EQA', icon: ShieldCheck },
                         { id: 'line', label: 'LINE Settings', icon: Settings },
                         { id: 'supabase', label: 'System Logs', icon: Database },
                       ]
@@ -1116,14 +1158,28 @@ export default function App() {
                 </nav>
               </div>
 
-              {/* Sidebar Footer / Logout Action */}
-              <div className="w-full pt-3 border-t border-slate-100 dark:border-slate-800">
+              {/* Sidebar Footer / Switch Role & Logout Action */}
+              <div className="w-full pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1">
                 <button
                   type="button"
                   onClick={() => {
-                    setRole('user');
-                    localStorage.setItem('dtx_role', 'user');
+                    setIsSelectingRole(true);
+                  }}
+                  className={`w-full flex items-center transition-all cursor-pointer text-xs font-bold text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 ${
+                    isSidebarCollapsed ? 'justify-center w-10 h-10 rounded-2xl mx-auto' : 'px-3.5 py-2.5 space-x-3 rounded-2xl'
+                  }`}
+                  title="ย้อนกลับไปหน้าเลือกประเภทผู้ใช้งาน (Select Role)"
+                >
+                  <ArrowLeft size={18} className="shrink-0 text-sky-600 dark:text-sky-400" />
+                  {!isSidebarCollapsed && <span>สลับบทบาทผู้ใช้</span>}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
                     setIsAdminLoggedIn(false);
+                    setIsSelectingRole(true);
+                    localStorage.removeItem('dtx_admin_session');
                     setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
                   }}
                   className={`w-full flex items-center transition-all cursor-pointer text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 ${
@@ -1147,8 +1203,10 @@ export default function App() {
               >
                 <option value="dashboard">สรุปภาพรวม (Overview)</option>
                 <option value="stock">คลังเครื่องมือ (DTX Stock)</option>
+                <option value="strip_reagent">คลังแผ่นตรวจ & Control Solution</option>
                 <option value="repair">งานซ่อมบำรุง (Repairs)</option>
-                <option value="quality">งานคุณภาพ (IQC & EQA)</option>
+                <option value="iqc">งานคุณภาพ IQC (Internal QC)</option>
+                <option value="eqa">งานคุณภาพ EQA (External QC)</option>
                 <option value="documents">จัดการคู่มือ & ประชาสัมพันธ์</option>
                 <option value="line">ตั้งค่าแจ้งเตือน LINE</option>
                 <option value="supabase">เชื่อมต่อ Supabase</option>
@@ -1173,6 +1231,14 @@ export default function App() {
                   onBulkAddMachines={handleBulkAddMachines}
                 />
               )}
+              {activeAdminTab === 'strip_reagent' && (
+                <StripReagentStock
+                  lotConfigs={lotConfigs}
+                  supplies={supplies}
+                  machines={machines}
+                  onUpdateLotConfigs={handleUpdateLotConfigs}
+                />
+              )}
               {activeAdminTab === 'repair' && (
                 <RepairManagement
                   repairs={repairs}
@@ -1180,7 +1246,25 @@ export default function App() {
                   lineNotifyToken={lineNotifyToken}
                 />
               )}
-              {(activeAdminTab === 'quality' || (activeAdminTab as string) === 'qc' || (activeAdminTab as string) === 'eqa') && (
+              {activeAdminTab === 'iqc' && (
+                <QCManagement
+                  machines={machines}
+                  qcRecords={qcRecords}
+                  lotConfigs={lotConfigs}
+                  onAddQcRecord={handleAddQcRecord}
+                  onUpdateLotConfigs={handleUpdateLotConfigs}
+                  role={role}
+                />
+              )}
+              {activeAdminTab === 'eqa' && (
+                <EQAManagement
+                  machines={machines}
+                  eqaRecords={eqaRecords}
+                  onAddEqaRecord={handleAddEqaRecord}
+                  role={role}
+                />
+              )}
+              {activeAdminTab === 'quality' && (
                 <QualityManagement
                   machines={machines}
                   qcRecords={qcRecords}
@@ -1189,7 +1273,6 @@ export default function App() {
                   onUpdateLotConfigs={handleUpdateLotConfigs}
                   eqaRecords={eqaRecords}
                   onAddEqaRecord={handleAddEqaRecord}
-                  initialSubTab={(activeAdminTab as string) === 'eqa' ? 'eqa' : 'iqc'}
                   role={role}
                 />
               )}

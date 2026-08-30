@@ -27,7 +27,7 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
   const [chatHistory, setChatHistory] = useState<Array<{ sender: 'bot' | 'user'; text?: string; isFlex?: boolean; flexData?: RepairRequest }>>([
     {
       sender: 'bot',
-      text: 'สวัสดีครับ! ยินดีต้อนรับสู่ระบบอัตโนมัติของกลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ [ระบบบริการ]\n\nเมื่อมีการกรอกใบแจ้งซ่อมเครื่องตรวจน้ำตาลปลายนิ้ว (DTX) จากพยาบาลที่วอร์ด ตั๋วส่งซ่อม Flex Card จะพ่นเข้าห้องแชทของทีมช่างทันที!'
+      text: 'สวัสดีครับ! ยินดีต้อนรับสู่ระบบอัตโนมัติของกลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ [ระบบบริการ]\n\nเมื่อมีการกรอกใบแจ้งซ่อมเครื่องตรวจน้ำตาลปลายนิ้ว (DTX) จากพยาบาลที่ Ward ตั๋วส่งซ่อม Flex Card จะพ่นเข้าห้องแชทของทีมช่างทันที!'
     }
   ]);
 
@@ -436,7 +436,7 @@ export default function LineNotifyConfig({ token, onUpdateToken, repairs, onUpda
                               <span className="font-bold text-sky-600 font-mono">{rep.serialNumber}</span>
                             </div>
                             <div className="flex justify-between items-center pb-1 border-b border-slate-50">
-                              <span className="text-slate-400 font-medium">วอร์ดผู้ส่ง</span>
+                              <span className="text-slate-400 font-medium">Ward ผู้ส่ง</span>
                               <span className="font-bold text-slate-800">{rep.ward}</span>
                             </div>
 

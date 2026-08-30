@@ -3,6 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface MasterWard {
+  id?: string;
+  thai_name: string;
+  en_name?: string;
+}
+
+export interface MachineLocationLog {
+  id: string;
+  date: string; // YYYY-MM-DD or YYYY-MM-DD HH:mm
+  fromWard?: string;
+  toWard: string;
+  actionType: 'transfer' | 'return_to_lab' | 'initial_deploy' | 'backup_loan' | 'edit';
+  reason?: string;
+  operator?: string;
+}
+
 export interface DtxMachine {
   id: string;
   serialNumber: string; // This acts as the CODE (e.g. BGM-000)
@@ -15,6 +31,7 @@ export interface DtxMachine {
   lastQCDate?: string;
   lotNumber: string; // LOT of the machine
   remark?: string;
+  locationHistory?: MachineLocationLog[];
 }
 
 export interface RepairChecklist {
@@ -58,8 +75,24 @@ export interface SupplyRequest {
   itemType: 'machine' | 'strip' | 'lancet' | 'control_solution' | 'battery';
   quantity: number;
   reason: string;
-  requestDate: string;
+  requestDate: string; // วันที่ทำรายการเบิก
+  issueDate?: string; // วันที่เบิกใช้งานจริง
   status: 'pending' | 'approved' | 'rejected';
+  details?: {
+    barcode?: string;
+    lotNumber?: string;
+    expiryDate?: string;
+    testsPerBox?: number;
+    postOpenDays?: number;
+    receivedDate?: string;
+    level1Min?: string;
+    level1Max?: string;
+    level2Min?: string;
+    level2Max?: string;
+    level3Min?: string;
+    level3Max?: string;
+    openStabilityDays?: string;
+  };
 }
 
 export interface QcRecord {
@@ -81,6 +114,14 @@ export interface QcRecord {
 
 export interface QcLotConfig {
   lotNumber: string;
+  barcode?: string; // บาร์โค้ดกล่อง (Box Barcode)
+  testsPerBox?: number; // จำนวน Test ต่อกล่อง (default 50)
+  receivedDate?: string; // วันที่รับเข้าคลัง (YYYY-MM-DD)
+  expDate?: string; // วันหมดอายุตามฉลาก (YYYY-MM-DD)
+  openDate?: string; // วันที่เปิดขวดใช้งาน (YYYY-MM-DD)
+  openExpDays?: number; // อายุการใช้งานหลังเปิดขวด (วัน เช่น 90 วัน)
+  manufacturer?: string; // บริษัท/ผู้ผลิต
+  notes?: string;
   level1Target: number;
   level1Min: number;
   level1Max: number;
@@ -93,6 +134,23 @@ export interface QcLotConfig {
   level3Min: number;
   level3Max: number;
   level3SD: number;
+}
+
+export interface StripReagentItem {
+  id: string;
+  itemCode: string; // เช่น 'ST-LOT2026A-01' (Unique Code รายกล่อง)
+  lotNumber: string;
+  manufacturer?: string;
+  itemType: 'strip' | 'control_solution';
+  receivedDate: string;
+  expDate: string;
+  openDate?: string;
+  openExpDate?: string;
+  status: 'in_stock' | 'in_use' | 'depleted';
+  openedBy?: string;
+  notes?: string;
+  boxIndex?: number;
+  totalBoxes?: number;
 }
 
 export interface EqaAttachment {
@@ -176,4 +234,34 @@ export interface DtxErrorCode {
   meaning: string;
   solution: string;
   severity: 'warning' | 'error' | 'critical';
+}
+
+export interface DailyChecklist {
+  id: string;
+  date: string;
+  serialNumber: string;
+  ward: string;
+  chkBodyClean: boolean;      // 1.1. วัสดุตัวเครื่องและความสะอาด
+  chkPowerButton: boolean;    // 1.2. ปุ่มเปิด/ปิด
+  chkStripSlot: boolean;      // 1.3. ช่องเสียบ Strip
+  chkBatterySlot: boolean;    // 1.4. ช่องใส่ถ่าน
+  chkBattery: boolean;        // 2. ถ่าน
+  chkScreenDisplay: boolean;  // 3. การแสดงผลหน้าจอ
+  chkMeasurement: boolean;    // 4. การตรวจวัดค่าและแสดงผลการตรวจวัด
+  chkIqcPassed: boolean;      // 5. การควบคุมภาพภายใน (IQC) ผ่านเกณฑ์
+  status: 'normal' | 'issue';
+  note: string;
+  operator: string;
+  createdAt?: string;
+}
+
+export interface MaintenanceLog {
+  id: string;
+  date: string;
+  serialNumber: string;
+  ward?: string;
+  actionType: 'battery_change' | 'cleaning' | 'calibration' | 'repair';
+  description: string;
+  operator: string;
+  createdAt?: string;
 }

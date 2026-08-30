@@ -52,12 +52,12 @@ export default function QualityManagement({
           </div>
         </div>
 
-        {/* Sub-tab pills */}
-        <div className="flex items-center p-1.5 bg-white rounded-2xl border border-slate-200/90 shadow-2xs w-full md:w-auto">
+        {/* Main Category Sub-tab pills */}
+        <div className="flex items-center p-1.5 bg-slate-100 rounded-2xl border border-slate-200/90 shadow-2xs w-full md:w-auto">
           <button
             type="button"
             onClick={() => setActiveSubTab('iqc')}
-            className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+            className={`flex-1 md:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
               activeSubTab === 'iqc'
                 ? 'bg-white text-sky-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -104,3 +104,4 @@ export default function QualityManagement({
     </div>
   );
 }
+

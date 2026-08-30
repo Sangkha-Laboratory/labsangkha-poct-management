@@ -755,7 +755,59 @@ const POCT_QUICK_BRIDGE_SQL = `-- ==============================================
 -- เปิดสิทธิ์ RLS และ API เฉพาะภายใน schema dtx_system (ไม่สร้างหรือยุ่งกับ public)
 -- ==========================================================================
 
--- 1. ให้สิทธิ์การใช้งานสกีมาและตารางแก่ anon, authenticated, service_role และ postgres
+-- 1. สร้างตารางผู้ใช้ dtx_system.users หากยังไม่มี และให้สิทธิ์สกีมา
+CREATE TABLE IF NOT EXISTS dtx_system.users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(100) UNIQUE NOT NULL,
+    email VARCHAR(150),
+    full_name VARCHAR(200) NOT NULL,
+    password VARCHAR(255) DEFAULT '123456',
+    role VARCHAR(50) DEFAULT 'staff' NOT NULL,
+    position VARCHAR(100) DEFAULT 'MT',
+    pos VARCHAR(100) DEFAULT 'MT',
+    ward VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- เพิ่มคอลัมน์เพื่อความยืดหยุ่นในกรณีตารางเดิมมีอยู่แล้วแต่โครงสร้างไม่สมบูรณ์
+ALTER TABLE IF EXISTS dtx_system.users ADD COLUMN IF NOT EXISTS pos VARCHAR(100) DEFAULT 'MT';
+ALTER TABLE IF EXISTS dtx_system.users ADD COLUMN IF NOT EXISTS position VARCHAR(100) DEFAULT 'MT';
+
+-- เติมข้อมูลเจ้าหน้าที่เริ่มต้น สำหรับเปิดโหมด Quick Win ได้ทันที
+INSERT INTO dtx_system.users (username, full_name, email, position, pos, role, is_active) VALUES
+('umporn', 'คุณอัมพร', 'umporn@sangkha.com', 'MT', 'MT', 'staff', true),
+('wichuda', 'คุณวิชุดา', 'wichuda@sangkha.com', 'MT', 'MT', 'staff', true),
+('chonratda', 'คุณชลรัตดา', 'chonratda@sangkha.com', 'MT', 'MT', 'staff', true),
+('udomsri', 'คุณอุดมศรี', 'udomsri@sangkha.com', 'MTA', 'MTA', 'staff', true),
+('samita', 'คุณสมิตา', 'samita.sings@gmail.com', 'MT', 'MT', 'staff', true)
+ON CONFLICT (username) DO NOTHING;
+
+-- เติมข้อมูลเครื่องตรวจน้ำตาลเริ่มต้นเพื่อให้หน้า Quick Win แสดงผลทันที
+INSERT INTO dtx_system.dtx_machines (bgm_code, serial_number, brand, model, ward, status, rec_date, lot_number) VALUES
+('BGM-01', 'VCF2026001', 'VivaChek', 'Fad', 'OPD (ผู้ป่วยนอก)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-02', 'VCF2026002', 'VivaChek', 'Fad', 'ER (อุบัติเหตุและฉุกเฉิน)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-03', 'VCF2026003', 'VivaChek', 'Fad', 'IPD ชาย (หอผู้ป่วยในชาย)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-04', 'VCF2026004', 'VivaChek', 'Fad', 'IPD หญิง (หอผู้ป่วยในหญิง)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-05', 'VCF2026005', 'VivaChek', 'Fad', 'ห้องคลอด (Labor Room)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-06', 'VCF2026006', 'VivaChek', 'Fad', 'ICU (หอผู้ป่วยหนัก)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-07', 'VCF2026007', 'VivaChek', 'Fad', 'คลินิก NCD / เบาหวาน', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-08', 'VCF2026008', 'VivaChek', 'Fad', 'งานชันสูตรสาธารณสุข', 'active', '2026-01-01', 'LOT2026-A')
+ON CONFLICT (bgm_code) DO NOTHING;
+
+-- เติมข้อมูล LOT ควบคุมคุณภาพเริ่มต้น (QC Lot Configuration)
+INSERT INTO dtx_system.qc_lot_configs (
+    lot_number, 
+    l1_target, l1_min, l1_max, l1_sd, 
+    l2_target, l2_min, l2_max, l2_sd, 
+    l3_target, l3_min, l3_max, l3_sd
+) VALUES (
+    'LOT2026-A',
+    45.0, 30.0, 60.0, 1.5,
+    120.0, 100.0, 140.0, 3.0,
+    300.0, 250.0, 350.0, 8.0
+) ON CONFLICT (lot_number) DO NOTHING;
+
 GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
 GRANT ALL ON ALL TABLES IN SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
@@ -771,6 +823,7 @@ ALTER TABLE IF EXISTS dtx_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.eqa_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.user_manuals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.users ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "wards_all_policy" ON dtx_system.master_wards;
 DROP POLICY IF EXISTS "machines_all_policy" ON dtx_system.dtx_machines;
@@ -781,6 +834,7 @@ DROP POLICY IF EXISTS "qc_configs_all_policy" ON dtx_system.qc_lot_configs;
 DROP POLICY IF EXISTS "eqa_all_policy" ON dtx_system.eqa_records;
 DROP POLICY IF EXISTS "manuals_all_policy" ON dtx_system.user_manuals;
 DROP POLICY IF EXISTS "announcements_all_policy" ON dtx_system.announcements;
+DROP POLICY IF EXISTS "users_all_policy" ON dtx_system.users;
 
 CREATE POLICY "wards_all_policy" ON dtx_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "machines_all_policy" ON dtx_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
@@ -791,8 +845,34 @@ CREATE POLICY "qc_configs_all_policy" ON dtx_system.qc_lot_configs FOR ALL TO an
 CREATE POLICY "eqa_all_policy" ON dtx_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "users_all_policy" ON dtx_system.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 3. สั่ง PostgREST รีโหลดแคช Schema ทันที
+-- 3. สร้าง Public Views และให้สิทธิ์เข้าถึงทั้งหมดเพื่อความเข้ากันได้กับไคลเอนต์เริ่มต้น
+CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM dtx_system.dtx_machines;
+CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM dtx_system.repair_requests;
+CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM dtx_system.supply_requests;
+CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM dtx_system.qc_records;
+CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
+CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM dtx_system.eqa_records;
+CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM dtx_system.user_manuals;
+CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM dtx_system.announcements;
+CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
+CREATE OR REPLACE VIEW public.dtx_system_users AS 
+SELECT id, username, full_name, email, position, pos, ward, is_active, role 
+FROM dtx_system.users;
+
+GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.repair_requests TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.supply_requests TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.qc_records TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.eqa_records TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.user_manuals TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.announcements TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.master_wards TO anon, authenticated, service_role, postgres;
+GRANT SELECT ON public.dtx_system_users TO anon, authenticated, service_role, postgres;
+
+-- 4. สั่ง PostgREST รีโหลดแคช Schema ทันที
 NOTIFY pgrst, 'reload schema';
 `;
 
@@ -809,6 +889,8 @@ DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
 DROP VIEW IF EXISTS public.eqa_records CASCADE;
 DROP VIEW IF EXISTS public.user_manuals CASCADE;
 DROP VIEW IF EXISTS public.announcements CASCADE;
+DROP VIEW IF EXISTS public.maintenance_logs CASCADE;
+DROP VIEW IF EXISTS public.dtx_maintenance_logs CASCADE;
 
 DROP TABLE IF EXISTS public.dtx_machines CASCADE;
 DROP TABLE IF EXISTS public.repair_requests CASCADE;
@@ -818,6 +900,8 @@ DROP TABLE IF EXISTS public.qc_lot_configs CASCADE;
 DROP TABLE IF EXISTS public.eqa_records CASCADE;
 DROP TABLE IF EXISTS public.user_manuals CASCADE;
 DROP TABLE IF EXISTS public.announcements CASCADE;
+DROP TABLE IF EXISTS public.maintenance_logs CASCADE;
+DROP TABLE IF EXISTS public.dtx_maintenance_logs CASCADE;
 
 NOTIFY pgrst, 'reload schema';
 `;
@@ -850,11 +934,14 @@ CREATE TABLE IF NOT EXISTS dtx_system.dtx_machines (
     last_qc_date DATE,
     lot_number VARCHAR(100) NOT NULL,
     remark TEXT,
+    location_history JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Ensure model column exists if table was previously created without it
+-- Ensure model & location_history columns exist if table was previously created without them
 ALTER TABLE IF EXISTS dtx_system.dtx_machines ADD COLUMN IF NOT EXISTS model VARCHAR(100) DEFAULT 'Fad';
+ALTER TABLE IF EXISTS dtx_system.dtx_machines ADD COLUMN IF NOT EXISTS location_history JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE IF EXISTS dtx_system.supply_requests ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS dtx_system.repair_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -885,6 +972,7 @@ CREATE TABLE IF NOT EXISTS dtx_system.supply_requests (
     reason TEXT NOT NULL,
     req_date DATE DEFAULT CURRENT_DATE NOT NULL,
     status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+    details JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
@@ -973,7 +1061,32 @@ CREATE TABLE IF NOT EXISTS dtx_system.announcements (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- 3. Seed Wards
+CREATE TABLE IF NOT EXISTS dtx_system.users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(100) UNIQUE NOT NULL,
+    email VARCHAR(150),
+    full_name VARCHAR(200) NOT NULL,
+    password VARCHAR(255) DEFAULT '123456',
+    role VARCHAR(50) DEFAULT 'staff' NOT NULL,
+    position VARCHAR(100) DEFAULT 'MT',
+    pos VARCHAR(100) DEFAULT 'MT',
+    ward VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dtx_system.maintenance_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    date DATE DEFAULT CURRENT_DATE NOT NULL,
+    serial_number VARCHAR(150) NOT NULL,
+    ward VARCHAR(150) NOT NULL,
+    maintenance_type VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    operator VARCHAR(200) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+-- 3. Seed Wards and Users
 INSERT INTO dtx_system.master_wards (en_name, thai_name) VALUES
 ('OPD', 'OPD (ผู้ป่วยนอก)'),
 ('ER', 'ER (อุบัติเหตุและฉุกเฉิน)'),
@@ -988,12 +1101,45 @@ INSERT INTO dtx_system.master_wards (en_name, thai_name) VALUES
 ('THAI_MED', 'กลุ่มงานแพทย์แผนไทย'),
 ('PHARMACY', 'กลุ่มงานเภสัชกรรม'),
 ('XRAY', 'กลุ่มงานรังสีวิทยา (X-Ray)'),
-('LAB', 'ห้องปฏิบัติการเทคนิคการแพทย์ (LAB)'),
+('LAB', 'งานชันสูตรสาธารณสุข'),
 ('HEMO', 'หน่วยไตเทียม (Hemodialysis)'),
 ('MED_REC', 'เวชระเบียนและสถิติ'),
 ('PCU', 'PCU / ส่งเสริมสุขภาพ'),
 ('ADMIN', 'กลุ่มงานบริหารทั่วไป')
 ON CONFLICT (en_name) DO NOTHING;
+
+INSERT INTO dtx_system.users (username, full_name, email, position, pos, role, is_active) VALUES
+('umporn', 'คุณอัมพร', 'umporn@sangkha.com', 'MT', 'MT', 'staff', true),
+('wichuda', 'คุณวิชุดา', 'wichuda@sangkha.com', 'MT', 'MT', 'staff', true),
+('chonratda', 'คุณชลรัตดา', 'chonratda@sangkha.com', 'MT', 'MT', 'staff', true),
+('udomsri', 'คุณอุดมศรี', 'udomsri@sangkha.com', 'MTA', 'MTA', 'staff', true),
+('samita', 'คุณสมิตา', 'samita.sings@gmail.com', 'MT', 'MT', 'staff', true)
+ON CONFLICT (username) DO NOTHING;
+
+-- เติมข้อมูลเครื่องตรวจน้ำตาลเริ่มต้นเพื่อให้หน้า Quick Win แสดงผลทันที
+INSERT INTO dtx_system.dtx_machines (bgm_code, serial_number, brand, model, ward, status, rec_date, lot_number) VALUES
+('BGM-01', 'VCF2026001', 'VivaChek', 'Fad', 'OPD (ผู้ป่วยนอก)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-02', 'VCF2026002', 'VivaChek', 'Fad', 'ER (อุบัติเหตุและฉุกเฉิน)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-03', 'VCF2026003', 'VivaChek', 'Fad', 'IPD ชาย (หอผู้ป่วยในชาย)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-04', 'VCF2026004', 'VivaChek', 'Fad', 'IPD หญิง (หอผู้ป่วยในหญิง)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-05', 'VCF2026005', 'VivaChek', 'Fad', 'ห้องคลอด (Labor Room)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-06', 'VCF2026006', 'VivaChek', 'Fad', 'ICU (หอผู้ป่วยหนัก)', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-07', 'VCF2026007', 'VivaChek', 'Fad', 'คลินิก NCD / เบาหวาน', 'active', '2026-01-01', 'LOT2026-A'),
+('BGM-08', 'VCF2026008', 'VivaChek', 'Fad', 'งานชันสูตรสาธารณสุข', 'active', '2026-01-01', 'LOT2026-A')
+ON CONFLICT (bgm_code) DO NOTHING;
+
+-- เติมข้อมูล LOT ควบคุมคุณภาพเริ่มต้น (QC Lot Configuration)
+INSERT INTO dtx_system.qc_lot_configs (
+    lot_number, 
+    l1_target, l1_min, l1_max, l1_sd, 
+    l2_target, l2_min, l2_max, l2_sd, 
+    l3_target, l3_min, l3_max, l3_sd
+) VALUES (
+    'LOT2026-A',
+    45.0, 30.0, 60.0, 1.5,
+    120.0, 100.0, 140.0, 3.0,
+    300.0, 250.0, 350.0, 8.0
+) ON CONFLICT (lot_number) DO NOTHING;
 
 -- 4. Grant Permissions
 GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role;
@@ -1011,6 +1157,8 @@ ALTER TABLE dtx_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dtx_system.eqa_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dtx_system.user_manuals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dtx_system.announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dtx_system.maintenance_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "wards_all_policy" ON dtx_system.master_wards;
 DROP POLICY IF EXISTS "machines_all_policy" ON dtx_system.dtx_machines;
@@ -1021,6 +1169,8 @@ DROP POLICY IF EXISTS "qc_configs_all_policy" ON dtx_system.qc_lot_configs;
 DROP POLICY IF EXISTS "eqa_all_policy" ON dtx_system.eqa_records;
 DROP POLICY IF EXISTS "manuals_all_policy" ON dtx_system.user_manuals;
 DROP POLICY IF EXISTS "announcements_all_policy" ON dtx_system.announcements;
+DROP POLICY IF EXISTS "users_all_policy" ON dtx_system.users;
+DROP POLICY IF EXISTS "maintenance_all_policy" ON dtx_system.maintenance_logs;
 
 CREATE POLICY "wards_all_policy" ON dtx_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "machines_all_policy" ON dtx_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
@@ -1031,7 +1181,38 @@ CREATE POLICY "qc_configs_all_policy" ON dtx_system.qc_lot_configs FOR ALL TO an
 CREATE POLICY "eqa_all_policy" ON dtx_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "users_all_policy" ON dtx_system.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "maintenance_all_policy" ON dtx_system.maintenance_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 6. Reload Data API Schema Cache
+-- 6. Create Views in public schema for direct default client compatibility
+CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM dtx_system.dtx_machines;
+CREATE OR REPLACE VIEW public.repair_requests AS SELECT * FROM dtx_system.repair_requests;
+CREATE OR REPLACE VIEW public.supply_requests AS SELECT * FROM dtx_system.supply_requests;
+CREATE OR REPLACE VIEW public.qc_records AS SELECT * FROM dtx_system.qc_records;
+CREATE OR REPLACE VIEW public.qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
+CREATE OR REPLACE VIEW public.eqa_records AS SELECT * FROM dtx_system.eqa_records;
+CREATE OR REPLACE VIEW public.user_manuals AS SELECT * FROM dtx_system.user_manuals;
+CREATE OR REPLACE VIEW public.announcements AS SELECT * FROM dtx_system.announcements;
+CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
+CREATE OR REPLACE VIEW public.maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
+CREATE OR REPLACE VIEW public.dtx_maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
+CREATE OR REPLACE VIEW public.dtx_system_users AS 
+SELECT id, username, full_name, email, position, pos, ward, is_active, role 
+FROM dtx_system.users;
+
+GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role;
+GRANT ALL ON public.repair_requests TO anon, authenticated, service_role;
+GRANT ALL ON public.supply_requests TO anon, authenticated, service_role;
+GRANT ALL ON public.qc_records TO anon, authenticated, service_role;
+GRANT ALL ON public.qc_lot_configs TO anon, authenticated, service_role;
+GRANT ALL ON public.eqa_records TO anon, authenticated, service_role;
+GRANT ALL ON public.user_manuals TO anon, authenticated, service_role;
+GRANT ALL ON public.announcements TO anon, authenticated, service_role;
+GRANT ALL ON public.master_wards TO anon, authenticated, service_role;
+GRANT ALL ON public.maintenance_logs TO anon, authenticated, service_role;
+GRANT ALL ON public.dtx_maintenance_logs TO anon, authenticated, service_role;
+GRANT SELECT ON public.dtx_system_users TO anon, authenticated, service_role;
+
+-- 7. Reload Data API Schema Cache
 NOTIFY pgrst, 'reload schema';
 `;

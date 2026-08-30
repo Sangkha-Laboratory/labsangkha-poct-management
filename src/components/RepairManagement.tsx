@@ -163,7 +163,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
       case 'claimed':
         return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800">ส่งเคลมแล้ว</span>;
       case 'completed':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800">เสร็จสิ้น/ส่งคืนวอร์ด</span>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800">เสร็จสิ้น/ส่งคืน Ward</span>;
       default:
         return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">{status}</span>;
     }
@@ -217,7 +217,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
             <option value="repairing">กำลังซ่อม (Repairing)</option>
             <option value="waiting_claim">รอส่งเคลมบริษัท</option>
             <option value="claimed">ส่งเคลมแล้ว</option>
-            <option value="completed">เสร็จสิ้น/ส่งคืนวอร์ด (Completed)</option>
+            <option value="completed">เสร็จสิ้น/ส่งคืน Ward (Completed)</option>
           </CustomSelect>
         </div>
 
@@ -612,7 +612,7 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                     <option value="repairing">กำลังดำเนินการตรวจบำรุง (Repairing)</option>
                     <option value="waiting_claim">รอส่งเคลมบริษัท</option>
                     <option value="claimed">ส่งเคลมบริษัทภายนอกเรียบร้อย</option>
-                    <option value="completed">เสร็จสิ้น/ส่งคืนวอร์ด (Completed)</option>
+                    <option value="completed">เสร็จสิ้น/ส่งคืน Ward (Completed)</option>
                   </CustomSelect>
                 </div>
 

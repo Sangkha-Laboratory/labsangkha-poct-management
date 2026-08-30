@@ -8,20 +8,21 @@ import CustomSelect from "./CustomSelect";
 import { DtxMachine, RepairRequest, SupplyRequest, UserManual, Announcement } from '../types';
 import { dbService } from '../lib/supabase';
 import { DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES, TROUBLESHOOTING_GUIDE } from '../constants/deviceGuide';
-import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, ShieldCheck, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers, Lock } from 'lucide-react';
+import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, ShieldCheck, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers, Lock, Loader2, Activity, ArrowLeft } from 'lucide-react';
 
 interface LandingPageProps {
   machines: DtxMachine[];
   repairs: RepairRequest[];
   supplies: SupplyRequest[];
-  onAddRepair: (repair: RepairRequest) => void;
-  onAddSupply: (supply: SupplyRequest) => void;
+  onAddRepair: (repair: RepairRequest) => void | Promise<any>;
+  onAddSupply: (supply: SupplyRequest) => void | Promise<any>;
   lineNotifyToken: string;
   activeTab?: 'repair' | 'supply' | 'track' | 'guide';
   onActiveTabChange?: (tab: 'repair' | 'supply' | 'track' | 'guide') => void;
   manuals?: UserManual[];
   announcements?: Announcement[];
   onOpenPrivacy?: () => void;
+  onSwitchToRoleSelector?: () => void;
 }
 
 export default function LandingPage({ 
@@ -35,7 +36,8 @@ export default function LandingPage({
   onActiveTabChange,
   manuals: propManuals = [],
   announcements: propAnnouncements = [],
-  onOpenPrivacy
+  onOpenPrivacy,
+  onSwitchToRoleSelector
 }: LandingPageProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<'repair' | 'supply' | 'track' | 'guide'>('repair');
   
@@ -90,7 +92,11 @@ export default function LandingPage({
 
   // Status tracking states
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResult, setSearchResult] = useState<{ repairs: RepairRequest[]; supplies: SupplyRequest[] } | null>(null);
+  const [searchResult, setSearchResult] = useState<{ repairs: RepairRequest[]; supplies: SupplyRequest[]; machines: DtxMachine[] } | null>(null);
+
+  // Submitting states
+  const [isSubmittingRepair, setIsSubmittingRepair] = useState(false);
+  const [isSubmittingSupply, setIsSubmittingSupply] = useState(false);
 
   // Success states
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -116,7 +122,7 @@ export default function LandingPage({
     }
   };
 
-  const handleRepairSubmit = (e: React.FormEvent) => {
+  const handleRepairSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const finalSerial = repairSerial === 'CUSTOM' ? customSerial : repairSerial;
     const finalMachineSerial = repairMachineSerial === 'CUSTOM' ? customMachineSerial : repairMachineSerial;
@@ -126,6 +132,7 @@ export default function LandingPage({
       return;
     }
 
+    setIsSubmittingRepair(true);
     const newRepairId = `REP-${Math.floor(100 + Math.random() * 900)}`;
     const newRepair: RepairRequest = {
       id: newRepairId,
@@ -152,37 +159,46 @@ export default function LandingPage({
       }
     };
 
-    onAddRepair(newRepair);
-    setLatestSubmittedRepair(newRepair);
-    setLatestSubmittedSupply(null);
-    
-    // Clear form
-    setRepairSerial('');
-    setRepairMachineSerial('');
-    setCustomSerial('');
-    setCustomMachineSerial('');
-    setReporterName('');
-    setReporterPhone('');
-    setReportedProblem('');
-    setNeedsBackup(false);
+    try {
+      const result = await onAddRepair(newRepair);
+      const savedTicketId = (result && (result.id || result.serialNumber)) ? result.id : newRepairId;
 
-    setSuccessMsg(`ส่งคำขอแจ้งซ่อมสำเร็จ! หมายเลขคำขอของคุณคือ: ${newRepairId}`);
-    setShowSuccessToast(true);
-    setShowLinePhoneSimulation(true);
+      setLatestSubmittedRepair({ ...newRepair, id: savedTicketId });
+      setLatestSubmittedSupply(null);
+      
+      // Clear form
+      setRepairSerial('');
+      setRepairMachineSerial('');
+      setCustomSerial('');
+      setCustomMachineSerial('');
+      setReporterName('');
+      setReporterPhone('');
+      setReportedProblem('');
+      setNeedsBackup(false);
 
-    // Auto switch to tracking tab with search prefilled
-    setTimeout(() => {
-      setShowSuccessToast(false);
-    }, 5000);
+      setSuccessMsg(`ส่งคำขอแจ้งซ่อมสำเร็จ! หมายเลขคำขอของคุณคือ: ${savedTicketId}`);
+      setShowSuccessToast(true);
+      setShowLinePhoneSimulation(true);
+
+      setTimeout(() => {
+        setShowSuccessToast(false);
+      }, 5000);
+    } catch (err: any) {
+      console.error('Error submitting repair request:', err);
+      alert(`เกิดข้อผิดพลาดในการส่งคำขอ: ${err?.message || 'โปรดตรวจสอบการเชื่อมต่อ'}`);
+    } finally {
+      setIsSubmittingRepair(false);
+    }
   };
 
-  const handleSupplySubmit = (e: React.FormEvent) => {
+  const handleSupplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supplyWard || !requesterName || supplyQty <= 0) {
       alert('กรุณากรอกข้อมูลให้ถูกต้องครบถ้วน');
       return;
     }
 
+    setIsSubmittingSupply(true);
     const newSupplyId = `SUP-${Math.floor(100 + Math.random() * 900)}`;
     const newSupply: SupplyRequest = {
       id: newSupplyId,
@@ -195,22 +211,31 @@ export default function LandingPage({
       status: 'pending'
     };
 
-    onAddSupply(newSupply);
-    setLatestSubmittedSupply(newSupply);
-    setLatestSubmittedRepair(null);
+    try {
+      const result = await onAddSupply(newSupply);
+      const savedTicketId = (result && result.id) ? result.id : newSupplyId;
 
-    // Clear form
-    setRequesterName('');
-    setSupplyQty(1);
-    setSupplyReason('');
+      setLatestSubmittedSupply({ ...newSupply, id: savedTicketId });
+      setLatestSubmittedRepair(null);
 
-    setSuccessMsg(`ส่งคำขอเบิกอุปกรณ์สำเร็จ! หมายเลขคำขอของคุณคือ: ${newSupplyId}`);
-    setShowSuccessToast(true);
-    setShowLinePhoneSimulation(true);
-    
-    setTimeout(() => {
-      setShowSuccessToast(false);
-    }, 5000);
+      // Clear form
+      setRequesterName('');
+      setSupplyQty(1);
+      setSupplyReason('');
+
+      setSuccessMsg(`ส่งคำขอเบิกอุปกรณ์สำเร็จ! หมายเลขคำขอของคุณคือ: ${savedTicketId}`);
+      setShowSuccessToast(true);
+      setShowLinePhoneSimulation(true);
+      
+      setTimeout(() => {
+        setShowSuccessToast(false);
+      }, 5000);
+    } catch (err: any) {
+      console.error('Error submitting supply request:', err);
+      alert(`เกิดข้อผิดพลาดในการส่งคำขอเบิก: ${err?.message || 'โปรดตรวจสอบการเชื่อมต่อ'}`);
+    } finally {
+      setIsSubmittingSupply(false);
+    }
   };
 
   const handleSearch = (e: React.FormEvent) => {
@@ -235,7 +260,15 @@ export default function LandingPage({
       s.requesterName.toLowerCase().includes(query)
     );
 
-    setSearchResult({ repairs: matchedRepairs, supplies: matchedSupplies });
+    // Filter machines by Serial Number, Machine S/N, Brand, or Ward
+    const matchedMachines = machines.filter(m =>
+      (m.serialNumber && m.serialNumber.toLowerCase().includes(query)) ||
+      (m.machineSerial && m.machineSerial.toLowerCase().includes(query)) ||
+      (m.ward && m.ward.toLowerCase().includes(query)) ||
+      (m.brand && m.brand.toLowerCase().includes(query))
+    );
+
+    setSearchResult({ repairs: matchedRepairs, supplies: matchedSupplies, machines: matchedMachines });
   };
 
   const translateItemType = (type: string) => {
@@ -260,7 +293,7 @@ export default function LandingPage({
       case 'claimed':
         return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-800">ส่งเคลมแล้ว</span>;
       case 'completed':
-        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800"><CheckCircle size={12} className="mr-1" />ซ่อมเสร็จสิ้น/ส่งคืนวอร์ด</span>;
+        return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800"><CheckCircle size={12} className="mr-1" />ซ่อมเสร็จสิ้น/ส่งคืน Ward</span>;
       case 'approved':
         return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800"><CheckCircle size={12} className="mr-1" />อนุมัติจ่ายแล้ว</span>;
       case 'rejected':
@@ -488,17 +521,17 @@ export default function LandingPage({
                   <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                     <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300 rounded-md">ขั้นตอนที่ 1</span>
                     <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">นำส่งเครื่องที่ห้องชันสูตร</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">นำเครื่องตรวจที่ชำรุดส่งที่ห้องปฏิบัติการเทคนิคการแพทย์ อาคารผู้ป่วยนอก ชั้น 2 (เปิดรับตลอด 24 ชม.)</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">นำเครื่องตรวจที่ชำรุดส่งที่ห้องปฏิบัติการงานชันสูตรสาธารณสุข อาคารผู้ป่วยนอก ชั้น 2 (เปิดรับตลอด 24 ชม.)</p>
                   </div>
                   <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                     <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 rounded-md">ขั้นตอนที่ 2</span>
                     <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">รับเครื่องสำรอง & ดำเนินการ</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">รับเครื่องสำรองไปใช้งานประจำวอร์ด (กรณีเลือกขอไว้) เจ้าหน้าที่จะเข้าตรวจสอบและซ่อมบำรุงตามลำดับ</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">รับเครื่องสำรองไปใช้งานประจำ Ward (กรณีเลือกขอไว้) เจ้าหน้าที่จะเข้าตรวจสอบและซ่อมบำรุงตามลำดับ</p>
                   </div>
                   <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1">
                     <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 rounded-md">ขั้นตอนที่ 3</span>
                     <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">ทดสอบ QC & รับเครื่องคืน</h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">เมื่อซ่อมเสร็จและผ่านการทดสอบ QC เจ้าหน้าที่จะแจ้งเตือนในระบบเพื่อให้วอร์ดมารับเครื่องกลับ</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">เมื่อซ่อมเสร็จและผ่านการทดสอบ QC เจ้าหน้าที่จะแจ้งเตือนในระบบเพื่อให้ Ward มารับเครื่องกลับ</p>
                   </div>
                 </div>
               </div>
@@ -614,12 +647,66 @@ export default function LandingPage({
                     )}
                   </div>
 
+                  {/* ประเภทงาน / สาเหตุการส่งมอบเครื่อง */}
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">ประเภทงาน / วัตถุประสงค์การส่งตรวจ *</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setReportedProblem('ส่งเปลี่ยนถ่านพร้อมทดสอบ Control QC ที่ห้องปฏิบัติการ')}
+                        className={`p-3 rounded-xl border text-xs font-bold transition-all text-left flex flex-col justify-between space-y-1 cursor-pointer ${
+                          reportedProblem.includes('เปลี่ยนถ่าน')
+                            ? 'bg-sky-50 border-sky-500 text-sky-800 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="flex items-center space-x-1.5 font-extrabold text-sky-700">
+                          <Battery size={14} />
+                          <span>เปลี่ยนถ่าน + ทำ QC</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal">เปลี่ยนถ่านและทดสอบคุณภาพ</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setReportedProblem('เครื่องชำรุด/เปิดไม่ติด/อ่านผลผิดปกติ')}
+                        className={`p-3 rounded-xl border text-xs font-bold transition-all text-left flex flex-col justify-between space-y-1 cursor-pointer ${
+                          reportedProblem.includes('ชำรุด')
+                            ? 'bg-rose-50 border-rose-500 text-rose-800 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="flex items-center space-x-1.5 font-extrabold text-rose-700">
+                          <Wrench size={14} />
+                          <span>ซ่อมเครื่องชำรุด</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal">เปิดไม่ติด / จอเสีย / ไม่อ่านแถบ</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setReportedProblem('ส่งตรวจเช็คสภาพและความแม่นยำประจำรอบ')}
+                        className={`p-3 rounded-xl border text-xs font-bold transition-all text-left flex flex-col justify-between space-y-1 cursor-pointer ${
+                          reportedProblem.includes('เช็คสภาพ')
+                            ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="flex items-center space-x-1.5 font-extrabold text-emerald-700">
+                          <ShieldCheck size={14} />
+                          <span>ตรวจเช็คประจำรอบ</span>
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal">ตรวจเช็คสภาพเครื่องประจำปี</span>
+                      </button>
+                    </div>
+                  </div>
+
                   {/* รายละเอียด / อาการ */}
                   <div className="space-y-1.5">
-                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">รายละเอียด / อาการ</label>
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">รายละเอียด / อาการเพิ่มเติม</label>
                     <textarea
                       rows={3}
-                      placeholder="กรุณาอธิบายอาการชำรุด เช่น เสียบแถบตรวจแล้วไม่อ่านค่า หรือเปิดเครื่องไม่ติด..."
+                      placeholder="ระบุอาการชำรุด หรือรายละเอียดเพิ่มเติม เช่น ถ่านหมด, เสียบแถบตรวจแล้วไม่อ่านค่า หรือเปิดเครื่องไม่ติด..."
                       value={reportedProblem}
                       onChange={(e) => setReportedProblem(e.target.value)}
                       className="w-full text-sm p-3 md:p-3.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 transition-colors"
@@ -653,10 +740,21 @@ export default function LandingPage({
                   <div className="pt-2">
                     <button
                       type="submit"
-                      className="w-full bg-[#0ea5e9] hover:bg-[#0284c7] text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-md shadow-sky-600/15 cursor-pointer"
+                      disabled={isSubmittingRepair}
+                      className="w-full bg-[#0ea5e9] hover:bg-[#0284c7] disabled:opacity-60 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-md shadow-sky-600/15 cursor-pointer disabled:cursor-not-allowed"
                       id="submit-repair-btn"
                     >
-                      <span>ส่งคำร้อง</span>
+                      {isSubmittingRepair ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          <span>กำลังส่งคำร้องเข้าระบบ...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Wrench size={18} />
+                          <span>ส่งคำร้องแจ้งซ่อม</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>
@@ -699,7 +797,7 @@ export default function LandingPage({
                     <h2 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100">ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</h2>
                   </div>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                    ยื่นคำขอเบิกเครื่องตรวจน้ำตาล DTX เพิ่มเติมสำหรับใช้งานประจำหน่วยงาน/วอร์ด
+                    ยื่นคำขอเบิกเครื่องตรวจน้ำตาล DTX เพิ่มเติมสำหรับใช้งานประจำหน่วยงาน/Ward
                   </p>
                 </div>
 
@@ -815,11 +913,21 @@ export default function LandingPage({
                   <div className="pt-2 space-y-3">
                     <button
                       type="submit"
-                      className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-md shadow-sky-600/15 cursor-pointer"
+                      disabled={isSubmittingSupply}
+                      className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white font-bold text-sm px-6 py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-md shadow-sky-600/15 cursor-pointer disabled:cursor-not-allowed"
                       id="submit-supply-btn"
                     >
-                      <Package size={18} />
-                      <span>ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</span>
+                      {isSubmittingSupply ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          <span>กำลังส่งคำขอเบิกเข้าระบบ...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Package size={18} />
+                          <span>ส่งคำขอเบิกเครื่องตรวจน้ำตาล DTX</span>
+                        </>
+                      )}
                     </button>
 
                     <div className="bg-sky-50/60 dark:bg-sky-950/30 p-3 rounded-xl border border-sky-100 dark:border-sky-900/40 flex items-start space-x-2 text-xs text-sky-800 dark:text-sky-300">
@@ -848,7 +956,7 @@ export default function LandingPage({
                   <Search size={16} className="absolute left-3.5 top-3.5 md:top-4 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="พิมพ์รหัสเครื่อง, เลขส่งซ่อม หรือชื่อตึก/วอร์ด..."
+                    placeholder="พิมพ์รหัสเครื่อง, เลขส่งซ่อม หรือชื่อตึก/Ward..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full text-xs md:text-sm p-3.5 md:p-4 pl-10 md:pl-11 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 font-semibold text-slate-700 transition-colors"
@@ -865,6 +973,46 @@ export default function LandingPage({
               {/* Search Results Display */}
               {searchResult ? (
                 <div className="space-y-6" id="search-results-panel">
+                  {/* Matched Ward Machines */}
+                  {(searchResult?.machines || []).length > 0 && (
+                    <div className="space-y-3 bg-sky-50/50 dark:bg-sky-950/20 p-4 rounded-2xl border border-sky-100 dark:border-sky-900/40">
+                      <h3 className="text-sm font-bold text-sky-900 dark:text-sky-300 flex items-center space-x-1.5">
+                        <Activity size={15} className="text-sky-600 shrink-0" />
+                        <span>ข้อมูลเครื่องตรวจ DTX ประจำตึก/หน่วยงาน ({searchResult.machines.length} เครื่อง)</span>
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {searchResult.machines.map(m => (
+                          <div key={m.id} className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700 shadow-xs flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <span className="font-extrabold text-xs text-sky-700 dark:text-sky-400 font-mono">{m.serialNumber}</span>
+                                <span className="text-[10px] text-slate-500 font-medium">({m.brand} {m.model})</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                หน่วยงาน: <strong className="text-slate-700 dark:text-slate-300">{m.ward}</strong> | S/N: {m.machineSerial || '-'}
+                              </div>
+                              {m.lotNumber && (
+                                <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">
+                                  LOT: {m.lotNumber}
+                                </div>
+                              )}
+                            </div>
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              m.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                              m.status === 'waiting_claim' || m.status === 'claimed' ? 'bg-amber-100 text-amber-800' :
+                              m.status === 'inactive' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {m.status === 'active' ? 'พร้อมใช้งาน' :
+                               m.status === 'waiting_claim' ? 'รอส่งเคลม' :
+                               m.status === 'claimed' ? 'ส่งเคลมแล้ว' :
+                               m.status === 'inactive' ? 'ปิดใช้งาน' : m.status || 'ไม่ทราบสถานะ'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Repairs Results */}
                   <div className="space-y-3">
                     <h3 className="text-sm font-bold text-slate-700 flex items-center space-x-1.5">
@@ -1411,7 +1559,7 @@ export default function LandingPage({
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
                   <span>สถานะห้องปฏิบัติการ POCT</span>
                 </h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">งานชันสูตรสาธารณสุข กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</p>
               </div>
 
               <div className="space-y-3.5 text-sm">
