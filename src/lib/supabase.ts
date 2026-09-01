@@ -904,6 +904,15 @@ export const dbService = {
       );
       if (!error && data) return mapDbToMachine(data);
       
+      // If error is duplicate key (23505) or already exists, update the existing machine record
+      if (error && (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('already exists') || error.message?.includes('unique constraint'))) {
+        try {
+          return await this.updateMachine(machine.id || machine.serialNumber, machine);
+        } catch (upErr) {
+          console.warn('Fallback update on duplicate key notice:', upErr);
+        }
+      }
+
       // If error is due to missing 'model' column in legacy database schema (42703), retry without model column
       if (error && (error.code === '42703' || error.message?.includes('model'))) {
         const fallbackPayload = {
@@ -944,9 +953,20 @@ export const dbService = {
           results.push(updated);
           success++;
         } else {
-          const inserted = await this.insertMachine(m);
-          results.push(inserted);
-          success++;
+          try {
+            const inserted = await this.insertMachine(m);
+            results.push(inserted);
+            success++;
+          } catch (insErr: any) {
+            // If duplicate in DB even though not overwriting, attempt update fallback
+            if (insErr?.message?.includes('duplicate key') || insErr?.code === '23505') {
+              const fallbackUpdated = await this.updateMachine(m.id || m.serialNumber, m);
+              results.push(fallbackUpdated);
+              success++;
+            } else {
+              throw insErr;
+            }
+          }
         }
       } catch (err) {
         console.error('Failed to import machine item:', m.serialNumber, err);
