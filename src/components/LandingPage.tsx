@@ -1000,12 +1000,12 @@ export default function LandingPage({
                             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                               m.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
                               m.status === 'waiting_claim' || m.status === 'claimed' ? 'bg-amber-100 text-amber-800' :
-                              m.status === 'inactive' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'
+                              m.status === 'lost' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'
                             }`}>
                               {m.status === 'active' ? 'พร้อมใช้งาน' :
                                m.status === 'waiting_claim' ? 'รอส่งเคลม' :
                                m.status === 'claimed' ? 'ส่งเคลมแล้ว' :
-                               m.status === 'inactive' ? 'ปิดใช้งาน' : m.status || 'ไม่ทราบสถานะ'}
+                               m.status === 'lost' ? 'สูญหาย' : m.status || 'ไม่ทราบสถานะ'}
                             </span>
                           </div>
                         ))}

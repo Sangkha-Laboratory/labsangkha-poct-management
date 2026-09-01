@@ -450,10 +450,9 @@ export default function StockManagement({
   const normalizeStatus = (val: string): DtxMachine['status'] => {
     if (!val) return 'active';
     const s = val.trim().toLowerCase();
-    if (s.includes('active') || s.includes('ใช้งาน') || s.includes('ปกติ') || s.includes('พร้อม')) return 'active';
-    if (s.includes('inactive') || s.includes('ปิด') || s.includes('คืน') || s.includes('ยกเลิก') || s.includes('ชำรุด')) return 'inactive';
+    if (s.includes('active') || s.includes('ใช้งาน') || s.includes('ปกติ') || s.includes('พร้อม') || s.includes('คืน')) return 'active';
     if (s.includes('lost') || s.includes('สูญหาย') || s.includes('หาย')) return 'lost';
-    if (s.includes('waiting') || s.includes('รอเคลม') || s.includes('รอส่งเคลม')) return 'waiting_claim';
+    if (s.includes('waiting') || s.includes('รอเคลม') || s.includes('รอส่งเคลม') || s.includes('ชำรุด') || s.includes('เสีย')) return 'waiting_claim';
     if (s.includes('claimed') || s.includes('เคลมแล้ว') || s.includes('ส่งเคลม')) return 'claimed';
     if (s.includes('unknown') || s.includes('ไม่ทราบ')) return 'unknown';
     return 'active';
@@ -985,7 +984,6 @@ export default function StockManagement({
           >
             <option value="">-- สถานะทั้งหมด --</option>
             <option value="active">active (ใช้งานปกติ)</option>
-            <option value="inactive">inactive (ปิดใช้งาน/เรียกคืน)</option>
             <option value="lost">สูญหาย</option>
             <option value="unknown">ไม่ทราบสถานะ</option>
             <option value="waiting_claim">รอส่งเคลม</option>
@@ -1778,7 +1776,6 @@ export default function StockManagement({
                     required
                   >
                     <option value="active">active (ใช้งานปกติ)</option>
-                    <option value="inactive">inactive (ปิดใช้งาน/เรียกคืน)</option>
                     <option value="lost">สูญหาย</option>
                     <option value="unknown">ไม่ทราบสถานะ</option>
                     <option value="waiting_claim">รอส่งเคลม</option>

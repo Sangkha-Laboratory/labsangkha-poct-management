@@ -26,7 +26,7 @@ export interface DtxMachine {
   brand: string;
   model: string;
   ward: string;
-  status: 'active' | 'lost' | 'unknown' | 'claimed' | 'waiting_claim' | 'inactive';
+  status: 'active' | 'lost' | 'unknown' | 'claimed' | 'waiting_claim';
   receiveDate: string; // Mfg Date / Receive Date
   lastQCDate?: string;
   lotNumber: string; // LOT of the machine
