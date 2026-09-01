@@ -1263,7 +1263,7 @@ export default function StockManagement({
       {/* ========================================================================= */}
       {isOpenCsvModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-[100] animate-fadeIn" id="csv-import-modal-overlay">
-          <div className="bg-white w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-scaleUp">
+          <div className="bg-white w-full max-w-5xl lg:max-w-6xl max-h-[92vh] sm:max-h-[90vh] rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-scaleUp">
             {/* Modal Header */}
             <div className="p-3.5 sm:p-5 border-b border-slate-100 flex items-start sm:items-center justify-between bg-slate-50/50 gap-2">
               <div className="flex items-start sm:items-center space-x-2.5 sm:space-x-3">
@@ -1505,18 +1505,18 @@ export default function StockManagement({
                   )}
 
                   {/* Preview Table */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden max-h-72 sm:max-h-96 overflow-y-auto shadow-2xs">
-                    <table className="w-full text-left text-[11px] border-collapse">
-                      <thead className="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 z-10">
+                  <div className="border border-slate-200 rounded-xl overflow-x-auto overflow-y-auto max-h-72 sm:max-h-96 shadow-2xs w-full">
+                    <table className="w-full text-left text-[11px] border-collapse min-w-[840px]">
+                      <thead className="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 z-10 shadow-2xs">
                         <tr>
-                          <th className="p-2.5 whitespace-nowrap">แถว</th>
-                          <th className="p-2.5 whitespace-nowrap">รหัส (CODE)</th>
-                          <th className="p-2.5 whitespace-nowrap">ซีเรียล (S/N)</th>
-                          <th className="p-2.5 whitespace-nowrap">แบรนด์ / รุ่น</th>
-                          <th className="p-2.5 whitespace-nowrap">หน่วยงานในไฟล์</th>
-                          <th className="p-2.5 whitespace-nowrap">LOT / วันที่</th>
-                          <th className="p-2.5 whitespace-nowrap">สถานะในไฟล์</th>
-                          <th className="p-2.5 min-w-[240px]">ผลการตรวจ & ข้อมูลเครื่องเดิมในระบบ</th>
+                          <th className="p-2.5 whitespace-nowrap w-12 text-center">แถว</th>
+                          <th className="p-2.5 whitespace-nowrap min-w-[100px]">รหัส (CODE)</th>
+                          <th className="p-2.5 whitespace-nowrap min-w-[120px]">ซีเรียล (S/N)</th>
+                          <th className="p-2.5 whitespace-nowrap min-w-[120px]">แบรนด์ / รุ่น</th>
+                          <th className="p-2.5 whitespace-nowrap min-w-[140px]">หน่วยงานในไฟล์</th>
+                          <th className="p-2.5 whitespace-nowrap min-w-[100px]">LOT / วันที่</th>
+                          <th className="p-2.5 whitespace-nowrap min-w-[90px]">สถานะในไฟล์</th>
+                          <th className="p-2.5 min-w-[260px] max-w-[340px]">ผลการตรวจ & ข้อมูลเครื่องเดิมในระบบ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1538,26 +1538,28 @@ export default function StockManagement({
                                   : 'hover:bg-slate-50/60'
                               }`}
                             >
-                              <td className="p-2.5 font-mono text-slate-400">{r.rowNum}</td>
-                              <td className="p-2.5 font-bold text-slate-800 font-mono">{r.machine.serialNumber || '-'}</td>
-                              <td className="p-2.5 font-mono text-slate-600">{r.machine.machineSerial || '-'}</td>
+                              <td className="p-2.5 font-mono text-slate-400 text-center">{r.rowNum}</td>
+                              <td className="p-2.5 font-bold text-slate-800 font-mono whitespace-nowrap">{r.machine.serialNumber || '-'}</td>
+                              <td className="p-2.5 font-mono text-slate-600 whitespace-nowrap">{r.machine.machineSerial || '-'}</td>
                               <td className="p-2.5 text-slate-700">
                                 <div className="font-semibold text-slate-800">{r.machine.brand || '-'}</div>
                                 <div className="text-[10px] text-slate-400">{r.machine.model || '-'}</div>
                               </td>
-                              <td className="p-2.5 font-semibold text-slate-700">{r.machine.ward || '-'}</td>
-                              <td className="p-2.5">
+                              <td className="p-2.5 font-semibold text-slate-700">
+                                <span className="break-words line-clamp-2">{r.machine.ward || '-'}</span>
+                              </td>
+                              <td className="p-2.5 whitespace-nowrap">
                                 <div className="font-mono text-sky-700 font-medium">{r.machine.lotNumber || '-'}</div>
                                 <div className="text-[10px] text-slate-400">{r.machine.receiveDate}</div>
                               </td>
-                              <td className="p-2.5">{getStatusDisplay(r.machine.status)}</td>
+                              <td className="p-2.5 whitespace-nowrap">{getStatusDisplay(r.machine.status)}</td>
                               <td className="p-2.5">
                                 {!r.isValid ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
                                     ✗ {r.validationError}
                                   </span>
                                 ) : r.isExisting && r.existingMachine ? (
-                                  <div className="space-y-1.5 max-w-sm">
+                                  <div className="space-y-1.5 w-full max-w-[320px]">
                                     <div className="flex flex-wrap items-center gap-1.5">
                                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${
                                         importStrategy === 'overwrite_existing' 
@@ -1567,52 +1569,52 @@ export default function StockManagement({
                                         {importStrategy === 'overwrite_existing' ? '⚡ จะอัปเดตทับข้อมูลเดิม' : '⚠ จะข้าม (รหัสซ้ำ)'}
                                       </span>
                                       {r.duplicateMatchReason && (
-                                        <span className="text-[9px] text-amber-800 font-medium bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200">
+                                        <span className="text-[9px] text-amber-800 font-medium bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200 whitespace-nowrap">
                                           {r.duplicateMatchReason}
                                         </span>
                                       )}
                                     </div>
 
                                     {/* Detailed Box of Existing Machine in the System */}
-                                    <div className="p-2 bg-white/90 border border-amber-300/80 rounded-lg text-[10px] text-slate-700 shadow-2xs space-y-1">
+                                    <div className="p-2 bg-white/95 border border-amber-300/80 rounded-lg text-[10px] text-slate-700 shadow-2xs space-y-1">
                                       <div className="font-bold text-amber-900 flex items-center justify-between border-b border-amber-100 pb-1">
                                         <span className="flex items-center space-x-1">
                                           <AlertTriangle size={11} className="text-amber-600 shrink-0" />
                                           <span>เครื่องในระบบที่ตรงกัน:</span>
                                         </span>
-                                        <span className="text-[9px] text-slate-400 font-mono">ID: {r.existingMachine.id.substring(0, 10)}</span>
+                                        <span className="text-[9px] text-slate-400 font-mono">ID: {r.existingMachine.id.substring(0, 8)}...</span>
                                       </div>
 
                                       <div className="space-y-0.5 text-[10px]">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-slate-500">รหัสเดิม:</span>
-                                          <span className="font-mono font-bold text-slate-800">{r.existingMachine.serialNumber}</span>
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className="text-slate-500 shrink-0">รหัสเดิม:</span>
+                                          <span className="font-mono font-bold text-slate-800 truncate">{r.existingMachine.serialNumber}</span>
                                         </div>
                                         {r.existingMachine.machineSerial && (
-                                          <div className="flex items-center justify-between">
-                                            <span className="text-slate-500">ซีเรียล (S/N) เดิม:</span>
-                                            <span className="font-mono text-slate-700">{r.existingMachine.machineSerial}</span>
+                                          <div className="flex items-center justify-between gap-1">
+                                            <span className="text-slate-500 shrink-0">ซีเรียลเดิม:</span>
+                                            <span className="font-mono text-slate-700 truncate">{r.existingMachine.machineSerial}</span>
                                           </div>
                                         )}
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-slate-500">หน่วยงานปัจจุบัน:</span>
-                                          <span className="font-bold text-slate-800">
+                                        <div className="flex items-start justify-between gap-1">
+                                          <span className="text-slate-500 shrink-0">หน่วยงานเดิม:</span>
+                                          <span className="font-bold text-slate-800 text-right break-words max-w-[180px]">
                                             {r.existingMachine.ward || 'ไม่ระบุ'}
                                             {r.machine.ward !== r.existingMachine.ward && (
-                                              <span className="text-amber-600 text-[9px] font-normal ml-1">
+                                              <span className="text-amber-600 text-[9px] font-normal block">
                                                 (ไฟล์ใหม่: {r.machine.ward})
                                               </span>
                                             )}
                                           </span>
                                         </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-slate-500">แบรนด์/รุ่นเดิม:</span>
-                                          <span className="text-slate-700">{r.existingMachine.brand || '-'} {r.existingMachine.model || ''}</span>
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className="text-slate-500 shrink-0">แบรนด์/รุ่นเดิม:</span>
+                                          <span className="text-slate-700 truncate">{r.existingMachine.brand || '-'} {r.existingMachine.model || ''}</span>
                                         </div>
-                                        <div className="flex items-center justify-between pt-0.5 border-t border-slate-100">
-                                          <span className="text-slate-500">LOT เดิม: <strong className="text-sky-700 font-mono">{r.existingMachine.lotNumber || '-'}</strong></span>
-                                          <div className="flex items-center space-x-1">
-                                            <span className="text-slate-400 text-[9px]">สถานะเดิม:</span>
+                                        <div className="flex items-center justify-between pt-0.5 border-t border-slate-100 gap-1">
+                                          <span className="text-slate-500 text-[9.5px]">LOT: <strong className="text-sky-700 font-mono">{r.existingMachine.lotNumber || '-'}</strong></span>
+                                          <div className="flex items-center space-x-1 shrink-0">
+                                            <span className="text-slate-400 text-[9px]">สถานะ:</span>
                                             <span className="scale-90 origin-right">{getStatusDisplay(r.existingMachine.status)}</span>
                                           </div>
                                         </div>
@@ -1620,7 +1622,7 @@ export default function StockManagement({
                                     </div>
                                   </div>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 whitespace-nowrap">
                                     ✓ เครื่องใหม่ พร้อมนำเข้า
                                   </span>
                                 )}
