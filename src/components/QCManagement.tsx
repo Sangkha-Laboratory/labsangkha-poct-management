@@ -351,6 +351,7 @@ export default function QCManagement({
   // Lot Config editing
   const [editingLotIdx, setEditingLotIdx] = useState<number | null>(null);
   const [editedLot, setEditedLot] = useState<QcLotConfig | null>(null);
+  const [isSavingLot, setIsSavingLot] = useState<boolean>(false);
 
   // Expired Control Submission Interceptor Dialog
   const [showExpiredPromptDialog, setShowExpiredPromptDialog] = useState<boolean>(false);
@@ -1008,18 +1009,43 @@ export default function QCManagement({
     setEditedLot(updated);
   };
 
-  const handleSaveLotConfig = () => {
+  const handleSaveLotConfig = async () => {
     if (!editedLot || !editedLot.lotNumber.trim()) {
       alert('กรุณาระบุหรือเลือกล็อต (LOT Number)');
       return;
     }
     const cleanLot = editedLot.lotNumber.trim();
-    const filtered = lotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase());
-    const toSave: QcLotConfig = { ...editedLot, lotNumber: cleanLot };
-    
-    onUpdateLotConfigs([...filtered, toSave]);
-    setEditingLotIdx(null);
-    setEditedLot(null);
+    const toSave: QcLotConfig = {
+      ...editedLot,
+      lotNumber: cleanLot,
+      level1Target: Number(editedLot.level1Target) || 0,
+      level1Min: Number(editedLot.level1Min) || 0,
+      level1Max: Number(editedLot.level1Max) || 0,
+      level1SD: Number(editedLot.level1SD) || 0,
+      level2Target: Number(editedLot.level2Target) || 0,
+      level2Min: Number(editedLot.level2Min) || 0,
+      level2Max: Number(editedLot.level2Max) || 0,
+      level2SD: Number(editedLot.level2SD) || 0,
+      level3Target: Number(editedLot.level3Target) || 0,
+      level3Min: Number(editedLot.level3Min) || 0,
+      level3Max: Number(editedLot.level3Max) || 0,
+      level3SD: Number(editedLot.level3SD) || 0,
+    };
+
+    setIsSavingLot(true);
+    try {
+      const saved = await dbService.saveLotConfig(toSave);
+      const filtered = lotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase());
+      onUpdateLotConfigs([...filtered, saved || toSave]);
+      setEditingLotIdx(null);
+      setEditedLot(null);
+      alert(`✓ บันทึกการตั้งค่า Target Range สำหรับ LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
+    } catch (err: any) {
+      console.error('Failed to save lot config:', err);
+      alert(`เกิดข้อผิดพลาดในการบันทึก LOT Config: ${err?.message || err}`);
+    } finally {
+      setIsSavingLot(false);
+    }
   };
 
   return (
@@ -3353,20 +3379,29 @@ export default function QCManagement({
                   <div className="flex items-center space-x-2">
                     <button
                       type="button"
+                      disabled={isSavingLot}
                       onClick={() => {
                         setEditingLotIdx(null);
                         setEditedLot(null);
                       }}
-                      className="px-4 py-2 rounded-xl text-slate-600 bg-slate-100 font-bold cursor-pointer hover:bg-slate-200"
+                      className="px-4 py-2 rounded-xl text-slate-600 bg-slate-100 font-bold cursor-pointer hover:bg-slate-200 disabled:opacity-50"
                     >
                       ยกเลิก
                     </button>
                     <button
                       type="button"
+                      disabled={isSavingLot}
                       onClick={handleSaveLotConfig}
-                      className="px-4 py-2 rounded-xl text-white bg-sky-600 hover:bg-sky-500 font-bold cursor-pointer shadow-xs"
+                      className="px-4 py-2 rounded-xl text-white bg-sky-600 hover:bg-sky-500 font-bold cursor-pointer shadow-xs disabled:bg-sky-400 flex items-center space-x-1.5"
                     >
-                      บันทึกการตั้งค่า Target Range
+                      {isSavingLot ? (
+                        <>
+                          <RefreshCw size={13} className="animate-spin" />
+                          <span>กำลังบันทึกข้อมูล...</span>
+                        </>
+                      ) : (
+                        <span>บันทึกการตั้งค่า Target Range</span>
+                      )}
                     </button>
                   </div>
                 </div>

@@ -510,11 +510,8 @@ export default function App() {
   const handleUpdateLotConfigs = async (newConfigs: QcLotConfig[]) => {
     setLotConfigs(newConfigs);
     try {
-      await Promise.all(newConfigs.map(lot => dbService.insertLotConfig(lot).catch(err => {
-        if (err.message?.includes('duplicate key') || err.code === '23505') {
-          return dbService.updateLotConfig(lot.lotNumber, lot);
-        }
-        throw err;
+      await Promise.all(newConfigs.map(lot => dbService.saveLotConfig(lot).catch(err => {
+        console.warn('Failed to save individual lot config:', lot.lotNumber, err);
       })));
       setShowToast('อัปเดตกำหนดค่าเป้าหมาย LOT น้ำยาบนระบบฐานข้อมูลแล้ว');
     } catch (err: any) {
@@ -561,9 +558,21 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center space-x-3 sm:space-x-4">
               <div onClick={() => setIsSelectingRole(true)} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" title="กลับสู่หน้าเลือกประเภทผู้ใช้งาน (Select Role)">
-                {/* ไอคอนกล้องจุลทรรศน์ */}
-                <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
-                  <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                {/* โลโก้โรงพยาบาลสังขะ */}
+                <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center">
+                  <img 
+                    src="/SKH.png" 
+                    alt="โรงพยาบาลสังขะ" 
+                    className="w-full h-full object-contain drop-shadow-2xs"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = document.getElementById('header-microscope-fallback');
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                  />
+                  <div id="header-microscope-fallback" className="hidden w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl items-center justify-center text-white shadow-lg shadow-sky-500/20">
+                    <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
+                  </div>
                 </div>
                 {/* ข้อความชื่อหน่วยงาน */}
                 <div>

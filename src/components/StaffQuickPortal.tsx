@@ -905,8 +905,20 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       {/* Top Staff Banner */}
       <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black shrink-0 shadow-xs">
-            <Zap size={24} />
+          <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 flex items-center justify-center p-1.5 shrink-0 shadow-xs">
+            <img 
+              src="/SKH.png" 
+              alt="โรงพยาบาลสังขะ" 
+              className="w-full h-full object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const fallback = document.getElementById('staff-zap-fallback');
+                if (fallback) fallback.style.display = 'flex';
+              }}
+            />
+            <div id="staff-zap-fallback" className="hidden w-full h-full text-emerald-600 dark:text-emerald-400 items-center justify-center font-black">
+              <Zap size={24} />
+            </div>
           </div>
           <div>
             <div className="flex items-center space-x-2">

@@ -626,19 +626,19 @@ export const mapDbToLotConfig = (db: any): QcLotConfig => ({
 
 export const mapLotConfigToDb = (l: QcLotConfig) => {
   const payload: any = {
-    lot_number: l.lotNumber,
-    l1_target: l.level1Target,
-    l1_min: l.level1Min,
-    l1_max: l.level1Max,
-    l1_sd: l.level1SD,
-    l2_target: l.level2Target,
-    l2_min: l.level2Min,
-    l2_max: l.level2Max,
-    l2_sd: l.level2SD,
-    l3_target: l.level3Target,
-    l3_min: l.level3Min,
-    l3_max: l.level3Max,
-    l3_sd: l.level3SD
+    lot_number: (l.lotNumber || '').trim(),
+    l1_target: Number(l.level1Target) || 0,
+    l1_min: Number(l.level1Min) || 0,
+    l1_max: Number(l.level1Max) || 0,
+    l1_sd: Number(l.level1SD) || 0,
+    l2_target: Number(l.level2Target) || 0,
+    l2_min: Number(l.level2Min) || 0,
+    l2_max: Number(l.level2Max) || 0,
+    l2_sd: Number(l.level2SD) || 0,
+    l3_target: Number(l.level3Target) || 0,
+    l3_min: Number(l.level3Min) || 0,
+    l3_max: Number(l.level3Max) || 0,
+    l3_sd: Number(l.level3SD) || 0
   };
   return payload;
 };
@@ -1373,65 +1373,93 @@ export const dbService = {
     return Array.from(uniqueMap.values());
   },
 
-  async insertLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
-    const dbPayload = mapLotConfigToDb(lot);
-    if (getSupabaseClient()) {
-      const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
-        'qc_lot_configs',
-        ['lot_configs']
-      );
-      if (!error && data) return mapDbToLotConfig(data);
-      
-      // Fallback to update on duplicate key conflict (PG error code 23505)
-      if (error && (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('already exists'))) {
-        return this.updateLotConfig(lot.lotNumber, lot);
-      }
+  async saveLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
+    const cleanLot = (lot.lotNumber || '').trim();
+    if (!cleanLot) throw new Error('เลข LOT Number ไม่ถูกต้อง');
 
-      if (error && !isMissingTable) {
-        console.warn('Supabase insertLotConfig notice:', error.message || error);
-      }
+    const dbPayload = mapLotConfigToDb({ ...lot, lotNumber: cleanLot });
+
+    if (getSupabaseClient()) {
+      // 1. Try UPDATE existing record by case-insensitive lot_number first
+      try {
+        const { data: updateData, error: updateError } = await querySupabaseClient(
+          (c, tbl) => c.from(tbl).update(dbPayload).ilike('lot_number', cleanLot).select().maybeSingle(),
+          'qc_lot_configs',
+          ['lot_configs', 'dtx_qc_lot_configs']
+        );
+        if (!updateError && updateData) {
+          return mapDbToLotConfig(updateData);
+        }
+      } catch {}
+
+      // 2. If record did not exist to update, try INSERT
+      try {
+        const insertPayload = { ...dbPayload, id: generateUUID() };
+        const { data: insertData, error: insertError } = await querySupabaseClient(
+          (c, tbl) => c.from(tbl).insert([insertPayload]).select().maybeSingle(),
+          'qc_lot_configs',
+          ['lot_configs', 'dtx_qc_lot_configs']
+        );
+        if (!insertError && insertData) {
+          return mapDbToLotConfig(insertData);
+        }
+
+        // If duplicate conflict on insert, retry update
+        if (insertError && (insertError.code === '23505' || insertError.message?.includes('duplicate key') || insertError.message?.includes('already exists'))) {
+          const { data: retryData, error: retryError } = await querySupabaseClient(
+            (c, tbl) => c.from(tbl).update(dbPayload).ilike('lot_number', cleanLot).select().maybeSingle(),
+            'qc_lot_configs',
+            ['lot_configs', 'dtx_qc_lot_configs']
+          );
+          if (!retryError && retryData) {
+            return mapDbToLotConfig(retryData);
+          }
+        }
+      } catch {}
     }
-    const data = await safeApiFetch('/api/lot-configs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
-    });
-    return data ? mapDbToLotConfig(data) : lot;
+
+    // 3. Fallback to server API /api/lot-configs
+    try {
+      const data = await safeApiFetch('/api/lot-configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dbPayload)
+      });
+      if (data) return mapDbToLotConfig(data);
+    } catch (apiErr) {
+      console.warn('Backend API save lot config error:', apiErr);
+    }
+
+    return { ...lot, lotNumber: cleanLot };
+  },
+
+  async insertLotConfig(lot: QcLotConfig): Promise<QcLotConfig> {
+    return this.saveLotConfig(lot);
   },
 
   async updateLotConfig(lotNumber: string, lot: Partial<QcLotConfig>): Promise<QcLotConfig> {
-    const dbPayload: any = {};
-    if (lot.level1Target !== undefined) dbPayload.l1_target = lot.level1Target;
-    if (lot.level1Min !== undefined) dbPayload.l1_min = lot.level1Min;
-    if (lot.level1Max !== undefined) dbPayload.l1_max = lot.level1Max;
-    if (lot.level1SD !== undefined) dbPayload.l1_sd = lot.level1SD;
-    if (lot.level2Target !== undefined) dbPayload.l2_target = lot.level2Target;
-    if (lot.level2Min !== undefined) dbPayload.l2_min = lot.level2Min;
-    if (lot.level2Max !== undefined) dbPayload.l2_max = lot.level2Max;
-    if (lot.level2SD !== undefined) dbPayload.l2_sd = lot.level2SD;
-    if (lot.level3Target !== undefined) dbPayload.l3_target = lot.level3Target;
-    if (lot.level3Min !== undefined) dbPayload.l3_min = lot.level3Min;
-    if (lot.level3Max !== undefined) dbPayload.l3_max = lot.level3Max;
-    if (lot.level3SD !== undefined) dbPayload.l3_sd = lot.level3SD;
-
-    if (getSupabaseClient()) {
-      const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).update(dbPayload).eq('lot_number', lotNumber).select().maybeSingle(),
-        'qc_lot_configs',
-        ['lot_configs']
-      );
-      if (!error && data) return mapDbToLotConfig(data);
-      if (error && !isMissingTable) {
-        console.warn('Supabase updateLotConfig notice:', error.message || error);
-      }
-    }
-    const data = await safeApiFetch(`/api/lot-configs/${lotNumber}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
-    });
-    return data ? mapDbToLotConfig(data) : (lot as QcLotConfig);
+    const cleanLot = (lotNumber || lot.lotNumber || '').trim();
+    const existing = (await this.getLotConfigs()).find(c => c.lotNumber.toUpperCase() === cleanLot.toUpperCase());
+    const merged: QcLotConfig = {
+      ...(existing || {
+        lotNumber: cleanLot,
+        level1Target: 0,
+        level1Min: 0,
+        level1Max: 0,
+        level1SD: 0,
+        level2Target: 0,
+        level2Min: 0,
+        level2Max: 0,
+        level2SD: 0,
+        level3Target: 0,
+        level3Min: 0,
+        level3Max: 0,
+        level3SD: 0
+      }),
+      ...lot,
+      lotNumber: cleanLot
+    };
+    return this.saveLotConfig(merged);
   },
 
   async deleteLotConfig(lotNumber: string): Promise<void> {

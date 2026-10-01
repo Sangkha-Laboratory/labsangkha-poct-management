@@ -573,10 +573,43 @@ app.get("/api/lot-configs", checkDbConfig, async (req, res) => {
 
 app.post("/api/lot-configs", checkDbConfig, async (req, res) => {
   try {
-    const data = await executeSupabaseWrite(client =>
-      client.from("qc_lot_configs").upsert([req.body], { onConflict: "lot_number" }).select("*").maybeSingle()
-    );
-    res.json(data);
+    const payload = { ...req.body };
+    const lotNumber = (payload.lot_number || '').trim();
+    if (!lotNumber) {
+      return res.status(400).json({ error: "lot_number is required" });
+    }
+
+    let data: any = null;
+
+    // 1. Try to update existing record by lot_number first (compatible with views)
+    try {
+      data = await executeSupabaseWrite(client =>
+        client.from("qc_lot_configs").update(payload).ilike("lot_number", lotNumber).select("*").maybeSingle()
+      );
+    } catch (updateErr) {
+      // ignore and try insert
+    }
+
+    // 2. If record was not found to update, insert new record
+    if (!data) {
+      const payloadWithId = cleanUuidPayload(payload);
+      try {
+        data = await executeSupabaseWrite(client =>
+          client.from("qc_lot_configs").insert([payloadWithId]).select("*").maybeSingle()
+        );
+      } catch (insertErr: any) {
+        // If conflict on insert, retry update
+        if (insertErr?.code === '23505' || insertErr?.message?.includes('duplicate key') || insertErr?.message?.includes('already exists')) {
+          data = await executeSupabaseWrite(client =>
+            client.from("qc_lot_configs").update(payload).ilike("lot_number", lotNumber).select("*").maybeSingle()
+          );
+        } else {
+          throw insertErr;
+        }
+      }
+    }
+
+    res.json(data || payload);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -584,10 +617,11 @@ app.post("/api/lot-configs", checkDbConfig, async (req, res) => {
 
 app.put("/api/lot-configs/:lotNumber", checkDbConfig, async (req, res) => {
   try {
+    const lotNumber = decodeURIComponent(req.params.lotNumber).trim();
     const data = await executeSupabaseWrite(client =>
-      client.from("qc_lot_configs").update(req.body).eq("lot_number", req.params.lotNumber).select("*").maybeSingle()
+      client.from("qc_lot_configs").update(req.body).ilike("lot_number", lotNumber).select("*").maybeSingle()
     );
-    res.json(data);
+    res.json(data || req.body);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -595,8 +629,9 @@ app.put("/api/lot-configs/:lotNumber", checkDbConfig, async (req, res) => {
 
 app.delete("/api/lot-configs/:lotNumber", checkDbConfig, async (req, res) => {
   try {
+    const lotNumber = decodeURIComponent(req.params.lotNumber).trim();
     await executeSupabaseWrite(client =>
-      client.from("qc_lot_configs").delete().eq("lot_number", req.params.lotNumber)
+      client.from("qc_lot_configs").delete().ilike("lot_number", lotNumber)
     );
     res.json({ success: true });
   } catch (err: any) {
