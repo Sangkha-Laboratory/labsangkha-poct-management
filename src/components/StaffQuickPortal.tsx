@@ -1445,9 +1445,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     onChange={(e) => setChkDate(e.target.value)}
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
                   />
-                  <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                    <span>⏱️ ระบบบันทึกเวลาปัจจุบันของระบบอัตโนมัติ</span>
-                  </div>
                 </div>
 
                 <div>
@@ -1592,7 +1589,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             </form>
           </div>
 
-          {/* FLEXIBLE WIDE HISTORY TABLE (SINGLE LINE DISPLAY) */}
+          {/* FLEXIBLE WIDE HISTORY TABLE (SINGLE LINE DISPLAY & BALANCED PROPORTIONS) */}
           <div className="flex-1 w-full min-w-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
@@ -1604,15 +1601,15 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               </span>
             </div>
 
-            <div className="overflow-x-auto w-full">
+            <div className="overflow-x-auto w-full rounded-xl border border-slate-100 dark:border-slate-800">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 font-bold whitespace-nowrap">
                   <tr>
-                    <th className="py-2.5 px-3 whitespace-nowrap">วันที่-เวลา</th>
-                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">S/N เครื่อง</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">ผลการตรวจสอบ</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">สถานะ</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">ผู้บันทึก</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap w-[135px]">วันที่-เวลา</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap w-[100px]">S/N เครื่อง</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap w-[165px]">ผลการตรวจสอบ</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap w-[75px]">สถานะ</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap w-[110px]">ผู้บันทึก</th>
                     <th className="py-2.5 px-3 whitespace-nowrap">บันทึกเพิ่มเติม</th>
                   </tr>
                 </thead>
@@ -1637,7 +1634,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       if (!iqcPassed) failures.push('IQC');
 
                       return (
-                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
                           <td className="py-2.5 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
                             {formatThaiDateTime(chk.date)}
                           </td>
@@ -1646,7 +1643,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
                             {failures.length === 0 ? (
-                              <div className="flex items-center gap-2 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5 whitespace-nowrap">
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                                   ✓ ผ่านทุกข้อ (8/8)
                                 </span>
@@ -1659,7 +1656,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5 whitespace-nowrap">
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" title={failures.join(', ')}>
                                   ✗ ข้อสังเกต ({failures.length})
                                 </span>
@@ -1675,7 +1672,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold whitespace-nowrap ${
-                              chk.status === 'normal' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                              chk.status === 'normal' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                             }`}>
                               {chk.status === 'normal' ? 'ปกติ' : 'ผิดปกติ'}
                             </span>
@@ -1683,7 +1680,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                           <td className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
                             {chk.operator || '-'}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap max-w-[180px] truncate" title={chk.note}>
+                          <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap max-w-[200px] truncate" title={chk.note}>
                             {chk.note || '-'}
                           </td>
                         </tr>
