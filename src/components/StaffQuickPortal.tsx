@@ -22,6 +22,8 @@ import {
   Droplet,
   FlaskConical,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Calendar,
   QrCode,
   PackageCheck,
@@ -473,6 +475,10 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
   // --- DAILY CHECKLIST ---
   const [chkDate, setChkDate] = useState<string>(() => getThaiTodayDateOnly());
+  const [chkPage, setChkPage] = useState<number>(1);
+  const CHK_PAGE_SIZE = 7;
+  const totalChkPages = Math.max(1, Math.ceil(dailyChecklists.length / CHK_PAGE_SIZE));
+  const paginatedChecklists = dailyChecklists.slice((chkPage - 1) * CHK_PAGE_SIZE, chkPage * CHK_PAGE_SIZE);
 
   const [chkSerial, setChkSerial] = useState<string>(() => {
     return localStorage.getItem('dtx_quick_win_chk_serial') || (targetMachines[0]?.machineSerial || targetMachines[0]?.serialNumber || '');
@@ -546,6 +552,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       const savedChk = await dbService.insertDailyChecklist(newChk);
       const updated = [savedChk || newChk, ...dailyChecklists];
       setDailyChecklists(updated);
+      setChkPage(1);
       setChkNote('');
       setChkDate(getThaiTodayDateOnly());
       setChecklistToast(`✓ บันทึก Checklist ประจำวันสำหรับเครื่อง ${chkSerial} สำเร็จแล้ว!`);
@@ -1406,176 +1413,181 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
       {/* TAB 3: DAILY MAINTENANCE CHECKLIST */}
       {activeTab === 'checklist' && (
-        <div className="flex flex-col lg:flex-row items-start gap-5 w-full animate-fade-in">
+        <div className="flex flex-col lg:flex-row items-stretch gap-5 w-full animate-fade-in">
           
           {/* NARROW COMPACT CHECKLIST FORM */}
-          <div className="w-full lg:w-[320px] xl:w-[340px] shrink-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 rounded-xl">
-                <CheckSquare size={20} />
-              </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Checklist บำรุงรักษารายวัน
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจสอบประจำวันเครื่องประจำแลป</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleSaveDailyChecklist} className="space-y-4 text-xs">
-              <div className="space-y-3">
+          <div className="w-full lg:w-[320px] xl:w-[340px] shrink-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 rounded-xl">
+                  <CheckSquare size={20} />
+                </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-700 dark:text-slate-300">
-                      วันที่ตรวจ
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setChkDate(getThaiTodayDateOnly())}
-                      title="เลือกเป็นวันปัจจุบัน"
-                      className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                    >
-                      <RefreshCw size={12} />
-                      <span>วันนี้</span>
-                    </button>
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    Checklist บำรุงรักษารายวัน
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจสอบประจำวันเครื่องประจำแลป</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveDailyChecklist} id="daily-chk-form" className="space-y-4 text-xs">
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-bold text-slate-700 dark:text-slate-300">
+                        วันที่ตรวจ
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setChkDate(getThaiTodayDateOnly())}
+                        title="เลือกเป็นวันปัจจุบัน"
+                        className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                      >
+                        <RefreshCw size={12} />
+                        <span>วันนี้</span>
+                      </button>
+                    </div>
+                    <input
+                      type="date"
+                      value={chkDate}
+                      onChange={(e) => setChkDate(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
+                    />
                   </div>
-                  <input
-                    type="date"
-                    value={chkDate}
-                    onChange={(e) => setChkDate(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
-                  />
+
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      เลือกรหัสเครื่อง DTX (S/N)
+                    </label>
+                    <select
+                      value={chkSerial}
+                      onChange={(e) => setChkSerial(e.target.value)}
+                      disabled={sortedMachinesForSelect.length === 0}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white disabled:opacity-60"
+                    >
+                      {sortedMachinesForSelect.length === 0 ? (
+                        <option value="">-- ไม่พบเครื่อง DTX ประจำห้องปฏิบัติการ --</option>
+                      ) : (
+                        sortedMachinesForSelect.map((m, idx) => {
+                          const primarySN = m.machineSerial || m.serialNumber;
+                          return (
+                            <option key={idx} value={primarySN}>
+                              S/N: {primarySN} {m.serialNumber && m.serialNumber !== m.machineSerial ? `(รหัส: ${m.serialNumber})` : ''}
+                            </option>
+                          );
+                        })
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkBodyClean}
+                      onChange={(e) => setChkBodyClean(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">1. วัสดุตัวเครื่องและความสะอาด</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkPowerButton}
+                      onChange={(e) => setChkPowerButton(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">2. ปุ่มเปิด/ปิด</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkStripSlot}
+                      onChange={(e) => setChkStripSlot(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">3. ช่องเสียบ Strip</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkBatterySlot}
+                      onChange={(e) => setChkBatterySlot(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">4. ช่องใส่ถ่าน</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkBattery}
+                      onChange={(e) => setChkBattery(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">5. พลังงานแบตเตอรี่</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkScreenDisplay}
+                      onChange={(e) => setChkScreenDisplay(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">6. ความคมชัด/ไฟหน้าจอ</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkMeasurement}
+                      onChange={(e) => setChkMeasurement(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">7. เครื่องอ่านค่าถูกต้อง</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <input
+                      type="checkbox"
+                      checked={chkIqcPassed}
+                      onChange={(e) => setChkIqcPassed(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-slate-700 dark:text-slate-300">8. ผล IQC อยู่ในเกณฑ์ปกติ</span>
+                  </label>
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    เลือกรหัสเครื่อง DTX (S/N)
+                    บันทึกเพิ่มเติม / ข้อสังเกต (ถ้ามี)
                   </label>
-                  <select
-                    value={chkSerial}
-                    onChange={(e) => setChkSerial(e.target.value)}
-                    disabled={sortedMachinesForSelect.length === 0}
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white disabled:opacity-60"
-                  >
-                    {sortedMachinesForSelect.length === 0 ? (
-                      <option value="">-- ไม่พบเครื่อง DTX ประจำห้องปฏิบัติการ --</option>
-                    ) : (
-                      sortedMachinesForSelect.map((m, idx) => {
-                        const primarySN = m.machineSerial || m.serialNumber;
-                        return (
-                          <option key={idx} value={primarySN}>
-                            S/N: {primarySN} {m.serialNumber && m.serialNumber !== m.machineSerial ? `(รหัส: ${m.serialNumber})` : ''}
-                          </option>
-                        );
-                      })
-                    )}
-                  </select>
+                  <input
+                    type="text"
+                    value={chkNote}
+                    onChange={(e) => setChkNote(e.target.value)}
+                    placeholder="เช่น เครื่องพร้อมใช้งาน"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white"
+                  />
                 </div>
-              </div>
 
-              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkBodyClean}
-                    onChange={(e) => setChkBodyClean(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">1. วัสดุตัวเครื่องและความสะอาด</span>
-                </label>
+                {checklistToast && (
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs font-bold animate-pulse">
+                    {checklistToast}
+                  </div>
+                )}
+              </form>
+            </div>
 
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkPowerButton}
-                    onChange={(e) => setChkPowerButton(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">2. ปุ่มเปิด/ปิด</span>
-                </label>
-
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkStripSlot}
-                    onChange={(e) => setChkStripSlot(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">3. ช่องเสียบ Strip</span>
-                </label>
-
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkBatterySlot}
-                    onChange={(e) => setChkBatterySlot(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">4. ช่องใส่ถ่าน</span>
-                </label>
-
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkBattery}
-                    onChange={(e) => setChkBattery(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">5. พลังงานแบตเตอรี่</span>
-                </label>
-
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkScreenDisplay}
-                    onChange={(e) => setChkScreenDisplay(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">6. ความคมชัด/ไฟหน้าจอ</span>
-                </label>
-
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkMeasurement}
-                    onChange={(e) => setChkMeasurement(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">7. เครื่องอ่านค่าถูกต้อง</span>
-                </label>
-
-                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
-                  <input
-                    type="checkbox"
-                    checked={chkIqcPassed}
-                    onChange={(e) => setChkIqcPassed(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <span className="text-slate-700 dark:text-slate-300">8. ผล IQC อยู่ในเกณฑ์ปกติ</span>
-                </label>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  บันทึกเพิ่มเติม / ข้อสังเกต (ถ้ามี)
-                </label>
-                <input
-                  type="text"
-                  value={chkNote}
-                  onChange={(e) => setChkNote(e.target.value)}
-                  placeholder="เช่น เครื่องพร้อมใช้งาน"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white"
-                />
-              </div>
-
-              {checklistToast && (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs font-bold animate-pulse">
-                  {checklistToast}
-                </div>
-              )}
-
+            <div className="pt-3">
               <button
                 type="submit"
+                form="daily-chk-form"
                 disabled={isSavingChecklist}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center space-x-2 shadow-xs cursor-pointer transition-all disabled:opacity-50"
               >
@@ -1586,110 +1598,177 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 )}
                 <span>{isSavingChecklist ? 'กำลังบันทึกข้อมูล...' : 'บันทึก Checklist ประจำวัน'}</span>
               </button>
-            </form>
+            </div>
           </div>
 
-          {/* FLEXIBLE WIDE HISTORY TABLE (SINGLE LINE DISPLAY & BALANCED PROPORTIONS) */}
-          <div className="flex-1 w-full min-w-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <CheckSquare size={16} className="text-emerald-600" />
-                <span>ประวัติ Checklist ประจำวันเครื่องแล็บ</span>
-              </h3>
-              <span className="text-[11px] text-slate-400 font-mono">
-                {dailyChecklists.length} รายการ
-              </span>
-            </div>
+          {/* FLEXIBLE WIDE HISTORY TABLE (LESS DENSE, EQUAL HEIGHT & PAGINATED) */}
+          <div className="flex-1 w-full min-w-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 rounded-lg">
+                    <CheckSquare size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      ประวัติ Checklist ประจำวันเครื่องแล็บ
+                    </h3>
+                    <p className="text-xs text-slate-400">บันทึกการตรวจสอบบำรุงรักษาเครื่อง</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
+                    ทั้งหมด {dailyChecklists.length} รายการ
+                  </span>
+                </div>
+              </div>
 
-            <div className="overflow-x-auto w-full rounded-xl border border-slate-100 dark:border-slate-800">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 font-bold whitespace-nowrap">
-                  <tr>
-                    <th className="py-2.5 px-3 whitespace-nowrap w-[135px]">วันที่-เวลา</th>
-                    <th className="py-2.5 px-3 font-mono whitespace-nowrap w-[100px]">S/N เครื่อง</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap w-[165px]">ผลการตรวจสอบ</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap w-[75px]">สถานะ</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap w-[110px]">ผู้บันทึก</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">บันทึกเพิ่มเติม</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium whitespace-nowrap">
-                  {dailyChecklists.length === 0 ? (
+              <div className="overflow-x-auto w-full rounded-xl border border-slate-100 dark:border-slate-800/80">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 font-bold whitespace-nowrap">
                     <tr>
-                      <td colSpan={6} className="text-center py-10 text-slate-400 whitespace-normal">ยังไม่มีรายการ Checklist วันนี้</td>
+                      <th className="py-3 px-3.5 whitespace-nowrap w-[140px]">วันที่-เวลา</th>
+                      <th className="py-3 px-3.5 font-mono whitespace-nowrap w-[105px]">S/N เครื่อง</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap w-[165px]">ผลการตรวจสอบ</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap w-[80px]">สถานะ</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap w-[120px]">ผู้บันทึก</th>
+                      <th className="py-3 px-3.5 whitespace-nowrap text-center">บันทึกเพิ่มเติม</th>
                     </tr>
-                  ) : (
-                    dailyChecklists.map((chk, idx) => {
-                      const bodyPassed = chk.chkBodyClean !== undefined ? (chk.chkBodyClean && chk.chkPowerButton && chk.chkStripSlot && chk.chkBatterySlot) : (chk as any).cleanStripPort;
-                      const batteryPassed = chk.chkBattery !== undefined ? chk.chkBattery : (chk as any).checkBattery;
-                      const screenPassed = chk.chkScreenDisplay !== undefined ? chk.chkScreenDisplay : true;
-                      const measurementPassed = chk.chkMeasurement !== undefined ? chk.chkMeasurement : (chk as any).verifyDateTime;
-                      const iqcPassed = chk.chkIqcPassed !== undefined ? chk.chkIqcPassed : true;
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium whitespace-nowrap">
+                    {paginatedChecklists.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="text-center py-14 text-slate-400 whitespace-normal">ยังไม่มีรายการ Checklist บันทึกไว้</td>
+                      </tr>
+                    ) : (
+                      paginatedChecklists.map((chk, idx) => {
+                        const bodyPassed = chk.chkBodyClean !== undefined ? (chk.chkBodyClean && chk.chkPowerButton && chk.chkStripSlot && chk.chkBatterySlot) : (chk as any).cleanStripPort;
+                        const batteryPassed = chk.chkBattery !== undefined ? chk.chkBattery : (chk as any).checkBattery;
+                        const screenPassed = chk.chkScreenDisplay !== undefined ? chk.chkScreenDisplay : true;
+                        const measurementPassed = chk.chkMeasurement !== undefined ? chk.chkMeasurement : (chk as any).verifyDateTime;
+                        const iqcPassed = chk.chkIqcPassed !== undefined ? chk.chkIqcPassed : true;
 
-                      const failures: string[] = [];
-                      if (!bodyPassed) failures.push('สภาพตัวเครื่อง');
-                      if (!batteryPassed) failures.push('ถ่าน');
-                      if (!screenPassed) failures.push('การแสดงผลหน้าจอ');
-                      if (!measurementPassed) failures.push('การตรวจวัดค่า');
-                      if (!iqcPassed) failures.push('IQC');
+                        const failures: string[] = [];
+                        if (!bodyPassed) failures.push('สภาพตัวเครื่อง');
+                        if (!batteryPassed) failures.push('ถ่าน');
+                        if (!screenPassed) failures.push('การแสดงผลหน้าจอ');
+                        if (!measurementPassed) failures.push('การตรวจวัดค่า');
+                        if (!iqcPassed) failures.push('IQC');
 
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                          <td className="py-2.5 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
-                            {formatThaiDateTime(chk.date)}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                            {chk.serialNumber}
-                          </td>
-                          <td className="py-2.5 px-3 whitespace-nowrap">
-                            {failures.length === 0 ? (
-                              <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                  ✓ ผ่านทุกข้อ (8/8)
+                        const hasNote = chk.note && chk.note.trim() !== '' && chk.note.trim() !== '-';
+
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                            <td className="py-3 px-3.5 font-mono text-slate-600 dark:text-slate-400 text-[11px] whitespace-nowrap">
+                              {formatThaiDateTime(chk.date)}
+                            </td>
+                            <td className="py-3 px-3.5 font-mono font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                              {chk.serialNumber}
+                            </td>
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              {failures.length === 0 ? (
+                                <div className="flex items-center gap-2 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                    ✓ ผ่านทุกข้อ (8/8)
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedChecklistDetail(chk)}
+                                    className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 underline font-semibold cursor-pointer whitespace-nowrap"
+                                  >
+                                    ดูรายละเอียด
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" title={failures.join(', ')}>
+                                    ✗ ข้อสังเกต ({failures.length})
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedChecklistDetail(chk)}
+                                    className="text-[11px] text-rose-600 hover:text-rose-700 dark:text-rose-400 underline font-bold cursor-pointer whitespace-nowrap"
+                                  >
+                                    ดูรายละเอียด
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-3.5 whitespace-nowrap">
+                              <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-extrabold whitespace-nowrap ${
+                                chk.status === 'normal' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                              }`}>
+                                {chk.status === 'normal' ? 'ปกติ' : 'ผิดปกติ'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3.5 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                              {chk.operator || '-'}
+                            </td>
+                            <td className="py-3 px-3.5 text-[11px] whitespace-nowrap max-w-[200px]">
+                              {hasNote ? (
+                                <span className="text-slate-600 dark:text-slate-400 truncate block text-left" title={chk.note}>
+                                  {chk.note}
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedChecklistDetail(chk)}
-                                  className="text-[11px] text-emerald-600 hover:text-emerald-700 underline font-semibold cursor-pointer whitespace-nowrap"
-                                >
-                                  ดูรายละเอียด
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" title={failures.join(', ')}>
-                                  ✗ ข้อสังเกต ({failures.length})
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedChecklistDetail(chk)}
-                                  className="text-[11px] text-rose-600 hover:text-rose-700 underline font-bold cursor-pointer whitespace-nowrap"
-                                >
-                                  ดูรายละเอียด
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold whitespace-nowrap ${
-                              chk.status === 'normal' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                            }`}>
-                              {chk.status === 'normal' ? 'ปกติ' : 'ผิดปกติ'}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                            {chk.operator || '-'}
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap max-w-[200px] truncate" title={chk.note}>
-                            {chk.note || '-'}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                              ) : (
+                                <div className="text-center text-slate-400 dark:text-slate-500 font-mono font-bold">-</div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
+
+            {/* PAGINATION BAR */}
+            {totalChkPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                  แสดง {(chkPage - 1) * CHK_PAGE_SIZE + 1} - {Math.min(chkPage * CHK_PAGE_SIZE, dailyChecklists.length)} จากทั้งหมด {dailyChecklists.length} รายการ
+                </span>
+                
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setChkPage(prev => Math.max(1, prev - 1))}
+                    disabled={chkPage === 1}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    title="หน้าก่อนหน้า"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+
+                  <div className="flex items-center space-x-1">
+                    {Array.from({ length: totalChkPages }, (_, i) => i + 1).map((pageNum) => (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setChkPage(pageNum)}
+                        className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          chkPage === pageNum
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setChkPage(prev => Math.min(totalChkPages, prev + 1))}
+                    disabled={chkPage === totalChkPages}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    title="หน้าถัดไป"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* CHECKLIST DETAIL MODAL */}
