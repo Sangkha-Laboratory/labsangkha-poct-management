@@ -110,21 +110,37 @@ export default function App() {
   });
 
   const [isSelectingRole, setIsSelectingRole] = useState<boolean>(() => {
-    // ตรวจสอบสถานะว่าผู้ใช้กำลังอยู่ในโหมดเลือกบทบาทหรือไม่
-    // หากมี role ที่บันทึกไว้ในระบบ (เช่น staff / quick win) เมื่อกด Refresh จะล็อกหน้าเดิมไว้ ไม่เด้งกลับไปหน้าเลือกบทบาท
-    const explicitlySelecting = localStorage.getItem('dtx_is_selecting_role');
-    if (explicitlySelecting === 'true') return true;
-    if (explicitlySelecting === 'false') return false;
+    // ใช้ sessionStorage เป็นตัวตรวจจับว่าเป็นการ "เปิดแท็บใหม่ / เปิดโปรแกรมใหม่" หรือ "รีเฟรชหน้าเดิม"
+    // - หากเปิดแท็บใหม่ หรือเปิดโปรแกรมใหม่ sessionStorage จะว่างเปล่า -> บังคับเริ่มต้นที่หน้า select role เสมอ
+    // - หากเป็นการกด Refresh หน้าเดิมในแท็บเดิม sessionStorage จะยังคงอยู่ -> ล็อกหน้าที่กำลังใช้งานอยู่เดิมไว้ ไม่เด้งกลับ
+    try {
+      const tabInitialized = sessionStorage.getItem('dtx_tab_initialized');
+      if (!tabInitialized) {
+        // เปิดแท็บใหม่ / เปิดโปรแกรมใหม่ -> เริ่มต้นที่หน้าเลือกประเภทผู้ใช้งาน (Select Role)
+        sessionStorage.setItem('dtx_tab_initialized', 'true');
+        sessionStorage.setItem('dtx_session_role_selected', 'false');
+        return true;
+      }
 
-    // หากเคยเลือก role ไว้แล้ว (เช่น staff, user, admin) ให้เข้าหน้านั้นทันที
-    const savedRole = localStorage.getItem('dtx_role');
-    if (savedRole) return false;
-
-    return true;
+      // รีเฟรชในแท็บเดิม: ถ้าเคยเลือกบทบาทในแท็บนี้แล้ว ให้ล็อกหน้าเดิมไว้
+      const sessionRoleSelected = sessionStorage.getItem('dtx_session_role_selected');
+      if (sessionRoleSelected === 'true') {
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('dtx_is_selecting_role', String(isSelectingRole));
+    try {
+      if (isSelectingRole) {
+        sessionStorage.setItem('dtx_session_role_selected', 'false');
+      } else {
+        sessionStorage.setItem('dtx_session_role_selected', 'true');
+      }
+    } catch {}
   }, [isSelectingRole]);
   const [roleSelectorAuthMode, setRoleSelectorAuthMode] = useState<'selector' | 'staff_quick_login' | 'staff_full_login' | 'admin_login'>('selector');
 

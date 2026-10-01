@@ -1419,6 +1419,29 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             <form onSubmit={handleSaveDailyChecklist} className="space-y-4 text-xs">
               <div className="space-y-3">
                 <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300">
+                      วัน-เวลาที่ตรวจ
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRefreshChkDateTime}
+                      title="อัปเดตเป็นวันและเวลาปัจจุบัน"
+                      className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <RefreshCw size={12} />
+                      <span>รีเฟรชเวลาปัจจุบัน</span>
+                    </button>
+                  </div>
+                  <input
+                    type="datetime-local"
+                    value={chkDateTime}
+                    onChange={(e) => setChkDateTime(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
+                  />
+                </div>
+
+                <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                     เลือกรหัสเครื่อง DTX (S/N)
                   </label>
@@ -1441,30 +1464,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       })
                     )}
                   </select>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-bold text-slate-700 dark:text-slate-300">
-                      วัน-เวลาที่ตรวจ (เวลาประเทศไทย)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleRefreshChkDateTime}
-                      title="อัปเดตเป็นวันและเวลาปัจจุบัน (ประเทศไทย)"
-                      className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                    >
-                      <RefreshCw size={12} />
-                      <span>รีเฟรชเวลาปัจจุบัน</span>
-                    </button>
-                  </div>
-                  <input
-                    type="datetime-local"
-                    value={chkDateTime}
-                    onChange={(e) => setChkDateTime(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">*ค่าเริ่มต้นคือวันเวลาปัจจุบันตามเวลาประเทศไทย สามารถเลือกเปลี่ยนวันที่ได้ตามต้องการ</p>
                 </div>
               </div>
 
