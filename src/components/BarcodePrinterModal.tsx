@@ -67,12 +67,16 @@ function BarcodeSvg({ text, height = 32, barWidth = 1.2 }: { text: string; heigh
   return <svg ref={svgRef} style={{ display: 'block', margin: '0 auto' }} />;
 }
 
+const EMPTY_STOCK: StripReagentItem[] = [];
+const EMPTY_LOTS: QcLotConfig[] = [];
+const EMPTY_MACHINES: DtxMachine[] = [];
+
 export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
   isOpen,
   onClose,
-  stockItems = [],
-  lotConfigs = [],
-  machines = [],
+  stockItems = EMPTY_STOCK,
+  lotConfigs = EMPTY_LOTS,
+  machines = EMPTY_MACHINES,
   initialSource = 'stock',
   initialItemCode,
   initialLotNumber
@@ -106,7 +110,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
   // Initialize selected stock items
   useEffect(() => {
-    if (stockItems && stockItems.length > 0) {
+    if (isOpen && stockItems && stockItems.length > 0) {
       if (initialItemCode) {
         const found = stockItems.filter(i => i.itemCode === initialItemCode).map(i => i.id);
         if (found.length > 0) setSelectedStockIds(found);
@@ -115,15 +119,17 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
         setSelectedStockIds(stockItems.slice(0, 8).map(i => i.id));
       }
     }
-  }, [stockItems, initialItemCode]);
+  }, [isOpen, stockItems, initialItemCode]);
 
   // Update lot details when lot selection changes
   useEffect(() => {
-    const cfg = lotConfigs.find(c => c.lotNumber === selectedLot);
-    if (cfg) {
-      if (cfg.expDate) setLotExpDate(cfg.expDate);
+    if (isOpen) {
+      const cfg = lotConfigs.find(c => c.lotNumber === selectedLot);
+      if (cfg && cfg.expDate) {
+        setLotExpDate(cfg.expDate);
+      }
     }
-  }, [selectedLot, lotConfigs]);
+  }, [isOpen, selectedLot, lotConfigs]);
 
   if (!isOpen) return null;
 

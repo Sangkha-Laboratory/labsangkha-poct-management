@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine, MachineLocationLog } from '../types';
-import { dbService } from '../lib/supabase';
+import { dbService, generateUUID } from '../lib/supabase';
 import { 
   Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, 
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
@@ -268,7 +268,7 @@ export default function StockManagement({
     }
 
     const machineData: DtxMachine = {
-      id: modalMode === 'add' ? String(Date.now()) : currentMachineId,
+      id: modalMode === 'add' ? generateUUID() : currentMachineId,
       serialNumber: serialNumber.trim().toUpperCase(),
       machineSerial: finalSerial,
       brand: finalBrand,

@@ -45,12 +45,15 @@ interface StaffQuickPortalProps {
   onSwitchToRoleSelector?: () => void;
 }
 
+const EMPTY_SUPPLIES: SupplyRequest[] = [];
+const EMPTY_STOCK_ITEMS: StripReagentItem[] = [];
+
 export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   machines,
   qcRecords,
   lotConfigs,
-  supplies = [],
-  stockItems = [],
+  supplies = EMPTY_SUPPLIES,
+  stockItems = EMPTY_STOCK_ITEMS,
   onAddQcRecord,
   onAddSupply,
   onUpdateLotConfigs,
@@ -61,14 +64,37 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   // เมื่อพร้อมใช้งานจริง ให้เปลี่ยนค่านี้กลับเป็น true
   const STRIP_CONTROL_ENABLED = false;
 
-  // Smart filter for Lab machines, with graceful fallback to all machines if none matched
-  const labMachines = machines.filter(m => {
-    const w = (m.ward || '').toLowerCase();
-    return w.includes('ชันสูตร') || w.includes('เทคนิคการแพทย์') || w.includes('lab') || w.includes('แล็บ') || w.includes('พยาธิ') || m.ward === 'งานชันสูตรสาธารณสุข';
-  });
-  const targetMachines = labMachines.length > 0 ? labMachines : machines;
+  // กรองเฉพาะเครื่องประจำห้องปฏิบัติการ/งานชันสูตรสาธารณสุข (Lab Machines)
+  const labMachines = React.useMemo(() => {
+    return machines.filter(m => {
+      const w = (m.ward || '').toLowerCase().trim();
+      return (
+        w.includes('ชันสูตร') || 
+        w.includes('เทคนิคการแพทย์') || 
+        w.includes('ห้องปฏิบัติการ') || 
+        w.includes('พยาธิ') || 
+        w.includes('lab') || 
+        w.includes('แล็บ') || 
+        w === 'งานชันสูตรสาธารณสุข'
+      );
+    });
+  }, [machines]);
+  
+  // กำหนดให้ Quick Win Portal ใช้เฉพาะเครื่องของงานชันสูตรสาธารณสุข
+  const targetMachines = labMachines;
 
-  const [activeTab, setActiveTab] = useState<'batch_qc' | 'checklist' | 'maintenance' | 'supply_request' | 'new_machine_request'>('batch_qc');
+  const [activeTab, setActiveTab] = useState<'batch_qc' | 'checklist' | 'maintenance' | 'supply_request' | 'new_machine_request'>(() => {
+    const saved = localStorage.getItem('dtx_quick_win_active_tab');
+    if (saved && ['batch_qc', 'checklist', 'maintenance', 'supply_request', 'new_machine_request'].includes(saved)) {
+      return saved as any;
+    }
+    return 'batch_qc';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('dtx_quick_win_active_tab', activeTab);
+  }, [activeTab]);
+
   const [isBarcodePrinterOpen, setIsBarcodePrinterOpen] = useState<boolean>(false);
   const [barcodePrinterSource, setBarcodePrinterSource] = useState<'stock' | 'lot' | 'machines' | 'custom'>('stock');
 
@@ -92,9 +118,21 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   };
 
   // --- BATCH QC ENTRY STATES ---
-  const [wardFilter, setWardFilter] = useState<string>('all');
   const [batchDate, setBatchDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [batchLot, setBatchLot] = useState<string>(lotConfigs[0]?.lotNumber || 'LOT2026-A');
+  const [batchLot, setBatchLot] = useState<string>(() => {
+    const savedLot = localStorage.getItem('dtx_quick_win_batch_lot');
+    if (savedLot && lotConfigs.some(c => c.lotNumber === savedLot)) {
+      return savedLot;
+    }
+    return lotConfigs[0]?.lotNumber || 'LOT2026-A';
+  });
+
+  useEffect(() => {
+    if (batchLot) {
+      localStorage.setItem('dtx_quick_win_batch_lot', batchLot);
+    }
+  }, [batchLot]);
+
   const [batchRows, setBatchRows] = useState<Array<{
     serialNumber: string;
     ward: string;
@@ -110,42 +148,47 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   useEffect(() => {
     if (targetMachines && targetMachines.length > 0) {
       setBatchRows(prev => {
-        // If empty or machines changed, regenerate batch rows with selected defaulted to true
-        if (prev.length === 0 || prev.length !== targetMachines.length) {
-          return targetMachines.map(m => ({
-            serialNumber: m.serialNumber || m.machineSerial || m.id || 'DTX-UNK',
-            ward: m.ward || 'งานชันสูตรสาธารณสุข',
-            selected: true,
-            level1: '',
-            level2: '',
-            level3: ''
-          }));
+        const prevSerials = prev.map(r => r.serialNumber).join(',');
+        const currentSerials = targetMachines.map(m => m.serialNumber || m.machineSerial || m.id || 'DTX-UNK').join(',');
+        if (prevSerials === currentSerials && prev.length === targetMachines.length) {
+          return prev;
         }
-        return prev;
+        return targetMachines.map(m => ({
+          serialNumber: m.serialNumber || m.machineSerial || m.id || 'DTX-UNK',
+          ward: m.ward || 'งานชันสูตรสาธารณสุข',
+          selected: true,
+          level1: '',
+          level2: '',
+          level3: ''
+        }));
       });
 
-      const labMachine = targetMachines.find(m => {
-        const w = (m.ward || '').toLowerCase();
-        return w.includes('ชันสูตร') || w.includes('เทคนิคการแพทย์') || w.includes('lab') || w.includes('แล็บ');
-      }) || targetMachines[0];
-      const defaultMaintSerial = labMachine?.serialNumber || labMachine?.machineSerial || labMachine?.id || '';
-      const defaultChkSerial = labMachine?.machineSerial || labMachine?.serialNumber || labMachine?.id || '';
-      if (!maintSerial && defaultMaintSerial) setMaintSerial(defaultMaintSerial);
-      if (!chkSerial && defaultChkSerial) setChkSerial(defaultChkSerial);
+      const savedChk = localStorage.getItem('dtx_quick_win_chk_serial');
+      const firstMachine = targetMachines[0];
+      const defaultMaintSerial = firstMachine?.serialNumber || firstMachine?.machineSerial || firstMachine?.id || '';
+      const defaultChkSerial = (savedChk && targetMachines.some(m => (m.machineSerial || m.serialNumber) === savedChk))
+        ? savedChk
+        : (firstMachine?.machineSerial || firstMachine?.serialNumber || firstMachine?.id || '');
+      setMaintSerial(prev => prev || defaultMaintSerial);
+      setChkSerial(prev => prev || defaultChkSerial);
+    } else {
+      setBatchRows(prev => prev.length === 0 ? prev : []);
+      setMaintSerial(prev => prev === '' ? prev : '');
+      setChkSerial(prev => prev === '' ? prev : '');
     }
   }, [targetMachines]);
 
   const activeLotConfig = lotConfigs.find(c => c.lotNumber === batchLot) || lotConfigs[0];
 
-  const uniqueWards = Array.from(new Set(targetMachines.map(m => m.ward || 'ไม่ระบุ'))).filter(Boolean);
-  const filteredBatchRows = batchRows.filter(row => wardFilter === 'all' || row.ward === wardFilter);
-  const sortedMachinesForSelect = [...targetMachines].sort((a, b) => {
-    const aIsLab = (a.ward || '').includes('ชันสูตร') || (a.ward || '').includes('เทคนิคการแพทย์');
-    const bIsLab = (b.ward || '').includes('ชันสูตร') || (b.ward || '').includes('เทคนิคการแพทย์');
-    if (aIsLab && !bIsLab) return -1;
-    if (!aIsLab && bIsLab) return 1;
-    return 0;
-  });
+  const filteredBatchRows = batchRows;
+
+  const sortedMachinesForSelect = React.useMemo(() => {
+    return [...targetMachines].sort((a, b) => {
+      const aCode = a.machineSerial || a.serialNumber || '';
+      const bCode = b.machineSerial || b.serialNumber || '';
+      return aCode.localeCompare(bCode);
+    });
+  }, [targetMachines]);
 
   const evaluateValue = (valStr: string, min?: number, max?: number, target?: number, sd?: number) => {
     if (!valStr || !valStr.trim()) return 'empty';
@@ -431,7 +474,16 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
   // --- DAILY CHECKLIST ---
   const todayStr = new Date().toISOString().split('T')[0];
-  const [chkSerial, setChkSerial] = useState<string>(targetMachines[0]?.machineSerial || targetMachines[0]?.serialNumber || '');
+  const [chkSerial, setChkSerial] = useState<string>(() => {
+    return localStorage.getItem('dtx_quick_win_chk_serial') || (targetMachines[0]?.machineSerial || targetMachines[0]?.serialNumber || '');
+  });
+
+  useEffect(() => {
+    if (chkSerial) {
+      localStorage.setItem('dtx_quick_win_chk_serial', chkSerial);
+    }
+  }, [chkSerial]);
+
   const [chkBodyClean, setChkBodyClean] = useState<boolean>(true);
   const [chkPowerButton, setChkPowerButton] = useState<boolean>(true);
   const [chkStripSlot, setChkStripSlot] = useState<boolean>(true);
@@ -496,7 +548,18 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   const [qcFilterStatus, setQcFilterStatus] = useState<'all' | 'in_control' | 'out_of_control'>('all');
 
   const filteredQcRecords = (qcRecords || [])
-    .filter(r => r.ward === 'งานชันสูตรสาธารณสุข')
+    .filter(r => {
+      const w = (r.ward || '').toLowerCase().trim();
+      return (
+        w.includes('ชันสูตร') || 
+        w.includes('เทคนิคการแพทย์') || 
+        w.includes('ห้องปฏิบัติการ') || 
+        w.includes('lab') || 
+        w.includes('แล็บ') || 
+        w.includes('พยาธิ') || 
+        w === 'งานชันสูตรสาธารณสุข'
+      );
+    })
     .filter(r => {
       if (!qcSearchSerial.trim()) return true;
       return r.serialNumber.toLowerCase().includes(qcSearchSerial.trim().toLowerCase());
@@ -685,18 +748,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       if (matched.receivedDate) setSupReceivedDate(matched.receivedDate);
     }
   };
-
-  useEffect(() => {
-    dbService.getSupplies().then((supplies) => {
-      if (supplies) {
-        const filtered = supplies.filter(s => s.ward === 'งานชันสูตรสาธารณสุข' || s.itemType === 'strip' || s.itemType === 'control_solution' || !s.ward);
-        const sorted = filtered.sort((a, b) => new Date(b.requestDate || 0).getTime() - new Date(a.requestDate || 0).getTime());
-        setSupplyRequests(sorted);
-      }
-    }).catch(err => {
-      console.error('Error fetching supplies:', err);
-    });
-  }, [activeTab]);
 
   const handleAddSupplyRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -994,9 +1045,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                  <span className="text-slate-500 font-medium text-xs">หน่วยงาน:</span>
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">งานชันสูตรสาธารณสุข</span>
+                <div className="flex items-center space-x-1.5 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium text-xs">หน่วยงาน:</span>
+                  <span className="text-xs font-black text-emerald-700 dark:text-emerald-300">
+                    งานชันสูตรสาธารณสุข ({targetMachines.length} เครื่อง)
+                  </span>
                 </div>
                 <div className="flex items-center space-x-1.5 text-xs">
                   <span className="text-slate-500 font-medium">วันที่:</span>
@@ -1035,7 +1088,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               </div>
 
               <div className="font-bold text-slate-500 dark:text-slate-400">
-                จำนวนเครื่องในแลปทั้งหมด: <span className="text-emerald-600 font-black">{targetMachines.length}</span> เครื่อง
+                จำนวนเครื่องงานชันสูตรสาธารณสุข: <span className="text-emerald-600 font-black">{filteredBatchRows.length}</span> เครื่อง
               </div>
             </div>
 
@@ -1361,16 +1414,21 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 <select
                   value={chkSerial}
                   onChange={(e) => setChkSerial(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white"
+                  disabled={sortedMachinesForSelect.length === 0}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white disabled:opacity-60"
                 >
-                  {sortedMachinesForSelect.map((m, idx) => {
-                    const primarySN = m.machineSerial || m.serialNumber;
-                    return (
-                      <option key={idx} value={primarySN}>
-                        S/N: {primarySN} {m.serialNumber && m.serialNumber !== m.machineSerial ? `(รหัส: ${m.serialNumber})` : ''}
-                      </option>
-                    );
-                  })}
+                  {sortedMachinesForSelect.length === 0 ? (
+                    <option value="">-- ไม่พบเครื่อง DTX ประจำห้องปฏิบัติการ --</option>
+                  ) : (
+                    sortedMachinesForSelect.map((m, idx) => {
+                      const primarySN = m.machineSerial || m.serialNumber;
+                      return (
+                        <option key={idx} value={primarySN}>
+                          S/N: {primarySN} {m.serialNumber && m.serialNumber !== m.machineSerial ? `(รหัส: ${m.serialNumber})` : ''}
+                        </option>
+                      );
+                    })
+                  )}
                 </select>
               </div>
 

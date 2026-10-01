@@ -8,6 +8,18 @@ export const isUuid = (val?: string): boolean => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 };
 
+// Helper to generate standard UUID v4
+export const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
 // 1. Read Supabase URL & Anon Key with local storage fallback
 export const getSupabaseUrl = (): string => {
   if (typeof localStorage !== 'undefined') {
@@ -893,8 +905,9 @@ export const dbService = {
   },
 
   async insertMachine(machine: DtxMachine): Promise<DtxMachine> {
+    const targetId = isUuid(machine.id) ? machine.id : generateUUID();
     const dbPayload = mapMachineToDb(machine);
-    const payloadWithId = isUuid(machine.id) ? { ...dbPayload, id: machine.id } : dbPayload;
+    const payloadWithId = { ...dbPayload, id: targetId };
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
@@ -938,7 +951,7 @@ export const dbService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToMachine(data) : machine;
+    return data ? mapDbToMachine(data) : { ...machine, id: targetId };
   },
 
   async insertMachinesBulk(machinesList: DtxMachine[], overwrite = false): Promise<{ success: number; failed: number; results: DtxMachine[] }> {
@@ -1068,8 +1081,9 @@ export const dbService = {
   },
 
   async insertRepair(repair: RepairRequest): Promise<RepairRequest> {
+    const targetId = isUuid(repair.id) ? repair.id : generateUUID();
     const dbPayload = mapRepairToDb(repair);
-    const payloadWithId = isUuid(repair.id) ? { ...dbPayload, id: repair.id } : dbPayload;
+    const payloadWithId = { ...dbPayload, id: targetId };
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
@@ -1087,7 +1101,7 @@ export const dbService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToRepair(data) : repair;
+    return data ? mapDbToRepair(data) : { ...repair, id: targetId };
   },
 
   async updateRepair(id: string, repair: Partial<RepairRequest>): Promise<RepairRequest> {
@@ -1168,8 +1182,9 @@ export const dbService = {
   },
 
   async insertSupply(supply: SupplyRequest): Promise<SupplyRequest> {
+    const targetId = isUuid(supply.id) ? supply.id : generateUUID();
     const dbPayload = mapSupplyToDb(supply);
-    const payloadWithId = isUuid(supply.id) ? { ...dbPayload, id: supply.id } : dbPayload;
+    const payloadWithId = { ...dbPayload, id: targetId };
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
@@ -1187,7 +1202,7 @@ export const dbService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToSupply(data) : supply;
+    return data ? mapDbToSupply(data) : { ...supply, id: targetId };
   },
 
   async updateSupply(id: string, supply: Partial<SupplyRequest>): Promise<SupplyRequest> {
@@ -1255,8 +1270,9 @@ export const dbService = {
   },
 
   async insertQcRecord(qc: QcRecord): Promise<QcRecord> {
+    const targetId = isUuid(qc.id) ? qc.id : generateUUID();
     const dbPayload = mapQcRecordToDb(qc);
-    const payloadWithId = isUuid(qc.id) ? { ...dbPayload, id: qc.id } : dbPayload;
+    const payloadWithId = { ...dbPayload, id: targetId };
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
@@ -1273,7 +1289,7 @@ export const dbService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToQcRecord(data) : qc;
+    return data ? mapDbToQcRecord(data) : { ...qc, id: targetId };
   },
 
   async updateQcRecord(id: string, qc: Partial<QcRecord>): Promise<QcRecord> {
@@ -1469,8 +1485,9 @@ export const dbService = {
   },
 
   async insertEqaRecord(eqa: EqaRecord): Promise<EqaRecord> {
+    const targetId = isUuid(eqa.id) ? eqa.id : generateUUID();
     const dbPayload = mapEqaRecordToDb(eqa);
-    const payloadWithId = isUuid(eqa.id) ? { ...dbPayload, id: eqa.id } : dbPayload;
+    const payloadWithId = { ...dbPayload, id: targetId };
 
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
@@ -1487,7 +1504,7 @@ export const dbService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToEqaRecord(data) : eqa;
+    return data ? mapDbToEqaRecord(data) : { ...eqa, id: targetId };
   },
 
   async updateEqaRecord(id: string, eqa: Partial<EqaRecord>): Promise<EqaRecord> {
@@ -1558,10 +1575,13 @@ export const dbService = {
   },
 
   async insertManual(manual: UserManual): Promise<UserManual> {
+    const targetId = isUuid(manual.id) ? manual.id : generateUUID();
     const dbPayload = mapManualToDb(manual);
+    const payloadWithId = { ...dbPayload, id: targetId };
+
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'user_manuals'
       );
       if (!error && data) return mapDbToManual(data);
@@ -1572,9 +1592,9 @@ export const dbService = {
     const data = await safeApiFetch('/api/manuals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
+      body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToManual(data) : manual;
+    return data ? mapDbToManual(data) : { ...manual, id: targetId };
   },
 
   async deleteManual(id: string): Promise<void> {
@@ -1618,10 +1638,13 @@ export const dbService = {
   },
 
   async insertAnnouncement(ann: Announcement): Promise<Announcement> {
+    const targetId = isUuid(ann.id) ? ann.id : generateUUID();
     const dbPayload = mapAnnouncementToDb(ann);
+    const payloadWithId = { ...dbPayload, id: targetId };
+
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
+        (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'announcements'
       );
       if (!error && data) return mapDbToAnnouncement(data);
@@ -1632,9 +1655,9 @@ export const dbService = {
     const data = await safeApiFetch('/api/announcements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dbPayload)
+      body: JSON.stringify(payloadWithId)
     });
-    return data ? mapDbToAnnouncement(data) : ann;
+    return data ? mapDbToAnnouncement(data) : { ...ann, id: targetId };
   },
 
   async deleteAnnouncement(id: string): Promise<void> {

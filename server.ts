@@ -42,8 +42,8 @@ const isUuid = (val?: string): boolean => {
 const cleanUuidPayload = (body: any) => {
   if (body && typeof body === 'object') {
     const copy = { ...body };
-    if (copy.id !== undefined && !isUuid(copy.id)) {
-      delete copy.id;
+    if (!copy.id || !isUuid(copy.id)) {
+      copy.id = crypto.randomUUID();
     }
     return copy;
   }
@@ -342,9 +342,32 @@ app.get("/api/machines", checkDbConfig, async (req, res) => {
 app.post("/api/machines", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
-    const data = await executeSupabaseWrite(client =>
-      client.from("dtx_machines").insert([payload]).select("*").maybeSingle()
-    );
+    let data;
+    try {
+      data = await executeSupabaseWrite(client =>
+        client.from("dtx_machines").insert([payload]).select("*").maybeSingle()
+      );
+    } catch (writeErr: any) {
+      // If error is duplicate key (23505) or already exists, update instead
+      if (writeErr && (writeErr.code === '23505' || writeErr.message?.includes('duplicate key') || writeErr.message?.includes('unique constraint') || writeErr.message?.includes('already exists'))) {
+        const query = isUuid(payload.id)
+          ? (client: any) => client.from("dtx_machines").update(payload).eq("id", payload.id).select("*").maybeSingle()
+          : (client: any) => client.from("dtx_machines").update(payload).eq("bgm_code", payload.bgm_code).select("*").maybeSingle();
+        data = await executeSupabaseWrite(query);
+      } else if (writeErr && (writeErr.code === '42703' || writeErr.message?.includes('model'))) {
+        // Missing 'model' column fallback
+        const fallbackPayload = { ...payload };
+        if (fallbackPayload.model && fallbackPayload.brand) {
+          fallbackPayload.brand = `${fallbackPayload.brand} ${fallbackPayload.model}`.trim();
+        }
+        delete fallbackPayload.model;
+        data = await executeSupabaseWrite(client =>
+          client.from("dtx_machines").insert([fallbackPayload]).select("*").maybeSingle()
+        );
+      } else {
+        throw writeErr;
+      }
+    }
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

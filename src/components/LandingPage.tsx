@@ -25,17 +25,23 @@ interface LandingPageProps {
   onSwitchToRoleSelector?: () => void;
 }
 
+const EMPTY_MACHINES: DtxMachine[] = [];
+const EMPTY_REPAIRS: RepairRequest[] = [];
+const EMPTY_SUPPLIES: SupplyRequest[] = [];
+const EMPTY_MANUALS: UserManual[] = [];
+const EMPTY_ANNOUNCEMENTS: Announcement[] = [];
+
 export default function LandingPage({ 
-  machines = [], 
-  repairs = [], 
-  supplies = [], 
+  machines = EMPTY_MACHINES, 
+  repairs = EMPTY_REPAIRS, 
+  supplies = EMPTY_SUPPLIES, 
   onAddRepair, 
   onAddSupply, 
   lineNotifyToken = '',
   activeTab: controlledActiveTab,
   onActiveTabChange,
-  manuals: propManuals = [],
-  announcements: propAnnouncements = [],
+  manuals: propManuals = EMPTY_MANUALS,
+  announcements: propAnnouncements = EMPTY_ANNOUNCEMENTS,
   onOpenPrivacy,
   onSwitchToRoleSelector
 }: LandingPageProps) {
