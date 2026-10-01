@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
-import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput } from '../lib/dateUtils';
+import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput, getThaiTodayDateOnly, toThaiIsoString } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
 import { 
   Zap, 
@@ -270,8 +270,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           ? evaluateValue(row.level3, activeLotConfig.level3Min, activeLotConfig.level3Max, activeLotConfig.level3Target, activeLotConfig.level3SD)
           : 'normal';
 
-        const nowStr = new Date().toISOString();
-        const recordDate = batchDate ? `${batchDate}T${nowStr.split('T')[1] || '08:00:00.000Z'}` : nowStr;
+        const recordDate = toThaiIsoString(batchDate);
 
         const record: QcRecord = {
           id: `QC-LAB-${Date.now()}-${Math.floor(Math.random()*1000)}`,
@@ -473,11 +472,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   };
 
   // --- DAILY CHECKLIST ---
-  const [chkDateTime, setChkDateTime] = useState<string>(() => getThaiNowDateTimeInput());
-  
-  const handleRefreshChkDateTime = () => {
-    setChkDateTime(getThaiNowDateTimeInput());
-  };
+  const [chkDate, setChkDate] = useState<string>(() => getThaiTodayDateOnly());
 
   const [chkSerial, setChkSerial] = useState<string>(() => {
     return localStorage.getItem('dtx_quick_win_chk_serial') || (targetMachines[0]?.machineSerial || targetMachines[0]?.serialNumber || '');
@@ -515,9 +510,19 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     const allPassed = chkBodyClean && chkPowerButton && chkStripSlot && chkBatterySlot && 
                       chkBattery && chkScreenDisplay && chkMeasurement && chkIqcPassed;
 
-    const recordDate = chkDateTime 
-      ? new Date(chkDateTime).toISOString() 
-      : new Date().toISOString();
+    // รับเวลาจากระบบ ณ วินาทีที่กดบันทึก
+    const now = new Date();
+    const todayStr = getThaiTodayDateOnly();
+    let recordDate: string;
+
+    if (!chkDate || chkDate === todayStr) {
+      // ใช้วันและเวลาปัจจุบันของระบบทันที
+      recordDate = now.toISOString();
+    } else {
+      // กรณีผู้ใช้เลือกวันที่อื่น ให้นำวันที่เลือกมารวมกับเวลาปัจจุบันของระบบ
+      const timeStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
+      recordDate = toThaiIsoString(`${chkDate}T${timeStr}`);
+    }
 
     const newChk: DailyChecklist = {
       id: `CHK-${Date.now()}-${chkSerial}`,
@@ -542,7 +547,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       const updated = [savedChk || newChk, ...dailyChecklists];
       setDailyChecklists(updated);
       setChkNote('');
-      setChkDateTime(getThaiNowDateTimeInput());
+      setChkDate(getThaiTodayDateOnly());
       setChecklistToast(`✓ บันทึก Checklist ประจำวันสำหรับเครื่อง ${chkSerial} สำเร็จแล้ว!`);
       setTimeout(() => setChecklistToast(''), 6000);
     } catch (err: any) {
@@ -1401,9 +1406,10 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
       {/* TAB 3: DAILY MAINTENANCE CHECKLIST */}
       {activeTab === 'checklist' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
+        <div className="flex flex-col lg:flex-row items-start gap-5 w-full animate-fade-in">
           
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          {/* NARROW COMPACT CHECKLIST FORM */}
+          <div className="w-full lg:w-[320px] xl:w-[340px] shrink-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center space-x-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/80 text-emerald-600 rounded-xl">
                 <CheckSquare size={20} />
@@ -1412,7 +1418,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
                   Checklist บำรุงรักษารายวัน
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจสอบประจำวันสำหรับเครื่องประจำแลป</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจสอบประจำวันเครื่องประจำแลป</p>
               </div>
             </div>
 
@@ -1421,24 +1427,27 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-bold text-slate-700 dark:text-slate-300">
-                      วัน-เวลาที่ตรวจ
+                      วันที่ตรวจ
                     </label>
                     <button
                       type="button"
-                      onClick={handleRefreshChkDateTime}
-                      title="อัปเดตเป็นวันและเวลาปัจจุบัน"
+                      onClick={() => setChkDate(getThaiTodayDateOnly())}
+                      title="เลือกเป็นวันปัจจุบัน"
                       className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 cursor-pointer transition-colors"
                     >
                       <RefreshCw size={12} />
-                      <span>รีเฟรชเวลาปัจจุบัน</span>
+                      <span>วันนี้</span>
                     </button>
                   </div>
                   <input
-                    type="datetime-local"
-                    value={chkDateTime}
-                    onChange={(e) => setChkDateTime(e.target.value)}
+                    type="date"
+                    value={chkDate}
+                    onChange={(e) => setChkDate(e.target.value)}
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
                   />
+                  <div className="flex items-center gap-1 mt-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    <span>⏱️ ระบบบันทึกเวลาปัจจุบันของระบบอัตโนมัติ</span>
+                  </div>
                 </div>
 
                 <div>
@@ -1467,8 +1476,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkBodyClean}
@@ -1478,7 +1487,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <span className="text-slate-700 dark:text-slate-300">1. วัสดุตัวเครื่องและความสะอาด</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkPowerButton}
@@ -1488,7 +1497,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <span className="text-slate-700 dark:text-slate-300">2. ปุ่มเปิด/ปิด</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkStripSlot}
@@ -1498,7 +1507,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <span className="text-slate-700 dark:text-slate-300">3. ช่องเสียบ Strip</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkBatterySlot}
@@ -1508,44 +1517,44 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <span className="text-slate-700 dark:text-slate-300">4. ช่องใส่ถ่าน</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkBattery}
                     onChange={(e) => setChkBattery(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
-                  <span className="text-slate-700 dark:text-slate-300">5. พลังงานแบตเตอรี่และความเรียบร้อย</span>
+                  <span className="text-slate-700 dark:text-slate-300">5. พลังงานแบตเตอรี่</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkScreenDisplay}
                     onChange={(e) => setChkScreenDisplay(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
-                  <span className="text-slate-700 dark:text-slate-300">6. ความคมชัดและไฟหน้าจอแสดงผล</span>
+                  <span className="text-slate-700 dark:text-slate-300">6. ความคมชัด/ไฟหน้าจอ</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkMeasurement}
                     onChange={(e) => setChkMeasurement(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
-                  <span className="text-slate-700 dark:text-slate-300">7. ตัวเครื่องอ่านค่าและประมวลผลได้ถูกต้อง</span>
+                  <span className="text-slate-700 dark:text-slate-300">7. เครื่องอ่านค่าถูกต้อง</span>
                 </label>
 
-                <label className="flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <label className="flex items-center space-x-2.5 cursor-pointer p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/60">
                   <input
                     type="checkbox"
                     checked={chkIqcPassed}
                     onChange={(e) => setChkIqcPassed(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                   />
-                  <span className="text-slate-700 dark:text-slate-300">8. ผลทดสอบ IQC ประจำวันอยู่ในย่านควบคุมปกติ</span>
+                  <span className="text-slate-700 dark:text-slate-300">8. ผล IQC อยู่ในเกณฑ์ปกติ</span>
                 </label>
               </div>
 
@@ -1557,7 +1566,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   type="text"
                   value={chkNote}
                   onChange={(e) => setChkNote(e.target.value)}
-                  placeholder="เช่น เครื่องทำงานปกติ พร้อมใช้งาน"
+                  placeholder="เช่น เครื่องพร้อมใช้งาน"
                   className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white"
                 />
               </div>
@@ -1583,27 +1592,34 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             </form>
           </div>
 
-          <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-              <CheckSquare size={16} className="text-emerald-600" />
-              <span>ประวัติ Checklist ประจำวันเครื่องแล็บ</span>
-            </h3>
+          {/* FLEXIBLE WIDE HISTORY TABLE (SINGLE LINE DISPLAY) */}
+          <div className="flex-1 w-full min-w-0 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <CheckSquare size={16} className="text-emerald-600" />
+                <span>ประวัติ Checklist ประจำวันเครื่องแล็บ</span>
+              </h3>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {dailyChecklists.length} รายการ
+              </span>
+            </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto w-full">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 font-bold">
+                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 font-bold whitespace-nowrap">
                   <tr>
-                    <th className="py-3 px-3">วันที่</th>
-                    <th className="py-3 px-3 font-mono">S/N</th>
-                    <th className="py-3 px-3">ผลการตรวจ</th>
-                    <th className="py-3 px-3">สถานะ</th>
-                    <th className="py-3 px-3">ผู้ตรวจ</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">วันที่-เวลา</th>
+                    <th className="py-2.5 px-3 font-mono whitespace-nowrap">S/N เครื่อง</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">ผลการตรวจสอบ</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">สถานะ</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">ผู้บันทึก</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">บันทึกเพิ่มเติม</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium whitespace-nowrap">
                   {dailyChecklists.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-10 text-slate-400">ยังไม่มีรายการ Checklist วันนี้</td>
+                      <td colSpan={6} className="text-center py-10 text-slate-400 whitespace-normal">ยังไม่มีรายการ Checklist วันนี้</td>
                     </tr>
                   ) : (
                     dailyChecklists.map((chk, idx) => {
@@ -1622,45 +1638,54 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                          <td className="py-3 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">{formatThaiDateTime(chk.date)}</td>
-                          <td className="py-3 px-3 font-mono font-bold text-emerald-700 dark:text-emerald-400">{chk.serialNumber}</td>
-                          <td className="py-3 px-3">
+                          <td className="py-2.5 px-3 font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                            {formatThaiDateTime(chk.date)}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                            {chk.serialNumber}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
                             {failures.length === 0 ? (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 whitespace-nowrap">
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                  ✓ สมบูรณ์ผ่านทุกรายการ
+                                  ✓ ผ่านทุกข้อ (8/8)
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => setSelectedChecklistDetail(chk)}
-                                  className="text-[11px] text-emerald-600 hover:text-emerald-700 underline font-semibold cursor-pointer"
+                                  className="text-[11px] text-emerald-600 hover:text-emerald-700 underline font-semibold cursor-pointer whitespace-nowrap"
                                 >
                                   ดูรายละเอียด
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2">
-                                <span className="text-rose-600 dark:text-rose-400 font-semibold text-[11px] truncate max-w-[130px]" title={failures.join(', ')}>
-                                  ✗ พบข้อสังเกต ({failures.length})
+                              <div className="flex items-center gap-2 whitespace-nowrap">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" title={failures.join(', ')}>
+                                  ✗ ข้อสังเกต ({failures.length})
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => setSelectedChecklistDetail(chk)}
-                                  className="text-[11px] text-rose-600 hover:text-rose-700 underline font-bold cursor-pointer"
+                                  className="text-[11px] text-rose-600 hover:text-rose-700 underline font-bold cursor-pointer whitespace-nowrap"
                                 >
                                   ดูรายละเอียด
                                 </button>
                               </div>
                             )}
                           </td>
-                          <td className="py-3 px-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold whitespace-nowrap ${
                               chk.status === 'normal' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                             }`}>
                               {chk.status === 'normal' ? 'ปกติ' : 'ผิดปกติ'}
                             </span>
                           </td>
-                          <td className="py-3 px-3 font-bold text-slate-600 dark:text-slate-400">{chk.operator}</td>
+                          <td className="py-2.5 px-3 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                            {chk.operator || '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-500 dark:text-slate-400 text-[11px] whitespace-nowrap max-w-[180px] truncate" title={chk.note}>
+                            {chk.note || '-'}
+                          </td>
                         </tr>
                       );
                     })

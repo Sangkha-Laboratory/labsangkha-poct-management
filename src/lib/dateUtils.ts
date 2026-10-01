@@ -38,6 +38,12 @@ export const formatToThaiDate = (dateString?: string): string => {
  */
 export const formatThaiDateTime = (dateString?: string): string => {
   if (!dateString) return '-';
+
+  // If dateString is only a date (e.g. "2026-10-01" without time component)
+  if (dateString.length === 10 && !dateString.includes('T') && dateString.includes('-')) {
+    return formatThaiDateOnly(dateString);
+  }
+
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return dateString;
 
@@ -52,10 +58,43 @@ export const formatThaiDateTime = (dateString?: string): string => {
     timeZone: 'Asia/Bangkok',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
+    hour12: false
   });
 
   return `${datePart} ${timePart} น.`;
+};
+
+/**
+ * Converts a Thailand local datetime string (e.g. "2026-10-01T14:30" or Date object)
+ * into a full ISO string with proper +07:00 Bangkok offset so it never shifts time or defaults to 07:00:00.
+ */
+export const toThaiIsoString = (thaiDateTimeStr?: string): string => {
+  if (!thaiDateTimeStr) return new Date().toISOString();
+  // If already contains timezone (+ or Z)
+  if (thaiDateTimeStr.endsWith('Z') || thaiDateTimeStr.includes('+')) {
+    const d = new Date(thaiDateTimeStr);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  // If format is YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
+  if (thaiDateTimeStr.includes('T')) {
+    const parts = thaiDateTimeStr.split('T');
+    const timePart = parts[1];
+    const normalizedTime = timePart.length === 5 ? `${timePart}:00` : timePart;
+    const withOffset = `${parts[0]}T${normalizedTime}+07:00`;
+    const d = new Date(withOffset);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  // If only date YYYY-MM-DD, attach current Bangkok time
+  if (thaiDateTimeStr.length === 10 && thaiDateTimeStr.includes('-')) {
+    const nowBangkok = getThaiNowDateTimeInput();
+    const timePart = nowBangkok.split('T')[1] || '08:00';
+    const withOffset = `${thaiDateTimeStr}T${timePart}:00+07:00`;
+    const d = new Date(withOffset);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  }
+  const d = new Date(thaiDateTimeStr);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 };
 
 /**
