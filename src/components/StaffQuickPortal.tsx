@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
-import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime } from '../lib/dateUtils';
+import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
 import { 
   Zap, 
@@ -473,7 +473,12 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   };
 
   // --- DAILY CHECKLIST ---
-  const todayStr = new Date().toISOString().split('T')[0];
+  const [chkDateTime, setChkDateTime] = useState<string>(() => getThaiNowDateTimeInput());
+  
+  const handleRefreshChkDateTime = () => {
+    setChkDateTime(getThaiNowDateTimeInput());
+  };
+
   const [chkSerial, setChkSerial] = useState<string>(() => {
     return localStorage.getItem('dtx_quick_win_chk_serial') || (targetMachines[0]?.machineSerial || targetMachines[0]?.serialNumber || '');
   });
@@ -510,9 +515,13 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     const allPassed = chkBodyClean && chkPowerButton && chkStripSlot && chkBatterySlot && 
                       chkBattery && chkScreenDisplay && chkMeasurement && chkIqcPassed;
 
+    const recordDate = chkDateTime 
+      ? new Date(chkDateTime).toISOString() 
+      : new Date().toISOString();
+
     const newChk: DailyChecklist = {
       id: `CHK-${Date.now()}-${chkSerial}`,
-      date: new Date().toISOString(),
+      date: recordDate,
       serialNumber: chkSerial,
       ward: wardName,
       chkBodyClean,
@@ -533,6 +542,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       const updated = [savedChk || newChk, ...dailyChecklists];
       setDailyChecklists(updated);
       setChkNote('');
+      setChkDateTime(getThaiNowDateTimeInput());
       setChecklistToast(`✓ บันทึก Checklist ประจำวันสำหรับเครื่อง ${chkSerial} สำเร็จแล้ว!`);
       setTimeout(() => setChecklistToast(''), 6000);
     } catch (err: any) {
@@ -1407,29 +1417,55 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
             </div>
 
             <form onSubmit={handleSaveDailyChecklist} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  เลือกรหัสเครื่อง DTX (S/N)
-                </label>
-                <select
-                  value={chkSerial}
-                  onChange={(e) => setChkSerial(e.target.value)}
-                  disabled={sortedMachinesForSelect.length === 0}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white disabled:opacity-60"
-                >
-                  {sortedMachinesForSelect.length === 0 ? (
-                    <option value="">-- ไม่พบเครื่อง DTX ประจำห้องปฏิบัติการ --</option>
-                  ) : (
-                    sortedMachinesForSelect.map((m, idx) => {
-                      const primarySN = m.machineSerial || m.serialNumber;
-                      return (
-                        <option key={idx} value={primarySN}>
-                          S/N: {primarySN} {m.serialNumber && m.serialNumber !== m.machineSerial ? `(รหัส: ${m.serialNumber})` : ''}
-                        </option>
-                      );
-                    })
-                  )}
-                </select>
+              <div className="space-y-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    เลือกรหัสเครื่อง DTX (S/N)
+                  </label>
+                  <select
+                    value={chkSerial}
+                    onChange={(e) => setChkSerial(e.target.value)}
+                    disabled={sortedMachinesForSelect.length === 0}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white disabled:opacity-60"
+                  >
+                    {sortedMachinesForSelect.length === 0 ? (
+                      <option value="">-- ไม่พบเครื่อง DTX ประจำห้องปฏิบัติการ --</option>
+                    ) : (
+                      sortedMachinesForSelect.map((m, idx) => {
+                        const primarySN = m.machineSerial || m.serialNumber;
+                        return (
+                          <option key={idx} value={primarySN}>
+                            S/N: {primarySN} {m.serialNumber && m.serialNumber !== m.machineSerial ? `(รหัส: ${m.serialNumber})` : ''}
+                          </option>
+                        );
+                      })
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300">
+                      วัน-เวลาที่ตรวจ (เวลาประเทศไทย)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRefreshChkDateTime}
+                      title="อัปเดตเป็นวันและเวลาปัจจุบัน (ประเทศไทย)"
+                      className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <RefreshCw size={12} />
+                      <span>รีเฟรชเวลาปัจจุบัน</span>
+                    </button>
+                  </div>
+                  <input
+                    type="datetime-local"
+                    value={chkDateTime}
+                    onChange={(e) => setChkDateTime(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-slate-800 dark:text-white"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">*ค่าเริ่มต้นคือวันเวลาปัจจุบันตามเวลาประเทศไทย สามารถเลือกเปลี่ยนวันที่ได้ตามต้องการ</p>
+                </div>
               </div>
 
               <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
