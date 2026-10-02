@@ -13,6 +13,22 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Serve public directory statically (Favicon, hospital logos, assets)
+const publicDirPath = path.join(process.cwd(), "public");
+app.use(express.static(publicDirPath));
+
+app.get("/favicon.ico", (_req, res) => {
+  res.sendFile(path.join(publicDirPath, "favicon.ico"));
+});
+
+app.get("/favicon.png", (_req, res) => {
+  res.sendFile(path.join(publicDirPath, "favicon.png"));
+});
+
+app.get("/SKH.png", (_req, res) => {
+  res.sendFile(path.join(publicDirPath, "SKH.png"));
+});
+
 // Initialize Supabase Client securely on the server
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";

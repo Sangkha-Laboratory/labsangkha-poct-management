@@ -255,6 +255,18 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  // Sync browser tab favicon
+  useEffect(() => {
+    try {
+      const activeFaviconLogo = (hospitalLogo && hospitalLogo.startsWith('data:')) ? hospitalLogo : DEFAULT_HOSPITAL_LOGO_BASE64;
+      document.querySelectorAll("link[rel*='icon'], link[rel='apple-touch-icon']").forEach((el) => {
+        (el as HTMLLinkElement).href = activeFaviconLogo;
+      });
+    } catch (e) {
+      console.warn('Favicon sync note:', e);
+    }
+  }, [hospitalLogo]);
+
   useEffect(() => {
     if (showToast) {
       const timer = setTimeout(() => setShowToast(''), 4000);
@@ -561,18 +573,10 @@ export default function App() {
                 {/* โลโก้โรงพยาบาลสังขะ */}
                 <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center">
                   <img 
-                    src="/SKH.png" 
+                    src={hospitalLogo || DEFAULT_HOSPITAL_LOGO_BASE64} 
                     alt="โรงพยาบาลสังขะ" 
                     className="w-full h-full object-contain drop-shadow-2xs"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      const fallback = document.getElementById('header-microscope-fallback');
-                      if (fallback) fallback.style.display = 'flex';
-                    }}
                   />
-                  <div id="header-microscope-fallback" className="hidden w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl items-center justify-center text-white shadow-lg shadow-sky-500/20">
-                    <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                  </div>
                 </div>
                 {/* ข้อความชื่อหน่วยงาน */}
                 <div>
