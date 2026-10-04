@@ -40,7 +40,9 @@ import {
   Microscope,
   Activity,
   ClipboardCheck,
-  ClipboardList
+  ClipboardList,
+  Clock,
+  LogOut
 } from 'lucide-react';
 
 interface StaffQuickPortalProps {
@@ -120,6 +122,46 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     setOperator(name);
     localStorage.setItem('dtx_qc_operator', name);
   };
+
+  // Quick Win 15-Minute Sliding Session Timeout
+  const [remainingMinutes, setRemainingMinutes] = useState<number>(15);
+
+  useEffect(() => {
+    const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+    let timeoutId: number;
+    let lastActiveTime = Date.now();
+
+    const resetInactivityTimer = () => {
+      lastActiveTime = Date.now();
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        if (onSwitchToRoleSelector) {
+          onSwitchToRoleSelector();
+        }
+      }, TIMEOUT_MS);
+    };
+
+    resetInactivityTimer();
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach(event => {
+      window.addEventListener(event, resetInactivityTimer);
+    });
+
+    const intervalId = window.setInterval(() => {
+      const elapsed = Date.now() - lastActiveTime;
+      const left = Math.max(0, Math.ceil((TIMEOUT_MS - elapsed) / 60000));
+      setRemainingMinutes(left);
+    }, 10000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
+      events.forEach(event => {
+        window.removeEventListener(event, resetInactivityTimer);
+      });
+    };
+  }, [onSwitchToRoleSelector]);
 
   // --- BATCH QC ENTRY STATES ---
   const [localLotConfigs, setLocalLotConfigs] = useState<QcLotConfig[]>(lotConfigs);
@@ -1079,7 +1121,12 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center space-x-1.5 text-xs bg-emerald-50/80 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/80 text-emerald-800 dark:text-emerald-300 px-3 py-2 rounded-xl font-bold shadow-2xs" title="ระบบล็อคอัตโนมัติหากไม่มีการใช้งานเกิน 15 นาที">
+            <Clock size={14} className="text-emerald-600 dark:text-emerald-400 animate-pulse shrink-0" />
+            <span>Timeout {remainingMinutes} น.</span>
+          </div>
+
           <button
             type="button"
             onClick={fetchQuickWinDbData}
@@ -1101,6 +1148,18 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               className="font-bold text-slate-800 dark:text-white bg-transparent border-none focus:outline-none w-36 text-xs"
             />
           </div>
+
+          {onSwitchToRoleSelector && (
+            <button
+              type="button"
+              onClick={onSwitchToRoleSelector}
+              title="ออกจากโหมด Quick Win"
+              className="flex items-center space-x-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 dark:text-rose-300 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-800/80 transition-all cursor-pointer shadow-2xs"
+            >
+              <LogOut size={14} />
+              <span className="hidden sm:inline">ออกจากระบบ</span>
+            </button>
+          )}
         </div>
       </div>
 

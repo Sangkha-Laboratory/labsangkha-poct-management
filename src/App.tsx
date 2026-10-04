@@ -302,6 +302,37 @@ export default function App() {
     };
   }, [isAdminLoggedIn]);
 
+  // Sliding 15-Minute Session Timeout for Staff Quick Win Portal
+  useEffect(() => {
+    if (role !== 'staff' || isSelectingRole) return;
+
+    const QUICK_WIN_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+    let timeoutId: number;
+
+    const resetQuickWinTimer = () => {
+      window.clearTimeout(timeoutId);
+      localStorage.setItem('dtx_quick_win_last_active', String(Date.now()));
+      timeoutId = window.setTimeout(() => {
+        setIsSelectingRole(true);
+        setShowToast('หมดเวลาการใช้งาน Quick Win เนื่องจากไม่มีการใช้งานต่อเนื่องเกิน 15 นาที');
+      }, QUICK_WIN_TIMEOUT_MS);
+    };
+
+    resetQuickWinTimer();
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach(event => {
+      window.addEventListener(event, resetQuickWinTimer);
+    });
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      events.forEach(event => {
+        window.removeEventListener(event, resetQuickWinTimer);
+      });
+    };
+  }, [role, isSelectingRole]);
+
   // Handlers for data updates passed to children
   
   useEffect(() => {
