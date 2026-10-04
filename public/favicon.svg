@@ -1,15 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
-    <linearGradient id="dDrop" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" />
-      <stop offset="45%" stop-color="#0284c7" />
+    <linearGradient id="dtxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
       <stop offset="100%" stop-color="#0369a1" />
     </linearGradient>
   </defs>
-  <!-- Blue Blood Drop Shape -->
-  <path d="M32 4 C32 4 10 26 10 41 A22 22 0 0 0 54 41 C54 26 32 4 32 4 Z" fill="url(#dDrop)"/>
-  <!-- Highlight Curve -->
-  <path d="M32 10 C27 17 17 27 16 38 C15 33 17 26 25 17 C28 13 32 10 32 10 Z" fill="#ffffff" opacity="0.3"/>
-  <!-- Letter D in Center -->
-  <text x="32" y="42" fill="#ffffff" font-family="'Segoe UI', -apple-system, Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="22" text-anchor="middle" dominant-baseline="central">D</text>
+  <text x="32" y="36" fill="url(#dtxGrad)" font-family="'Arial Black', Impact, 'Segoe UI', -apple-system, sans-serif" font-weight="900" font-size="28" letter-spacing="-1.5" text-anchor="middle" dominant-baseline="central">DTX</text>
 </svg>
