@@ -21,15 +21,21 @@ const DTX_FAVICON_DATA_URI = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org
       svgFavicon.href = DTX_FAVICON_DATA_URI;
       head.appendChild(svgFavicon);
 
+      const pngFavicon = document.createElement('link');
+      pngFavicon.rel = 'icon';
+      pngFavicon.type = 'image/png';
+      pngFavicon.sizes = '32x32';
+      pngFavicon.href = '/favicon-32x32.png?v=3';
+      head.appendChild(pngFavicon);
+
       const shortcutLink = document.createElement('link');
       shortcutLink.rel = 'shortcut icon';
-      shortcutLink.type = 'image/svg+xml';
-      shortcutLink.href = DTX_FAVICON_DATA_URI;
+      shortcutLink.href = '/favicon.ico?v=3';
       head.appendChild(shortcutLink);
 
       const appleTouch = document.createElement('link');
       appleTouch.rel = 'apple-touch-icon';
-      appleTouch.href = DTX_FAVICON_DATA_URI;
+      appleTouch.href = '/apple-touch-icon.png?v=3';
       head.appendChild(appleTouch);
     }
   } catch (e) {
