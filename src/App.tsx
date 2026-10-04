@@ -998,6 +998,7 @@ export default function App() {
             supplies={supplies}
             onAddQcRecord={handleAddQcRecord}
             onAddSupply={handleAddSupply}
+            onUpdateLotConfigs={handleUpdateLotConfigs}
             onSwitchToRoleSelector={() => setIsSelectingRole(true)}
           />
         ) : !isAdminLoggedIn ? (

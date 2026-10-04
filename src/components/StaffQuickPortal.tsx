@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
 import { DEFAULT_HOSPITAL_LOGO_BASE64 } from '../assets/hospitalLogoBase64';
@@ -33,7 +33,10 @@ import {
   RefreshCw,
   ListFilter,
   Search,
-  Box
+  Box,
+  Plus,
+  X,
+  Layers
 } from 'lucide-react';
 
 interface StaffQuickPortalProps {
@@ -121,20 +124,169 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   };
 
   // --- BATCH QC ENTRY STATES ---
-  const [batchDate, setBatchDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
-  const [batchLot, setBatchLot] = useState<string>(() => {
-    const savedLot = localStorage.getItem('dtx_quick_win_batch_lot');
-    if (savedLot && lotConfigs.some(c => c.lotNumber === savedLot)) {
-      return savedLot;
-    }
-    return lotConfigs[0]?.lotNumber || 'LOT2026-A';
-  });
+  const [localLotConfigs, setLocalLotConfigs] = useState<QcLotConfig[]>(lotConfigs);
 
   useEffect(() => {
-    if (batchLot) {
-      localStorage.setItem('dtx_quick_win_batch_lot', batchLot);
+    if (lotConfigs && lotConfigs.length > 0) {
+      setLocalLotConfigs(lotConfigs);
     }
-  }, [batchLot]);
+  }, [lotConfigs]);
+
+  // Sort lotConfigs so latest lot (by expDate / lotNumber) is always at the top
+  const sortedLotConfigs = useMemo(() => {
+    const list = [...(localLotConfigs && localLotConfigs.length > 0 ? localLotConfigs : lotConfigs)];
+    return list.sort((a, b) => {
+      if (a.expDate && b.expDate) {
+        return new Date(b.expDate).getTime() - new Date(a.expDate).getTime();
+      }
+      if (a.expDate) return -1;
+      if (b.expDate) return 1;
+      return b.lotNumber.localeCompare(a.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [localLotConfigs, lotConfigs]);
+
+  const [batchDate, setBatchDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [batchLot, setBatchLot] = useState<string>(() => {
+    const list = [...lotConfigs].sort((a, b) => {
+      if (a.expDate && b.expDate) return new Date(b.expDate).getTime() - new Date(a.expDate).getTime();
+      if (a.expDate) return -1;
+      if (b.expDate) return 1;
+      return b.lotNumber.localeCompare(a.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
+    });
+    return list[0]?.lotNumber || 'LOT2026-A';
+  });
+
+  // Automatically sync to latest LOT when sortedLotConfigs changes
+  useEffect(() => {
+    if (sortedLotConfigs.length > 0) {
+      const exists = sortedLotConfigs.some(c => c.lotNumber === batchLot);
+      if (!exists) {
+        setBatchLot(sortedLotConfigs[0].lotNumber);
+      }
+    }
+  }, [sortedLotConfigs]);
+
+  // Add New LOT Modal State
+  const [isAddLotModalOpen, setIsAddLotModalOpen] = useState<boolean>(false);
+  const [isSavingLot, setIsSavingLot] = useState<boolean>(false);
+  const [newLotForm, setNewLotForm] = useState({
+    lotNumber: '',
+    expDate: '',
+    manufacturer: 'VivaChek Fad',
+    notes: '',
+    // Level 1
+    level1Min: '21',
+    level1Max: '51',
+    level1Target: '36',
+    level1SD: '5',
+    // Level 2
+    level2Min: '89',
+    level2Max: '133',
+    level2Target: '111',
+    level2SD: '7.3',
+    // Level 3
+    level3Min: '261',
+    level3Max: '392',
+    level3Target: '326.5',
+    level3SD: '21.8'
+  });
+
+  const handleOpenAddLotModal = (defaultLotNum?: string) => {
+    setNewLotForm({
+      lotNumber: defaultLotNum || '',
+      expDate: '',
+      manufacturer: 'VivaChek Fad',
+      notes: '',
+      level1Min: '21',
+      level1Max: '51',
+      level1Target: '36',
+      level1SD: '5',
+      level2Min: '89',
+      level2Max: '133',
+      level2Target: '111',
+      level2SD: '7.3',
+      level3Min: '261',
+      level3Max: '392',
+      level3Target: '326.5',
+      level3SD: '21.8'
+    });
+    setIsAddLotModalOpen(true);
+  };
+
+  const handleSaveNewLot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanLot = newLotForm.lotNumber.trim();
+    if (!cleanLot) {
+      alert('กรุณากรอกเลข LOT Number');
+      return;
+    }
+
+    setIsSavingLot(true);
+    try {
+      const l1Min = Number(newLotForm.level1Min) || 0;
+      const l1Max = Number(newLotForm.level1Max) || 0;
+      const l1Target = Math.round(((l1Min + l1Max) / 2) * 10) / 10;
+      const l1SD = Math.round(((l1Max - l1Min) / 4) * 10) / 10;
+
+      const l2Min = Number(newLotForm.level2Min) || 0;
+      const l2Max = Number(newLotForm.level2Max) || 0;
+      const l2Target = Math.round(((l2Min + l2Max) / 2) * 10) / 10;
+      const l2SD = Math.round(((l2Max - l2Min) / 4) * 10) / 10;
+
+      const l3Min = Number(newLotForm.level3Min) || 0;
+      const l3Max = Number(newLotForm.level3Max) || 0;
+      const l3Target = Math.round(((l3Min + l3Max) / 2) * 10) / 10;
+      const l3SD = Math.round(((l3Max - l3Min) / 4) * 10) / 10;
+
+      const configToSave: QcLotConfig = {
+        lotNumber: cleanLot,
+        expDate: newLotForm.expDate || undefined,
+        manufacturer: newLotForm.manufacturer.trim() || undefined,
+        notes: newLotForm.notes.trim() || undefined,
+        level1Target: l1Target,
+        level1Min: l1Min,
+        level1Max: l1Max,
+        level1SD: l1SD,
+        level2Target: l2Target,
+        level2Min: l2Min,
+        level2Max: l2Max,
+        level2SD: l2SD,
+        level3Target: l3Target,
+        level3Min: l3Min,
+        level3Max: l3Max,
+        level3SD: l3SD
+      };
+
+      // 1. Save to database via dbService
+      await dbService.saveLotConfig(configToSave);
+
+      // 2. Fetch fresh lotConfigs
+      let freshConfigs: QcLotConfig[] = [];
+      try {
+        freshConfigs = await dbService.getLotConfigs();
+      } catch {}
+
+      const updatedList = freshConfigs && freshConfigs.length > 0 
+        ? freshConfigs 
+        : [configToSave, ...localLotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase())];
+
+      setLocalLotConfigs(updatedList);
+      if (onUpdateLotConfigs) {
+        await onUpdateLotConfigs(updatedList);
+      }
+
+      // 3. Set newly added LOT as active in QuickWin batch QC
+      setBatchLot(cleanLot);
+      setIsAddLotModalOpen(false);
+      setBatchToast(`✓ เพิ่มและเปิดใช้งาน LOT ${cleanLot} เรียบร้อยแล้ว`);
+      setTimeout(() => setBatchToast(''), 4000);
+    } catch (err: any) {
+      console.error(err);
+      alert(`เกิดข้อผิดพลาดในการบันทึก LOT: ${err?.message || err}`);
+    } finally {
+      setIsSavingLot(false);
+    }
+  };
 
   const [batchRows, setBatchRows] = useState<Array<{
     serialNumber: string;
@@ -181,7 +333,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     }
   }, [targetMachines]);
 
-  const activeLotConfig = lotConfigs.find(c => c.lotNumber === batchLot) || lotConfigs[0];
+  const activeLotConfig = sortedLotConfigs.find(c => c.lotNumber === batchLot) || sortedLotConfigs[0];
 
   const filteredBatchRows = batchRows;
 
@@ -336,11 +488,12 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   const fetchQuickWinDbData = async () => {
     setIsLoadingQuickWinData(true);
     try {
-      const [logs, chks, items, sups] = await Promise.all([
+      const [logs, chks, items, sups, lots] = await Promise.all([
         dbService.getMaintenanceLogs().catch(() => []),
         dbService.getDailyChecklists().catch(() => []),
         dbService.getStripReagentItems().catch(() => []),
-        dbService.getSupplies().catch(() => [])
+        dbService.getSupplies().catch(() => []),
+        dbService.getLotConfigs().catch(() => [])
       ]);
       if (logs) {
         setMaintenanceLogs(logs);
@@ -350,6 +503,10 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       }
       if (sups) {
         setSupplyRequests(sups.filter(s => s.ward === 'งานชันสูตรสาธารณสุข' || s.itemType === 'strip' || s.itemType === 'control_solution'));
+      }
+      if (lots && lots.length > 0) {
+        setLocalLotConfigs(lots);
+        if (onUpdateLotConfigs) onUpdateLotConfigs(lots);
       }
       if (items && items.length > 0) {
         setInternalStockItems(items);
@@ -1096,16 +1253,36 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   />
                 </div>
                 <div className="flex items-center space-x-1.5">
-                  <span className="text-slate-500 font-medium">LOT:</span>
-                  <select
-                    value={batchLot}
-                    onChange={(e) => setBatchLot(e.target.value)}
-                    className="text-xs p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white"
-                  >
-                    {lotConfigs.map((cfg, idx) => (
-                      <option key={idx} value={cfg.lotNumber}>{cfg.lotNumber}</option>
-                    ))}
-                  </select>
+                  <span className="text-slate-500 font-medium text-xs">LOT:</span>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={batchLot}
+                      onChange={(e) => {
+                        if (e.target.value === '__add_new__') {
+                          handleOpenAddLotModal();
+                        } else {
+                          setBatchLot(e.target.value);
+                        }
+                      }}
+                      className="text-xs p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold dark:text-white cursor-pointer"
+                    >
+                      {sortedLotConfigs.map((cfg, idx) => (
+                        <option key={idx} value={cfg.lotNumber}>
+                          {cfg.lotNumber} {cfg.expDate ? `(EXP: ${formatThaiDateOnly(cfg.expDate)})` : ''}
+                        </option>
+                      ))}
+                      <option value="__add_new__" className="text-emerald-600 font-black">+ เพิ่ม LOT ใหม่...</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAddLotModal(batchLot)}
+                      title="เพิ่ม LOT Control & Strip ใหม่"
+                      className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded-lg text-xs font-black flex items-center space-x-1 cursor-pointer transition-all shrink-0 shadow-3xs"
+                    >
+                      <Plus size={13} className="shrink-0 stroke-[3]" />
+                      <span>เพิ่ม LOT</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1127,23 +1304,19 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               </div>
             </div>
 
-            {activeLotConfig && (
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs flex-wrap gap-2">
-                <span className="font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Info size={14} className="text-emerald-600" />
-                  <span>เกณฑ์ประเมิน LOT {batchLot}:</span>
+            {!activeLotConfig && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800 flex items-center justify-between text-xs flex-wrap gap-2 text-amber-800 dark:text-amber-300 font-bold animate-fade-in">
+                <span className="flex items-center gap-1.5">
+                  <Info size={14} className="text-amber-600 shrink-0" />
+                  <span>ยังไม่มีการตั้งค่าช่วงค่ามาตรฐานสำหรับ LOT {batchLot}</span>
                 </span>
-                <div className="flex items-center gap-3 font-mono text-[11px] font-bold">
-                  <span className="text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                    L1 Target: {activeLotConfig.level1Target} ({activeLotConfig.level1Min}-{activeLotConfig.level1Max})
-                  </span>
-                  <span className="text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
-                    L2 Target: {activeLotConfig.level2Target} ({activeLotConfig.level2Min}-{activeLotConfig.level2Max})
-                  </span>
-                  <span className="text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800">
-                    L3 Target: {activeLotConfig.level3Target} ({activeLotConfig.level3Min}-{activeLotConfig.level3Max})
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAddLotModal(batchLot)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  + ตั้งค่าช่วงค่า LOT นี้
+                </button>
               </div>
             )}
           </div>
@@ -1173,9 +1346,30 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     <th className="py-3 px-3.5 w-12 text-center">#</th>
                     <th className="py-3 px-3.5">หน่วยงาน</th>
                     <th className="py-3 px-3.5 font-mono">รหัสเครื่อง DTX </th>
-                    <th className="py-3 px-3.5 text-center bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300 w-36">Level 1 (Low)</th>
-                    <th className="py-3 px-3.5 text-center bg-sky-50/50 dark:bg-sky-950/30 text-sky-900 dark:text-sky-300 w-36">Level 2 (Normal)</th>
-                    <th className="py-3 px-3.5 text-center bg-purple-50/50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-300 w-36">Level 3 (High)</th>
+                    <th className="py-3 px-3.5 text-center bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300 w-36">
+                      <div className="font-bold">Level 1 (Low)</div>
+                      {activeLotConfig && (
+                        <div className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 font-black mt-0.5">
+                          {activeLotConfig.level1Min} - {activeLotConfig.level1Max} mg/dL
+                        </div>
+                      )}
+                    </th>
+                    <th className="py-3 px-3.5 text-center bg-sky-50/50 dark:bg-sky-950/30 text-sky-900 dark:text-sky-300 w-36">
+                      <div className="font-bold">Level 2 (Normal)</div>
+                      {activeLotConfig && (
+                        <div className="text-[10px] font-mono text-sky-700 dark:text-sky-400 font-black mt-0.5">
+                          {activeLotConfig.level2Min} - {activeLotConfig.level2Max} mg/dL
+                        </div>
+                      )}
+                    </th>
+                    <th className="py-3 px-3.5 text-center bg-purple-50/50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-300 w-36">
+                      <div className="font-bold">Level 3 (High)</div>
+                      {activeLotConfig && (
+                        <div className="text-[10px] font-mono text-purple-700 dark:text-purple-400 font-black mt-0.5">
+                          {activeLotConfig.level3Min} - {activeLotConfig.level3Max} mg/dL
+                        </div>
+                      )}
+                    </th>
                     <th className="py-3 px-3.5 text-center w-28">สถานะประเมิน</th>
                   </tr>
                 </thead>
@@ -2382,6 +2576,269 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           <p className="text-[11px] text-slate-400">
             หากต้องการทดแทนเครื่องชำรุดกรุณาติดต่อผู้รับผิดชอบโดยตรง
           </p>
+        </div>
+      )}
+
+      {/* ADD NEW LOT MODAL (QuickWin / Lab Staff - Pinned Header & Footer) */}
+      {isAddLotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in no-print overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh] my-auto">
+            
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 sm:px-6 sm:py-4 bg-gradient-to-r from-emerald-600 to-teal-700 text-white flex items-center justify-between shrink-0 shadow-xs">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center font-bold shrink-0">
+                  <Layers size={20} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold leading-tight">เพิ่ม LOT ควบคุมคุณภาพ & Strip ใหม่</h3>
+                  <p className="text-[11px] sm:text-xs text-emerald-100 font-medium">กำหนดเลข LOT, วันหมดอายุ (EXP), และช่วงค่าควบคุม (Range Control L1, L2, L3)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddLotModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all cursor-pointer shrink-0"
+                title="ปิด"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Form Container */}
+            <form onSubmit={handleSaveNewLot} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              
+              {/* Scrollable Content Body */}
+              <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0 space-y-4 text-xs">
+
+                {/* Section 1: Basic LOT Details */}
+                <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span>1. ข้อมูลทั่วไปของ LOT (Basic Details)</span>
+                  </h4>
+                  
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+                        <div className="flex flex-col justify-between space-y-1">
+                          <label className="font-bold text-slate-700 dark:text-slate-300 text-[11px] truncate">
+                            เลข LOT (LOT Number) <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={newLotForm.lotNumber}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, lotNumber: e.target.value.toUpperCase() }))}
+                            placeholder="เช่น 261122 หรือ LOT2026-B"
+                            className="w-full p-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-black text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none uppercase text-xs"
+                          />
+                        </div>
+
+                        <div className="flex flex-col justify-between space-y-1">
+                          <label className="font-bold text-slate-700 dark:text-slate-300 text-[11px] truncate">
+                            วันหมดอายุ (EXP Date) <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={newLotForm.expDate}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, expDate: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs"
+                          />
+                        </div>
+
+                        <div className="flex flex-col justify-between space-y-1">
+                          <label className="font-bold text-slate-700 dark:text-slate-300 text-[11px] truncate" title="บริษัท / ผู้ผลิต (Manufacturer)">
+                            ผู้ผลิต (Manufacturer)
+                          </label>
+                          <input
+                            type="text"
+                            value={newLotForm.manufacturer}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, manufacturer: e.target.value }))}
+                            placeholder="เช่น VivaChek Fad, Roche"
+                            className="w-full p-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs"
+                          />
+                        </div>
+                      </div>
+                </div>
+
+                {/* Section 2: Range Control (L1, L2, L3) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <span>2. ช่วงค่าควบคุมมาตรฐาน (Standard Range Control)</span>
+                    </h4>
+                    <span className="text-[10px] text-slate-400 font-medium">หน่วย: mg/dL</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    
+                    {/* Level 1 (Low) */}
+                    <div className="bg-emerald-50/60 dark:bg-emerald-950/40 p-3 rounded-2xl border border-emerald-200 dark:border-emerald-800/80 space-y-2.5">
+                      <div className="flex items-center justify-between pb-1 border-b border-emerald-200 dark:border-emerald-800/60">
+                        <span className="font-black text-emerald-800 dark:text-emerald-300 text-xs">Level 1 (Low)</span>
+                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded font-bold">ต่ำ</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-0.5">
+                          <label className="font-bold text-slate-600 dark:text-slate-300 text-[10px]">Min (ต่ำสุด)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="21"
+                            value={newLotForm.level1Min}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, level1Min: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-emerald-200 dark:border-emerald-700 bg-white dark:bg-slate-900 font-black text-emerald-800 dark:text-emerald-300 text-center font-mono text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="font-bold text-slate-600 dark:text-slate-300 text-[10px]">Max (สูงสุด)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="51"
+                            value={newLotForm.level1Max}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, level1Max: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-emerald-200 dark:border-emerald-700 bg-white dark:bg-slate-900 font-black text-emerald-800 dark:text-emerald-300 text-center font-mono text-sm focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-emerald-100/70 dark:bg-emerald-900/50 py-1.5 px-2 rounded-xl text-center text-[11px] font-mono font-black text-emerald-800 dark:text-emerald-200">
+                        ช่วงค่า: {newLotForm.level1Min || 0} - {newLotForm.level1Max || 0} mg/dL
+                      </div>
+                    </div>
+
+                    {/* Level 2 (Normal) */}
+                    <div className="bg-sky-50/60 dark:bg-sky-950/40 p-3 rounded-2xl border border-sky-200 dark:border-sky-800/80 space-y-2.5">
+                      <div className="flex items-center justify-between pb-1 border-b border-sky-200 dark:border-sky-800/60">
+                        <span className="font-black text-sky-800 dark:text-sky-300 text-xs">Level 2 (Normal)</span>
+                        <span className="text-[10px] bg-sky-100 dark:bg-sky-900 text-sky-700 dark:text-sky-300 px-1.5 py-0.5 rounded font-bold">ปกติ</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-0.5">
+                          <label className="font-bold text-slate-600 dark:text-slate-300 text-[10px]">Min (ต่ำสุด)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="89"
+                            value={newLotForm.level2Min}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, level2Min: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-sky-200 dark:border-sky-700 bg-white dark:bg-slate-900 font-black text-sky-800 dark:text-sky-300 text-center font-mono text-sm focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="font-bold text-slate-600 dark:text-slate-300 text-[10px]">Max (สูงสุด)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="133"
+                            value={newLotForm.level2Max}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, level2Max: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-sky-200 dark:border-sky-700 bg-white dark:bg-slate-900 font-black text-sky-800 dark:text-sky-300 text-center font-mono text-sm focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-sky-100/70 dark:bg-sky-900/50 py-1.5 px-2 rounded-xl text-center text-[11px] font-mono font-black text-sky-800 dark:text-sky-200">
+                        ช่วงค่า: {newLotForm.level2Min || 0} - {newLotForm.level2Max || 0} mg/dL
+                      </div>
+                    </div>
+
+                    {/* Level 3 (High) */}
+                    <div className="bg-purple-50/60 dark:bg-purple-950/40 p-3 rounded-2xl border border-purple-200 dark:border-purple-800/80 space-y-2.5">
+                      <div className="flex items-center justify-between pb-1 border-b border-purple-200 dark:border-purple-800/60">
+                        <span className="font-black text-purple-800 dark:text-purple-300 text-xs">Level 3 (High)</span>
+                        <span className="text-[10px] bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded font-bold">สูง</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-0.5">
+                          <label className="font-bold text-slate-600 dark:text-slate-300 text-[10px]">Min (ต่ำสุด)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="261"
+                            value={newLotForm.level3Min}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, level3Min: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-purple-200 dark:border-purple-700 bg-white dark:bg-slate-900 font-black text-purple-800 dark:text-purple-300 text-center font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="font-bold text-slate-600 dark:text-slate-300 text-[10px]">Max (สูงสุด)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            placeholder="392"
+                            value={newLotForm.level3Max}
+                            onChange={(e) => setNewLotForm(prev => ({ ...prev, level3Max: e.target.value }))}
+                            className="w-full p-2 rounded-xl border border-purple-200 dark:border-purple-700 bg-white dark:bg-slate-900 font-black text-purple-800 dark:text-purple-300 text-center font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-purple-100/70 dark:bg-purple-900/50 py-1.5 px-2 rounded-xl text-center text-[11px] font-mono font-black text-purple-800 dark:text-purple-200">
+                        ช่วงค่า: {newLotForm.level3Min || 0} - {newLotForm.level3Max || 0} mg/dL
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Section 3: Notes (Optional) */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-400 text-[11px]">หมายเหตุเพิ่มเติม (Optional Notes)</label>
+                  <input
+                    type="text"
+                    value={newLotForm.notes}
+                    onChange={(e) => setNewLotForm(prev => ({ ...prev, notes: e.target.value }))}
+                    placeholder="เช่น ล็อตใหม่ประจำไตรมาสสำหรับงานชันสูตร"
+                    className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs"
+                  />
+                </div>
+
+              </div>
+
+              {/* Modal Footer Buttons - Fixed at Bottom */}
+              <div className="px-5 py-3 sm:px-6 sm:py-3.5 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsAddLotModalOpen(false)}
+                  disabled={isSavingLot}
+                  className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingLot}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md hover:shadow-lg transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingLot ? (
+                    <>
+                      <span className="animate-spin h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full" />
+                      <span>กำลังบันทึก...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={15} />
+                      <span>บันทึก LOT ใหม่</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
+
+          </div>
         </div>
       )}
 
