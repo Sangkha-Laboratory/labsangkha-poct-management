@@ -227,21 +227,14 @@ export default function App() {
   });
   const [showToast, setShowToast] = useState<string>('');
 
-  // Logo States with safe storage sanitization (Embedded Base64 Data URL)
+  // Logo States with safe storage sanitization
   const [hospitalLogo, setHospitalLogo] = useState<string>(() => {
     const saved = localStorage.getItem('dtx_hospital_logo');
-    // If saved is a legacy broken relative path, fallback to embedded Base64
-    if (!saved || saved === '/SKH.png' || saved === './SKH.png' || saved === 'SKH.png' || !saved.startsWith('data:')) {
-      return DEFAULT_HOSPITAL_LOGO_BASE64;
-    }
-    return saved;
+    return saved || '/SKH.png';
   });
   const [deptLogo, setDeptLogo] = useState<string>(() => {
     const saved = localStorage.getItem('dtx_dept_logo');
-    if (!saved || saved === '/SKH.png' || saved === './SKH.png' || saved === 'SKH.png' || !saved.startsWith('data:')) {
-      return DEFAULT_HOSPITAL_LOGO_BASE64;
-    }
-    return saved;
+    return saved || '/SKH.png';
   });
   const [showLogoModal, setShowLogoModal] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -1459,24 +1452,14 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-6">
           {/* Left Side: Logo | Vertical Line | Text aligned left in 3 exact lines */}
           <div className="flex items-center space-x-4 sm:space-x-5 text-left">
-            {footerLogoError ? (
-              <div 
-                className="h-10 w-10 rounded-xl bg-gradient-to-tr from-sky-600 to-sky-500 flex items-center justify-center text-white shadow-xs shrink-0" 
-                title="โรงพยาบาลสังขะ SANGKHA HOSPITAL"
-                id="footer-fallback-emblem"
-              >
-                <Microscope size={20} className="text-white" />
-              </div>
-            ) : (
-              <img 
-                src={hospitalLogo || DEFAULT_HOSPITAL_LOGO_BASE64} 
-                alt="โรงพยาบาลสังขะ SANGKHA HOSPITAL" 
-                className="h-10 sm:h-11 w-auto object-contain shrink-0" 
-                onError={() => {
-                  setFooterLogoError(true);
-                }}
-              />
-            )}
+            <img 
+              src="/SKH.png" 
+              alt="โรงพยาบาลสังขะ SANGKHA HOSPITAL" 
+              className="h-10 sm:h-11 w-auto object-contain shrink-0" 
+              onError={(e) => {
+                e.currentTarget.src = DEFAULT_HOSPITAL_LOGO_BASE64;
+              }}
+            />
             <div className="h-10 w-px bg-slate-200 dark:bg-slate-800 shrink-0" />
             <div className="flex flex-col text-[11px] sm:text-xs font-light leading-relaxed text-slate-500 dark:text-slate-400 text-left">
               <span>© 2026 Medical Technology Department, Sangkha Hospital. All rights reserved.</span>

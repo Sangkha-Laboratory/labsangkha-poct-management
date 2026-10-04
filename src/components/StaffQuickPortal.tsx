@@ -36,7 +36,11 @@ import {
   Box,
   Plus,
   X,
-  Layers
+  Layers,
+  Microscope,
+  Activity,
+  ClipboardCheck,
+  ClipboardList
 } from 'lucide-react';
 
 interface StaffQuickPortalProps {
@@ -1063,20 +1067,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       {/* Top Staff Banner */}
       <div className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900/60 flex items-center justify-center p-1.5 shrink-0 shadow-xs">
-            <img 
-              src={DEFAULT_HOSPITAL_LOGO_BASE64} 
-              alt="โรงพยาบาลสังขะ" 
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                const fallback = document.getElementById('staff-zap-fallback');
-                if (fallback) fallback.style.display = 'flex';
-              }}
-            />
-            <div id="staff-zap-fallback" className="hidden w-full h-full text-emerald-600 dark:text-emerald-400 items-center justify-center font-black">
-              <Zap size={24} />
-            </div>
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/20 ring-4 ring-emerald-500/10">
+            <ClipboardCheck size={24} className="stroke-[2.5]" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
@@ -1633,7 +1625,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
                     Checklist บำรุงรักษารายวัน
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจสอบประจำวันเครื่องประจำแลป</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">ตรวจสอบประจำวันเครื่องประจำงานชันสูตร</p>
                 </div>
               </div>
 
@@ -1778,7 +1770,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     type="text"
                     value={chkNote}
                     onChange={(e) => setChkNote(e.target.value)}
-                    placeholder="เช่น เครื่องพร้อมใช้งาน"
+                    placeholder="เช่น control เสื่อม"
                     className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 dark:text-white"
                   />
                 </div>
@@ -1818,7 +1810,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   </div>
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      ประวัติ Checklist ประจำวันเครื่องแล็บ
+                      ประวัติ Checklist ประจำวันเครื่องงานชันสูตร
                     </h3>
                     <p className="text-xs text-slate-400">บันทึกการตรวจสอบบำรุงรักษาเครื่อง</p>
                   </div>
@@ -2800,7 +2792,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     type="text"
                     value={newLotForm.notes}
                     onChange={(e) => setNewLotForm(prev => ({ ...prev, notes: e.target.value }))}
-                    placeholder="เช่น ล็อตใหม่ประจำไตรมาสสำหรับงานชันสูตร"
+                    placeholder=" "
                     className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none text-xs"
                   />
                 </div>
