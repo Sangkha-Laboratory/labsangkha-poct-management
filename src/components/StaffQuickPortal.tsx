@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
+import { DEFAULT_HOSPITAL_LOGO_BASE64 } from '../assets/hospitalLogoBase64';
 import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput, getThaiTodayDateOnly, toThaiIsoString } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
-import { DEFAULT_HOSPITAL_LOGO_BASE64 } from '../assets/hospitalLogoBase64';
 import { 
   Zap, 
   TableProperties, 
@@ -911,7 +911,15 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               src={DEFAULT_HOSPITAL_LOGO_BASE64} 
               alt="โรงพยาบาลสังขะ" 
               className="w-full h-full object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                const fallback = document.getElementById('staff-zap-fallback');
+                if (fallback) fallback.style.display = 'flex';
+              }}
             />
+            <div id="staff-zap-fallback" className="hidden w-full h-full text-emerald-600 dark:text-emerald-400 items-center justify-center font-black">
+              <Zap size={24} />
+            </div>
           </div>
           <div>
             <div className="flex items-center space-x-2">

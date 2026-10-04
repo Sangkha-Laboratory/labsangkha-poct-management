@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="skyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0369a1" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#skyGrad)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(8, 8) scale(1.5)">
+    <path d="M6 18h8"/>
+    <path d="M3 22h18"/>
+    <path d="m14 22 .77-1.15a5.57 5.57 0 0 0 .74-2.85V10"/>
+    <path d="m9 14 5-5"/>
+    <path d="M12 7 9 4a2 2 0 0 0-2.83 0L3.34 6.83a2 2 0 0 0 0 2.83l3 3a2 2 0 0 0 2.83 0"/>
+    <path d="M11 17a3 3 0 0 0-3-3H6"/>
+    <path d="M19 13a4.97 4.97 0 0 0-2.07-1.07"/>
+  </g>
+</svg>

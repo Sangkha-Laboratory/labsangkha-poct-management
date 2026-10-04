@@ -17,6 +17,10 @@ app.use(express.json());
 const publicDirPath = path.join(process.cwd(), "public");
 app.use(express.static(publicDirPath));
 
+app.get("/favicon.svg", (_req, res) => {
+  res.type("image/svg+xml").sendFile(path.join(publicDirPath, "favicon.svg"));
+});
+
 app.get("/favicon.ico", (_req, res) => {
   res.sendFile(path.join(publicDirPath, "favicon.ico"));
 });

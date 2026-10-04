@@ -255,18 +255,6 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // Sync browser tab favicon
-  useEffect(() => {
-    try {
-      const activeFaviconLogo = (hospitalLogo && hospitalLogo.startsWith('data:')) ? hospitalLogo : DEFAULT_HOSPITAL_LOGO_BASE64;
-      document.querySelectorAll("link[rel*='icon'], link[rel='apple-touch-icon']").forEach((el) => {
-        (el as HTMLLinkElement).href = activeFaviconLogo;
-      });
-    } catch (e) {
-      console.warn('Favicon sync note:', e);
-    }
-  }, [hospitalLogo]);
-
   useEffect(() => {
     if (showToast) {
       const timer = setTimeout(() => setShowToast(''), 4000);
@@ -570,13 +558,9 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center space-x-3 sm:space-x-4">
               <div onClick={() => setIsSelectingRole(true)} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" title="กลับสู่หน้าเลือกประเภทผู้ใช้งาน (Select Role)">
-                {/* โลโก้โรงพยาบาลสังขะ */}
-                <div className="w-8 h-8 sm:w-9 sm:h-9 flex-shrink-0 flex items-center justify-center">
-                  <img 
-                    src={hospitalLogo || DEFAULT_HOSPITAL_LOGO_BASE64} 
-                    alt="โรงพยาบาลสังขะ" 
-                    className="w-full h-full object-contain drop-shadow-2xs"
-                  />
+                {/* ไอคอนกล้องจุลทรรศน์สีฟ้า */}
+                <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
+                  <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
                 {/* ข้อความชื่อหน่วยงาน */}
                 <div>
