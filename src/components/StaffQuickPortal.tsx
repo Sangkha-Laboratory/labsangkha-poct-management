@@ -93,13 +93,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   // กำหนดให้ Quick Win Portal ใช้เฉพาะเครื่องของงานชันสูตรสาธารณสุข
   const targetMachines = labMachines;
 
-  const [activeTab, setActiveTab] = useState<'batch_qc' | 'checklist' | 'maintenance' | 'supply_request' | 'new_machine_request'>(() => {
-    const saved = localStorage.getItem('dtx_quick_win_active_tab');
-    if (saved && ['batch_qc', 'checklist', 'maintenance', 'supply_request', 'new_machine_request'].includes(saved)) {
-      return saved as any;
-    }
-    return 'batch_qc';
-  });
+  const [activeTab, setActiveTab] = useState<'batch_qc' | 'checklist' | 'maintenance' | 'supply_request' | 'new_machine_request'>('batch_qc');
 
   useEffect(() => {
     localStorage.setItem('dtx_quick_win_active_tab', activeTab);

@@ -914,6 +914,7 @@ export default function App() {
                 setShowToast('เข้าสู่โหมดผู้ใช้งาน Ward (Ward Portal)');
               } else if (selectedRole === 'staff') {
                 setActiveAdminTab('quality');
+                localStorage.setItem('dtx_quick_win_active_tab', 'batch_qc');
                 if (staffInfo && staffInfo.full_name) {
                   localStorage.setItem('dtx_qc_operator', staffInfo.full_name);
                 }
