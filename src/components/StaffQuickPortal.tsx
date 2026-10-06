@@ -225,6 +225,35 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     }
   }, [sortedLotConfigs]);
 
+  // Toggle state for Machine Column Display: 'code' | 'sn' | 'both'
+  const [machineDisplayMode, setMachineDisplayMode] = useState<'code' | 'sn' | 'both'>(() => {
+    return (localStorage.getItem('dtx_qc_machine_display_mode') as any) || 'code';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('dtx_qc_machine_display_mode', machineDisplayMode);
+  }, [machineDisplayMode]);
+
+  // Helper to format machine display text
+  const formatMachineLabel = (codeOrId: string) => {
+    if (!codeOrId) return '-';
+    const cleanKey = codeOrId.trim().toUpperCase();
+    const machine = machines.find(m => 
+      (m.serialNumber && m.serialNumber.trim().toUpperCase() === cleanKey) ||
+      (m.id && m.id === codeOrId)
+    );
+    const code = machine?.serialNumber || codeOrId;
+    const sn = (machine?.machineSerial && machine.machineSerial !== '-') ? machine.machineSerial.trim() : '';
+
+    if (machineDisplayMode === 'sn') {
+      return sn || code;
+    }
+    if (machineDisplayMode === 'both') {
+      return sn ? `${code} (${sn})` : code;
+    }
+    return code;
+  };
+
   // Add New LOT Modal State
   const [isAddLotModalOpen, setIsAddLotModalOpen] = useState<boolean>(false);
   const [isSavingLot, setIsSavingLot] = useState<boolean>(false);
@@ -803,7 +832,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     })
     .filter(r => {
       if (!qcSearchSerial.trim()) return true;
-      return r.serialNumber.toLowerCase().includes(qcSearchSerial.trim().toLowerCase());
+      const q = qcSearchSerial.trim().toLowerCase();
+      const matchCode = r.serialNumber.toLowerCase().includes(q);
+      const m = machines.find(x => x.serialNumber === r.serialNumber);
+      const matchSN = m?.machineSerial?.toLowerCase().includes(q);
+      return matchCode || matchSN;
     })
     .filter(r => {
       const isInControl = r.level1Status !== 'out_of_control' && r.level2Status !== 'out_of_control' && r.level3Status !== 'out_of_control';
@@ -1399,7 +1432,43 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     </th>
                     <th className="py-3 px-3.5 w-12 text-center">#</th>
                     <th className="py-3 px-3.5">หน่วยงาน</th>
-                    <th className="py-3 px-3.5 font-mono">รหัสเครื่อง DTX </th>
+                    <th className="py-3 px-3.5 font-mono">
+                      <div className="flex items-center justify-between gap-2 flex-wrap min-w-[170px]">
+                        <span>รหัสเครื่อง DTX</span>
+                        <div className="flex items-center gap-1 font-sans text-[10px] bg-slate-200 dark:bg-slate-700 p-0.5 rounded-lg shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('code')}
+                            className={`px-1.5 py-0.5 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'code' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                            }`}
+                            title="แสดงรหัสเครื่อง (CODE)"
+                          >
+                            CODE
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('sn')}
+                            className={`px-1.5 py-0.5 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'sn' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                            }`}
+                            title="แสดงหมายเลขซีเรียล (S/N)"
+                          >
+                            S/N
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('both')}
+                            className={`px-1.5 py-0.5 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'both' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                            }`}
+                            title="แสดงทั้งรหัส CODE และ S/N"
+                          >
+                            ทั้งคู่
+                          </button>
+                        </div>
+                      </div>
+                    </th>
                     <th className="py-3 px-3.5 text-center bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-300 w-36">
                       <div className="font-bold">Level 1 (Low)</div>
                       {activeLotConfig && (
@@ -1455,7 +1524,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                           </td>
                           <td className="py-3 px-3.5 text-center font-bold text-slate-400">{idx + 1}</td>
                           <td className="py-3 px-3.5 font-bold text-slate-800 dark:text-slate-200">{row.ward}</td>
-                          <td className="py-3 px-3.5 font-mono font-bold text-emerald-700 dark:text-emerald-400">{row.serialNumber}</td>
+                          <td className="py-3 px-3.5 font-mono font-bold text-emerald-700 dark:text-emerald-400" title={`CODE: ${row.serialNumber}`}>{formatMachineLabel(row.serialNumber)}</td>
                           
                           <td className="py-2.5 px-3 text-center">
                             <input
@@ -1607,8 +1676,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
                           <td className="py-3 px-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">{formatThaiDateTime(req.date)}</td>
-                          <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-300">
-                            {req.serialNumber}
+                          <td className="py-3 px-3 font-mono font-bold text-slate-700 dark:text-slate-300" title={`CODE: ${req.serialNumber}`}>
+                            {formatMachineLabel(req.serialNumber)}
                           </td>
                           <td className="py-3 px-3 font-mono text-slate-500">{req.lotNumber}</td>
                           <td className="py-3 px-3 text-center font-mono">

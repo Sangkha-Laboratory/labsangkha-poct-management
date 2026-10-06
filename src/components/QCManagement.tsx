@@ -200,6 +200,35 @@ export default function QCManagement({
   const [operator, setOperator] = useState<string>(() => localStorage.getItem('dtx_qc_operator') || '');
   const [qcDate, setQcDate] = useState<string>(() => getThaiTodayDateOnly());
 
+  // Toggle state for Machine Column Display: 'code' | 'sn' | 'both'
+  const [machineDisplayMode, setMachineDisplayMode] = useState<'code' | 'sn' | 'both'>(() => {
+    return (localStorage.getItem('dtx_qc_machine_display_mode') as any) || 'code';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('dtx_qc_machine_display_mode', machineDisplayMode);
+  }, [machineDisplayMode]);
+
+  // Helper to format machine display text based on machineDisplayMode
+  const formatMachineLabel = (codeOrId: string) => {
+    if (!codeOrId) return '-';
+    const cleanKey = codeOrId.trim().toUpperCase();
+    const machine = machines.find(m => 
+      (m.serialNumber && m.serialNumber.trim().toUpperCase() === cleanKey) ||
+      (m.id && m.id === codeOrId)
+    );
+    const code = machine?.serialNumber || codeOrId;
+    const sn = (machine?.machineSerial && machine.machineSerial !== '-') ? machine.machineSerial.trim() : '';
+
+    if (machineDisplayMode === 'sn') {
+      return sn || code;
+    }
+    if (machineDisplayMode === 'both') {
+      return sn ? `${code} (${sn})` : code;
+    }
+    return code;
+  };
+
   // Immediately update to current date on new login session / operator change and focus
   useEffect(() => {
     setQcDate(getThaiTodayDateOnly());
@@ -526,7 +555,13 @@ export default function QCManagement({
   const filteredBatchRows = useMemo(() => {
     return batchRows.filter(row => {
       if (colFilterWard && !row.ward.toLowerCase().includes(colFilterWard.toLowerCase())) return false;
-      if (colFilterSerial && !row.serialNumber.toLowerCase().includes(colFilterSerial.toLowerCase())) return false;
+      if (colFilterSerial) {
+        const q = colFilterSerial.toLowerCase();
+        const matchCode = row.serialNumber.toLowerCase().includes(q);
+        const m = machines.find(x => x.serialNumber === row.serialNumber || x.id === row.machineId);
+        const matchSN = m?.machineSerial?.toLowerCase().includes(q);
+        if (!matchCode && !matchSN) return false;
+      }
       if (colFilterL1 && !row.level1.includes(colFilterL1)) return false;
       if (colFilterL2 && !row.level2.includes(colFilterL2)) return false;
       if (colFilterL3 && !row.level3.includes(colFilterL3)) return false;
@@ -1361,7 +1396,7 @@ export default function QCManagement({
                         qcScopeFilter === 'lab' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      🔬 เครื่องงานชันสูตร (Lab Daily QC)
+                      LAB
                     </button>
                     <button
                       type="button"
@@ -1373,7 +1408,7 @@ export default function QCManagement({
                         qcScopeFilter === 'ward' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      🏥 เครื่อง Ward (Ward POCT)
+                      Ward
                     </button>
                   </div>
                 </div>
@@ -1732,14 +1767,14 @@ export default function QCManagement({
                       onClick={() => setBatchScope('lab')}
                       className={`px-2.5 py-1 rounded-md transition-all ${batchScope === 'lab' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}
                     >
-                      เฉพาะแล็บ
+                      LAB
                     </button>
                     <button
                       type="button"
                       onClick={() => setBatchScope('ward')}
                       className={`px-2.5 py-1 rounded-md transition-all ${batchScope === 'ward' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'}`}
                     >
-                      เฉพาะ Ward
+                      Ward
                     </button>
                   </div>
                 </div>
@@ -1829,8 +1864,44 @@ export default function QCManagement({
                       />
                     </th>
                     <th className="py-3 px-3.5 w-12 text-center">#</th>
-                    <th className="py-3 px-3.5">หน่วยงาน (Ward)</th>
-                    <th className="py-3 px-3.5 font-mono">รหัสเครื่อง DTX (S/N)</th>
+                    <th className="py-2.5 px-2 w-28 whitespace-nowrap text-left">หน่วยงาน (Ward)</th>
+                    <th className="py-2 px-2 font-mono w-32 text-left">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-sans font-bold text-slate-700 truncate">เครื่อง DTX</span>
+                        <div className="flex items-center gap-0.5 font-sans text-[8px] bg-slate-200/90 p-0.5 rounded-md shrink-0 w-fit">
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('code')}
+                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'code' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="แสดงรหัสเครื่อง (CODE)"
+                          >
+                            CODE
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('sn')}
+                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'sn' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="แสดงหมายเลขซีเรียล (S/N)"
+                          >
+                            S/N
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('both')}
+                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'both' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="แสดงทั้งรหัส CODE และ S/N"
+                          >
+                            ทั้งคู่
+                          </button>
+                        </div>
+                      </div>
+                    </th>
                     <th className="py-3 px-3.5 text-center bg-emerald-50/50 text-emerald-900 w-36">
                       <div className="font-bold">Level 1 (Low)</div>
                       {activeLotConfig && (
@@ -1951,7 +2022,7 @@ export default function QCManagement({
                           </td>
                           <td className="py-2 px-3.5 text-center text-slate-400 text-[11px] font-mono">{idx + 1}</td>
                           <td className="py-2 px-3.5 text-slate-900 font-bold">{row.ward}</td>
-                          <td className="py-2 px-3.5 text-sky-800 font-mono font-bold">{row.serialNumber}</td>
+                          <td className="py-2 px-3.5 text-sky-800 font-mono font-bold" title={`CODE: ${row.serialNumber}`}>{formatMachineLabel(row.serialNumber)}</td>
                           
                           {/* Level 1 Cell */}
                           <td className="py-1.5 px-2 bg-emerald-50/30">
@@ -2700,9 +2771,45 @@ export default function QCManagement({
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50/90 text-slate-500 border-b border-slate-200 font-bold">
                   <tr>
-                    <th className="py-3 px-3.5">วันที่ตรวจ</th>
-                    <th className="py-3 px-3.5">หน่วยงาน (Ward)</th>
-                    <th className="py-3 px-3.5">รหัสเครื่อง DTX</th>
+                    <th className="py-2.5 px-2 font-bold whitespace-nowrap text-left w-28">วันที่ตรวจ</th>
+                    <th className="py-2.5 px-2 font-bold whitespace-nowrap text-left w-28">หน่วยงาน (Ward)</th>
+                    <th className="py-2 px-2 font-bold whitespace-nowrap text-left w-32">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-bold text-slate-700 truncate">รหัสเครื่อง DTX</span>
+                        <div className="flex items-center gap-0.5 font-sans text-[8px] bg-slate-200/90 p-0.5 rounded-lg shrink-0 w-fit">
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('code')}
+                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'code' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="แสดงรหัสเครื่อง (CODE)"
+                          >
+                            CODE
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('sn')}
+                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'sn' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="แสดงหมายเลขซีเรียล (S/N)"
+                          >
+                            S/N
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMachineDisplayMode('both')}
+                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
+                              machineDisplayMode === 'both' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                            title="แสดงทั้งรหัส CODE และ S/N"
+                          >
+                            ทั้งคู่
+                          </button>
+                        </div>
+                      </div>
+                    </th>
                     <th className="py-3 px-3.5">LOT น้ำยา</th>
                     <th className="py-3 px-3.5 text-center">Level 1 (Low)</th>
                     <th className="py-3 px-3.5 text-center">Level 2 (Normal)</th>
@@ -2725,7 +2832,7 @@ export default function QCManagement({
                         <tr key={rec.id} className="hover:bg-slate-50/70 transition-colors">
                           <td className="py-3 px-3.5 font-bold text-slate-700 whitespace-nowrap">{rec.date}</td>
                           <td className="py-3 px-3.5 text-slate-900 font-bold">{rec.ward}</td>
-                          <td className="py-3 px-3.5 text-sky-800 font-bold font-mono">{rec.serialNumber}</td>
+                          <td className="py-3 px-3.5 text-sky-800 font-bold font-mono" title={`CODE: ${rec.serialNumber}`}>{formatMachineLabel(rec.serialNumber)}</td>
                           <td className="py-3 px-3.5 text-slate-600 font-mono text-[11px]">
                             <span className="font-bold">{rec.lotNumber}</span>
                             {(() => {

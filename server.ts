@@ -334,7 +334,7 @@ app.get("/api/debug/columns/:table", async (req, res) => {
 app.get("/api/machines", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("dtx_machines").select("*")
+      client.from("dtx_machines").select("*").range(0, 99999)
     );
     const sorted = ((data as any[]) || []).sort(
       (a: any, b: any) => new Date(b.created_at || b.install_date || 0).getTime() - new Date(a.created_at || a.install_date || 0).getTime()
@@ -359,6 +359,62 @@ app.get("/api/machines", checkDbConfig, async (req, res) => {
   }
 });
 
+app.post("/api/machines/bulk", checkDbConfig, async (req, res) => {
+  try {
+    const rawList = Array.isArray(req.body) ? req.body : [req.body];
+    const cleanedPayloads = rawList.map(item => cleanUuidPayload(item));
+
+    let data;
+    try {
+      data = await executeSupabaseWrite(client =>
+        client.from("dtx_machines").upsert(cleanedPayloads, { onConflict: "bgm_code" }).select("*")
+      );
+    } catch (upsertErr) {
+      console.warn("Bulk upsert notice, trying item-by-item fallback on dtx_system:", upsertErr);
+      const successItems: any[] = [];
+      const dtxClient = supabase?.schema('dtx_system') || publicSupabase?.schema('dtx_system');
+
+      for (const payload of cleanedPayloads) {
+        try {
+          if (dtxClient) {
+            const { data: existing } = await dtxClient.from("dtx_machines").select("id").eq("bgm_code", payload.bgm_code).maybeSingle();
+            if (existing) {
+              const { data: updated, error: upErr } = await dtxClient.from("dtx_machines").update(payload).eq("bgm_code", payload.bgm_code).select("*").maybeSingle();
+              if (!upErr && updated) {
+                successItems.push(updated);
+              } else if (upErr) {
+                const sanitized = { ...payload };
+                delete sanitized.location_history;
+                delete sanitized.model;
+                const { data: retryUp } = await dtxClient.from("dtx_machines").update(sanitized).eq("bgm_code", payload.bgm_code).select("*").maybeSingle();
+                if (retryUp) successItems.push(retryUp);
+              }
+            } else {
+              const { data: inserted, error: insErr } = await dtxClient.from("dtx_machines").insert([payload]).select("*").maybeSingle();
+              if (!insErr && inserted) {
+                successItems.push(inserted);
+              } else if (insErr) {
+                const sanitized = { ...payload };
+                delete sanitized.location_history;
+                delete sanitized.model;
+                const { data: retryIns } = await dtxClient.from("dtx_machines").insert([sanitized]).select("*").maybeSingle();
+                if (retryIns) successItems.push(retryIns);
+              }
+            }
+          }
+        } catch (itemErr) {
+          console.warn("Individual bulk item failed:", payload.bgm_code, itemErr);
+        }
+      }
+      data = successItems;
+    }
+
+    res.json({ success: true, count: Array.isArray(data) ? data.length : cleanedPayloads.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/machines", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
@@ -374,9 +430,10 @@ app.post("/api/machines", checkDbConfig, async (req, res) => {
           ? (client: any) => client.from("dtx_machines").update(payload).eq("id", payload.id).select("*").maybeSingle()
           : (client: any) => client.from("dtx_machines").update(payload).eq("bgm_code", payload.bgm_code).select("*").maybeSingle();
         data = await executeSupabaseWrite(query);
-      } else if (writeErr && (writeErr.code === '42703' || writeErr.message?.includes('model'))) {
-        // Missing 'model' column fallback
+      } else if (writeErr && (writeErr.code === '42703' || writeErr.code === 'PGRST204' || writeErr.message?.includes('location_history') || writeErr.message?.includes('model') || writeErr.message?.includes('schema cache'))) {
+        // Missing column fallback (location_history / model)
         const fallbackPayload = { ...payload };
+        delete fallbackPayload.location_history;
         if (fallbackPayload.model && fallbackPayload.brand) {
           fallbackPayload.brand = `${fallbackPayload.brand} ${fallbackPayload.model}`.trim();
         }
@@ -397,11 +454,25 @@ app.post("/api/machines", checkDbConfig, async (req, res) => {
 app.put("/api/machines/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
-    const query = isUuid(id)
-      ? (client: any) => client.from("dtx_machines").update(req.body).eq("id", id).select("*").maybeSingle()
-      : (client: any) => client.from("dtx_machines").update(req.body).eq("bgm_code", id).select("*").maybeSingle();
-
-    const data = await executeSupabaseWrite(query);
+    let data;
+    try {
+      const query = isUuid(id)
+        ? (client: any) => client.from("dtx_machines").update(req.body).eq("id", id).select("*").maybeSingle()
+        : (client: any) => client.from("dtx_machines").update(req.body).eq("bgm_code", id).select("*").maybeSingle();
+      data = await executeSupabaseWrite(query);
+    } catch (upErr: any) {
+      if (upErr && (upErr.code === '42703' || upErr.code === 'PGRST204' || upErr.message?.includes('location_history') || upErr.message?.includes('model') || upErr.message?.includes('schema cache'))) {
+        const fallbackPayload = { ...req.body };
+        delete fallbackPayload.location_history;
+        delete fallbackPayload.model;
+        const query = isUuid(id)
+          ? (client: any) => client.from("dtx_machines").update(fallbackPayload).eq("id", id).select("*").maybeSingle()
+          : (client: any) => client.from("dtx_machines").update(fallbackPayload).eq("bgm_code", id).select("*").maybeSingle();
+        data = await executeSupabaseWrite(query);
+      } else {
+        throw upErr;
+      }
+    }
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -426,7 +497,7 @@ app.delete("/api/machines/:id", checkDbConfig, async (req, res) => {
 app.get("/api/repairs", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("repair_requests").select("*")
+      client.from("repair_requests").select("*").range(0, 99999)
     );
     const sorted = ((data as any[]) || []).sort(
       (a: any, b: any) => new Date(b.created_at || b.req_date || 0).getTime() - new Date(a.created_at || a.req_date || 0).getTime()
@@ -481,7 +552,7 @@ app.delete("/api/repairs/:id", checkDbConfig, async (req, res) => {
 app.get("/api/supplies", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("supply_requests").select("*")
+      client.from("supply_requests").select("*").range(0, 99999)
     );
     const sorted = ((data as any[]) || []).sort(
       (a: any, b: any) => new Date(b.created_at || b.req_date || 0).getTime() - new Date(a.created_at || a.req_date || 0).getTime()
@@ -532,7 +603,7 @@ app.delete("/api/supplies/:id", checkDbConfig, async (req, res) => {
 app.get("/api/qc-records", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("qc_records").select("*")
+      client.from("qc_records").select("*").range(0, 99999)
     );
     const sorted = ((data as any[]) || []).sort(
       (a: any, b: any) => new Date(b.date || b.created_at || 0).getTime() - new Date(a.date || a.created_at || 0).getTime()
@@ -583,7 +654,7 @@ app.delete("/api/qc-records/:id", checkDbConfig, async (req, res) => {
 app.get("/api/lot-configs", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("qc_lot_configs").select("*")
+      client.from("qc_lot_configs").select("*").range(0, 99999)
     );
     res.json(data || []);
   } catch (err: any) {
@@ -663,7 +734,7 @@ app.delete("/api/lot-configs/:lotNumber", checkDbConfig, async (req, res) => {
 app.get("/api/eqa-records", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("eqa_records").select("*")
+      client.from("eqa_records").select("*").range(0, 99999)
     );
     const sorted = ((data as any[]) || []).sort(
       (a: any, b: any) => new Date(b.test_date || b.created_at || 0).getTime() - new Date(a.test_date || a.created_at || 0).getTime()
@@ -714,7 +785,7 @@ app.delete("/api/eqa-records/:id", checkDbConfig, async (req, res) => {
 app.get("/api/manuals", checkDbConfig, async (req, res) => {
   try {
     const data = await executeSupabaseQuery(client =>
-      client.from("user_manuals").select("*")
+      client.from("user_manuals").select("*").range(0, 99999)
     );
     const filtered = ((data as any[]) || [])
       .filter((m: any) => !m.is_deleted)

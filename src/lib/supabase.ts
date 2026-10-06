@@ -90,6 +90,7 @@ export function getPublicSupabaseClient(): SupabaseClient<any, any, any> | null 
         persistSession: false,
         autoRefreshToken: false,
         detectSessionInUrl: false,
+        storageKey: 'dtx-public-schema-storage-key'
       }
     });
     cachedPublicKey = currentComposite;
@@ -863,7 +864,7 @@ export const dbService = {
     let rawList: any[] = [];
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'dtx_machines',
         ['machines', 'dtx_devices']
       );
@@ -910,15 +911,69 @@ export const dbService = {
     const dbPayload = mapMachineToDb(machine);
     const payloadWithId = { ...dbPayload, id: targetId };
 
-    if (getSupabaseClient()) {
-      const { data, error, isMissingTable } = await querySupabaseClient(
+    const client = getSupabaseClient();
+    if (client) {
+      // 1. Direct write to physical table dtx_system.dtx_machines FIRST
+      try {
+        let { data: dtxData, error: dtxErr } = await client
+          .schema('dtx_system')
+          .from('dtx_machines')
+          .insert([payloadWithId])
+          .select()
+          .maybeSingle();
+
+        if (dtxErr && (dtxErr.code === '42703' || dtxErr.code === 'PGRST204' || dtxErr.message?.includes('location_history') || dtxErr.message?.includes('model') || dtxErr.message?.includes('schema cache'))) {
+          const sanitized = { ...payloadWithId };
+          delete sanitized.location_history;
+          delete sanitized.model;
+          const retryDtx = await client
+            .schema('dtx_system')
+            .from('dtx_machines')
+            .insert([sanitized])
+            .select()
+            .maybeSingle();
+          if (!retryDtx.error && retryDtx.data) return mapDbToMachine(retryDtx.data);
+          dtxErr = retryDtx.error;
+        }
+
+        if (!dtxErr && dtxData) {
+          return mapDbToMachine(dtxData);
+        }
+
+        if (dtxErr && (dtxErr.code === '23505' || dtxErr.message?.includes('duplicate key') || dtxErr.message?.includes('already exists') || dtxErr.message?.includes('unique constraint'))) {
+          return await this.updateMachine(machine.id || machine.serialNumber, machine);
+        }
+      } catch (e) {
+        console.warn('dtx_system insertMachine notice:', e);
+      }
+
+      // 2. Query helper fallback
+      let { data, error, isMissingTable } = await querySupabaseClient(
         (c, tbl) => c.from(tbl).insert([payloadWithId]).select().maybeSingle(),
         'dtx_machines',
         ['machines']
       );
+
+      // If missing column error (location_history or model)
+      if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message?.includes('location_history') || error.message?.includes('model') || error.message?.includes('schema cache'))) {
+        const sanitizedPayload = { ...payloadWithId };
+        delete sanitizedPayload.location_history;
+        if (sanitizedPayload.model && sanitizedPayload.brand) {
+          sanitizedPayload.brand = `${sanitizedPayload.brand} ${sanitizedPayload.model}`.trim();
+        }
+        delete sanitizedPayload.model;
+
+        const retryRes = await querySupabaseClient(
+          (c, tbl) => c.from(tbl).insert([sanitizedPayload]).select().maybeSingle(),
+          'dtx_machines',
+          ['machines']
+        );
+        if (!retryRes.error && retryRes.data) return mapDbToMachine(retryRes.data);
+        error = retryRes.error;
+      }
+
       if (!error && data) return mapDbToMachine(data);
-      
-      // If error is duplicate key (23505) or already exists, update the existing machine record
+
       if (error && (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('already exists') || error.message?.includes('unique constraint'))) {
         try {
           return await this.updateMachine(machine.id || machine.serialNumber, machine);
@@ -927,26 +982,11 @@ export const dbService = {
         }
       }
 
-      // If error is due to missing 'model' column in legacy database schema (42703), retry without model column
-      if (error && (error.code === '42703' || error.message?.includes('model'))) {
-        const fallbackPayload = {
-          ...payloadWithId,
-          brand: `${payloadWithId.brand} ${payloadWithId.model}`.trim()
-        };
-        delete (fallbackPayload as any).model;
-
-        const retryRes = await querySupabaseClient(
-          (c, tbl) => c.from(tbl).insert([fallbackPayload]).select().maybeSingle(),
-          'dtx_machines',
-          ['machines']
-        );
-        if (!retryRes.error && retryRes.data) return mapDbToMachine(retryRes.data);
-      }
-
       if (error && !isMissingTable) {
         console.warn('Supabase insertMachine notice:', error.message || error);
       }
     }
+
     const data = await safeApiFetch('/api/machines', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -956,35 +996,107 @@ export const dbService = {
   },
 
   async insertMachinesBulk(machinesList: DtxMachine[], overwrite = false): Promise<{ success: number; failed: number; results: DtxMachine[] }> {
+    if (!machinesList || machinesList.length === 0) return { success: 0, failed: 0, results: [] };
+
+    // Batch process in chunks of 50
+    const CHUNK_SIZE = 50;
     const results: DtxMachine[] = [];
     let success = 0;
     let failed = 0;
 
-    for (const m of machinesList) {
+    const client = getSupabaseClient();
+
+    for (let i = 0; i < machinesList.length; i += CHUNK_SIZE) {
+      const chunk = machinesList.slice(i, i + CHUNK_SIZE);
+      const dbPayloads = chunk.map(m => {
+        const targetId = isUuid(m.id) ? m.id : generateUUID();
+        return {
+          ...mapMachineToDb(m),
+          id: targetId
+        };
+      });
+
+      // 1. Try dtx_system schema directly FIRST
+      if (client) {
+        try {
+          const { data: dtxData, error: dtxErr } = await client
+            .schema('dtx_system')
+            .from('dtx_machines')
+            .upsert(dbPayloads, { onConflict: 'bgm_code' })
+            .select();
+
+          if (!dtxErr && Array.isArray(dtxData) && dtxData.length > 0) {
+            const mappedChunk = dtxData.map(mapDbToMachine);
+            results.push(...mappedChunk);
+            success += mappedChunk.length;
+            continue;
+          }
+        } catch (e) {
+          console.warn('dtx_system bulk upsert notice:', e);
+        }
+
+        // Try insert fallback on dtx_system
+        try {
+          const { data: dtxInsData, error: dtxInsErr } = await client
+            .schema('dtx_system')
+            .from('dtx_machines')
+            .insert(dbPayloads)
+            .select();
+
+          if (!dtxInsErr && Array.isArray(dtxInsData) && dtxInsData.length > 0) {
+            const mappedChunk = dtxInsData.map(mapDbToMachine);
+            results.push(...mappedChunk);
+            success += mappedChunk.length;
+            continue;
+          }
+        } catch (e) {
+          console.warn('dtx_system bulk insert notice:', e);
+        }
+      }
+
+      // 2. Fallback API bulk endpoint
       try {
-        if (overwrite) {
-          const updated = await this.updateMachine(m.id || m.serialNumber, m);
-          results.push(updated);
-          success++;
-        } else {
-          try {
-            const inserted = await this.insertMachine(m);
-            results.push(inserted);
+        const res = await safeApiFetch('/api/machines/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dbPayloads)
+        });
+        if (res && (res.success || Array.isArray(res))) {
+          const count = typeof res.count === 'number' ? res.count : chunk.length;
+          success += count;
+          results.push(...chunk);
+          continue;
+        }
+      } catch (apiErr) {
+        console.warn('Bulk API notice:', apiErr);
+      }
+
+      // 3. Sequential item-by-item fallback
+      for (const m of chunk) {
+        try {
+          if (overwrite) {
+            const updated = await this.updateMachine(m.id || m.serialNumber, m);
+            results.push(updated);
             success++;
-          } catch (insErr: any) {
-            // If duplicate in DB even though not overwriting, attempt update fallback
-            if (insErr?.message?.includes('duplicate key') || insErr?.code === '23505') {
-              const fallbackUpdated = await this.updateMachine(m.id || m.serialNumber, m);
-              results.push(fallbackUpdated);
+          } else {
+            try {
+              const inserted = await this.insertMachine(m);
+              results.push(inserted);
               success++;
-            } else {
-              throw insErr;
+            } catch (insErr: any) {
+              if (insErr?.message?.includes('duplicate key') || insErr?.code === '23505') {
+                const fallbackUpdated = await this.updateMachine(m.id || m.serialNumber, m);
+                results.push(fallbackUpdated);
+                success++;
+              } else {
+                throw insErr;
+              }
             }
           }
+        } catch (err) {
+          console.error('Failed to import machine item:', m.serialNumber, err);
+          failed++;
         }
-      } catch (err) {
-        console.error('Failed to import machine item:', m.serialNumber, err);
-        failed++;
       }
     }
     return { success, failed, results };
@@ -1013,9 +1125,10 @@ export const dbService = {
       );
       if (!error && data) return mapDbToMachine(data);
 
-      // If legacy table without 'model' column
-      if (error && (error.code === '42703' || error.message?.includes('model'))) {
+      // If legacy table/view without 'location_history' or 'model' column
+      if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message?.includes('location_history') || error.message?.includes('model') || error.message?.includes('schema cache'))) {
         const fallbackPayload = { ...dbPayload };
+        delete fallbackPayload.location_history;
         if (fallbackPayload.model && fallbackPayload.brand) {
           fallbackPayload.brand = `${fallbackPayload.brand} ${fallbackPayload.model}`.trim();
         }
@@ -1064,7 +1177,7 @@ export const dbService = {
   async getRepairs(): Promise<RepairRequest[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'repair_requests',
         ['repairs', 'repair_records']
       );
@@ -1165,7 +1278,7 @@ export const dbService = {
   async getSupplies(): Promise<SupplyRequest[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'supply_requests',
         ['supplies', 'supply_orders']
       );
@@ -1254,7 +1367,7 @@ export const dbService = {
   async getQcRecords(): Promise<QcRecord[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'qc_records'
       );
       if (!error && Array.isArray(data)) {
@@ -1346,7 +1459,7 @@ export const dbService = {
     let list: QcLotConfig[] = [];
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'qc_lot_configs',
         ['lot_configs', 'qc_lots']
       );
@@ -1497,7 +1610,7 @@ export const dbService = {
   async getEqaRecords(): Promise<EqaRecord[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'eqa_records'
       );
       if (!error && Array.isArray(data)) {
@@ -1586,7 +1699,7 @@ export const dbService = {
   async getManuals(): Promise<UserManual[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'user_manuals'
       );
       if (!error && Array.isArray(data)) {
@@ -1644,7 +1757,7 @@ export const dbService = {
   async getAnnouncements(): Promise<Announcement[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'announcements'
       );
       if (!error && Array.isArray(data)) {
@@ -1707,7 +1820,7 @@ export const dbService = {
   async getMaintenanceLogs(): Promise<any[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'maintenance_logs',
         ['repair_requests']
       );
@@ -1798,7 +1911,7 @@ export const dbService = {
   async getStripReagentItems(): Promise<any[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'strip_reagent_items'
       );
       if (!error && Array.isArray(data)) {
@@ -1943,7 +2056,7 @@ export const dbService = {
   async getDailyChecklists(): Promise<DailyChecklist[]> {
     if (getSupabaseClient()) {
       const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*'),
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
         'daily_checklists',
         ['repair_requests']
       );

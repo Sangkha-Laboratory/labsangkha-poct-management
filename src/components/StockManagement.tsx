@@ -609,7 +609,7 @@ export default function StockManagement({
         const isExisting = !!existingMachine;
 
         const machineObj: DtxMachine = {
-          id: existingMachine ? existingMachine.id : `imp-${Date.now()}-${i}`,
+          id: existingMachine ? existingMachine.id : generateUUID(),
           serialNumber: codeVal,
           machineSerial: effectiveSerial,
           brand: brandVal,
@@ -1213,6 +1213,9 @@ export default function StockManagement({
                 <option value="25">25</option>
                 <option value="50">50</option>
                 <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+                <option value="99999">ทั้งหมด ({sortedAndFilteredMachines.length})</option>
               </CustomSelect>
 
               <nav className="relative z-0 inline-flex rounded-lg shadow-2xs -space-x-px ml-2" aria-label="Pagination">
