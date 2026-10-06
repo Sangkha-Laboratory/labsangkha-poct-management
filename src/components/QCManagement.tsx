@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine, QcRecord, QcLotConfig, MasterWard, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
+import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 import { 
   SlidersVertical, Activity, Plus, TrendingUp, AlertTriangle, 
   CheckCircle2, Download, Settings, ChevronLeft, ChevronRight,
@@ -47,10 +48,13 @@ export function calculateLotExpInfo(lot: QcLotConfig | undefined): LotExpInfo {
 
   let openExpiryDate: string | undefined = undefined;
   if (lot.openDate && lot.openExpDays) {
-    const d = new Date(lot.openDate);
-    if (!isNaN(d.getTime())) {
-      d.setDate(d.getDate() + Number(lot.openExpDays));
-      openExpiryDate = d.toISOString().split('T')[0];
+    const [y, m, day] = String(lot.openDate).split('-').map(Number);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
+      const d = new Date(y, m - 1, day + Number(lot.openExpDays));
+      const expY = d.getFullYear();
+      const expM = String(d.getMonth() + 1).padStart(2, '0');
+      const expD = String(d.getDate()).padStart(2, '0');
+      openExpiryDate = `${expY}-${expM}-${expD}`;
     }
   }
 
@@ -194,7 +198,30 @@ export default function QCManagement({
 
   // Quick QC Entry Form States
   const [operator, setOperator] = useState<string>(() => localStorage.getItem('dtx_qc_operator') || '');
-  const [qcDate, setQcDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [qcDate, setQcDate] = useState<string>(() => getThaiTodayDateOnly());
+
+  // Immediately update to current date on new login session / operator change and focus
+  useEffect(() => {
+    setQcDate(getThaiTodayDateOnly());
+    setBatchDate(getThaiTodayDateOnly());
+  }, [operator]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      setQcDate(getThaiTodayDateOnly());
+      setBatchDate(getThaiTodayDateOnly());
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        setQcDate(getThaiTodayDateOnly());
+        setBatchDate(getThaiTodayDateOnly());
+      }
+    });
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
   const [selectedWard, setSelectedWard] = useState<string>('');
   const [selectedSerial, setSelectedSerial] = useState<string>('');
   const [selectedLot, setSelectedLot] = useState<string>(() => {
@@ -427,7 +454,7 @@ export default function QCManagement({
     });
     return list[0]?.lotNumber || 'LOT2026-A';
   });
-  const [batchDate, setBatchDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [batchDate, setBatchDate] = useState<string>(() => getThaiTodayDateOnly());
 
   // Sync lots when sortedLotConfigs change
   useEffect(() => {
@@ -875,7 +902,7 @@ export default function QCManagement({
   }, [qcRecords]);
 
   // Today's summary records
-  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayDateStr = getThaiTodayDateOnly();
   const todayRecords = useMemo(() => {
     return qcRecords.filter(r => r.date === todayDateStr);
   }, [qcRecords, todayDateStr]);
@@ -906,7 +933,7 @@ export default function QCManagement({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `QC_Records_${filterLot}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `QC_Records_${filterLot}_${getThaiTodayDateOnly()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

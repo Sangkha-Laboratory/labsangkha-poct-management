@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine, RepairRequest, SupplyRequest, UserManual, Announcement } from '../types';
 import { dbService } from '../lib/supabase';
+import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 import { DTX_MAINTENANCE_GUIDELINES, DTX_ERROR_CODES, TROUBLESHOOTING_GUIDE } from '../constants/deviceGuide';
 import { Wrench, Package, Search, Download, ExternalLink, CheckCircle, Smartphone, AlertCircle, RefreshCw, Eye, BookOpen, Clock, Ban, Droplet, Sparkles, Monitor, Info, AlertTriangle, ShieldAlert, ShieldCheck, FileText, Check, Award, Lightbulb, Phone, Megaphone, Bell, Calendar, User, FileCheck, Battery, Plus, Minus, Layers, Lock, Loader2, Activity, ArrowLeft } from 'lucide-react';
 
@@ -148,7 +149,7 @@ export default function LandingPage({
       reporterName,
       reporterPhone,
       reportedProblem,
-      requestDate: new Date().toISOString().split('T')[0],
+      requestDate: getThaiTodayDateOnly(),
       status: 'pending',
       needsBackup,
       checklist: {
@@ -213,7 +214,7 @@ export default function LandingPage({
       itemType: supplyItemType,
       quantity: Number(supplyQty),
       reason: supplyReason,
-      requestDate: new Date().toISOString().split('T')[0],
+      requestDate: getThaiTodayDateOnly(),
       status: 'pending'
     };
 

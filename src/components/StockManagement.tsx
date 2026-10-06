@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import CustomSelect from "./CustomSelect";
 import { DtxMachine, MachineLocationLog } from '../types';
 import { dbService, generateUUID } from '../lib/supabase';
+import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 import { 
   Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, 
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
@@ -139,7 +140,7 @@ export default function StockManagement({
   const [transferActionType, setTransferActionType] = useState<MachineLocationLog['actionType']>('transfer');
   const [transferReason, setTransferReason] = useState('');
   const [transferOperator, setTransferOperator] = useState('');
-  const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transferDate, setTransferDate] = useState(getThaiTodayDateOnly());
   const [transferStatus, setTransferStatus] = useState<DtxMachine['status']>('active');
   const [isSavingTransfer, setIsSavingTransfer] = useState(false);
 
@@ -183,7 +184,7 @@ export default function StockManagement({
     setModel('');
     setWard('');
     setStatus('active');
-    setReceiveDate(new Date().toISOString().split('T')[0]);
+    setReceiveDate(getThaiTodayDateOnly());
     if (distinctLots.length > 0) {
       setLotNumber(distinctLots[0]);
       setIsCustomLot(false);
@@ -275,7 +276,7 @@ export default function StockManagement({
       model: model.trim(),
       ward: finalWard,
       status: status || 'active',
-      receiveDate: receiveDate || new Date().toISOString().split('T')[0],
+      receiveDate: receiveDate || getThaiTodayDateOnly(),
       lotNumber: finalLot,
       remark: remark.trim(),
       locationHistory: history.length > 0 ? history : undefined,
@@ -296,7 +297,7 @@ export default function StockManagement({
     setTransferActionType('return_to_lab');
     setTransferReason('');
     setTransferOperator('');
-    setTransferDate(new Date().toISOString().split('T')[0]);
+    setTransferDate(getThaiTodayDateOnly());
     setTransferStatus(machine.status || 'active');
     setIsOpenHistoryModal(true);
   };
@@ -424,7 +425,7 @@ export default function StockManagement({
   };
 
   const normalizeDate = (val: string): string => {
-    if (!val || !val.trim()) return new Date().toISOString().split('T')[0];
+    if (!val || !val.trim()) return getThaiTodayDateOnly();
     const cleaned = val.trim();
     
     // Check YYYY-MM-DD
@@ -445,7 +446,7 @@ export default function StockManagement({
       return `${yearNum}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     }
 
-    return new Date().toISOString().split('T')[0];
+    return getThaiTodayDateOnly();
   };
 
   const normalizeStatus = (val: string): DtxMachine['status'] => {
@@ -739,7 +740,7 @@ export default function StockManagement({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `dtx_machines_stock_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `dtx_machines_stock_${getThaiTodayDateOnly()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

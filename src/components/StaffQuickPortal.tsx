@@ -41,8 +41,7 @@ import {
   Activity,
   ClipboardCheck,
   ClipboardList,
-  Clock,
-  LogOut
+  Clock
 } from 'lucide-react';
 
 interface StaffQuickPortalProps {
@@ -185,7 +184,27 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     });
   }, [localLotConfigs, lotConfigs]);
 
-  const [batchDate, setBatchDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [batchDate, setBatchDate] = useState<string>(() => getThaiTodayDateOnly());
+
+  // Immediately update to current date on new login session / operator change and focus
+  useEffect(() => {
+    setBatchDate(getThaiTodayDateOnly());
+  }, [operator]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      setBatchDate(getThaiTodayDateOnly());
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        setBatchDate(getThaiTodayDateOnly());
+      }
+    });
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
   const [batchLot, setBatchLot] = useState<string>(() => {
     const list = [...lotConfigs].sort((a, b) => {
       if (a.expDate && b.expDate) return new Date(b.expDate).getTime() - new Date(a.expDate).getTime();
@@ -571,15 +590,17 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   }, []);
 
   const handleOpenStockItem = async (item: StripReagentItem) => {
-    const today = getThaiTodayDate();
+    const today = getThaiTodayDateOnly();
     const cfg = lotConfigs.find(c => c.lotNumber === item.lotNumber);
     const postOpenDays = cfg?.openExpDays || 90;
     
     // Calculate openExpDate
-    const openDateObj = new Date(today);
-    const expDateObj = new Date(openDateObj);
-    expDateObj.setDate(expDateObj.getDate() + postOpenDays);
-    const openExpDate = expDateObj.toISOString().split('T')[0];
+    const [y, m, d] = today.split('-').map(Number);
+    const expDateObj = new Date(y, m - 1, d + postOpenDays);
+    const expY = expDateObj.getFullYear();
+    const expM = String(expDateObj.getMonth() + 1).padStart(2, '0');
+    const expD = String(expDateObj.getDate()).padStart(2, '0');
+    const openExpDate = `${expY}-${expM}-${expD}`;
 
     const updatedItem: StripReagentItem = {
       ...item,
@@ -649,7 +670,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
 
     const newLog: MaintenanceLog = {
       id: `MAINT-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
+      date: getThaiTodayDateOnly(),
       serialNumber: maintSerial,
       actionType: maintType,
       description: maintDesc.trim(),
@@ -1148,18 +1169,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               className="font-bold text-slate-800 dark:text-white bg-transparent border-none focus:outline-none w-36 text-xs"
             />
           </div>
-
-          {onSwitchToRoleSelector && (
-            <button
-              type="button"
-              onClick={onSwitchToRoleSelector}
-              title="ออกจากโหมด Quick Win"
-              className="flex items-center space-x-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 dark:text-rose-300 rounded-xl text-xs font-bold border border-rose-200 dark:border-rose-800/80 transition-all cursor-pointer shadow-2xs"
-            >
-              <LogOut size={14} />
-              <span className="hidden sm:inline">ออกจากระบบ</span>
-            </button>
-          )}
         </div>
       </div>
 

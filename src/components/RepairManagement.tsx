@@ -9,7 +9,7 @@ import { RepairRequest } from '../types';
 import { dbService } from '../lib/supabase';
 import PrintForm from './PrintForm';
 import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck, ChevronLeft, ChevronRight } from 'lucide-react';
-import { formatToThaiDate } from '../lib/dateUtils';
+import { formatToThaiDate, getThaiTodayDateOnly } from '../lib/dateUtils';
 
 interface RepairManagementProps {
   repairs: RepairRequest[];
@@ -98,14 +98,14 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
     const updated: RepairRequest = {
       ...editingRepair,
       status: editStatus,
-      requestDate: new Date().toISOString(),
+      requestDate: editingRepair.requestDate || getThaiTodayDateOnly(),
       diagnosedProblem: editDiagnosed.trim(),
       inspectionResult: editInspection.trim(),
       actionTaken: editAction,
       actionDetails: editActionDetails.trim(),
       operatorName: editOperator.trim(),
       receiverName: editReceiver.trim(),
-      completionDate: editStatus === 'completed' ? new Date().toISOString().split('T')[0] : undefined,
+      completionDate: editStatus === 'completed' ? getThaiTodayDateOnly() : undefined,
       checklist: {
         cleanliness,
         buttons,

@@ -6,6 +6,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { QcLotConfig, StripReagentItem, DtxMachine, SupplyRequest } from '../types';
 import { dbService } from '../lib/supabase';
+import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
 import { 
   Package, Search, Filter, Layers, Clock, AlertTriangle, 
@@ -97,7 +98,7 @@ export default function StripReagentStock({
     manufacturer: 'VivaChek Fad',
     boxCount: 5, // จำนวนกล่องที่รับเข้าเพื่อ Auto-gen Item Codes
     testsPerBox: 50,
-    receivedDate: new Date().toISOString().split('T')[0],
+    receivedDate: getThaiTodayDateOnly(),
     expDate: '',
     openExpDays: 90,
     notes: '',
@@ -282,13 +283,16 @@ export default function StripReagentStock({
 
   // Lab Dispense / Open 1 Bottle/Box Action
   const handleOpenItemForLabUse = async (item: StripReagentItem) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getThaiTodayDateOnly();
     
     // Calculate open exp date (+90 days default)
     const openExpDays = 90;
-    const openExpDateObj = new Date();
-    openExpDateObj.setDate(openExpDateObj.getDate() + openExpDays);
-    const openExpDate = openExpDateObj.toISOString().split('T')[0];
+    const [y, m, d] = today.split('-').map(Number);
+    const openExpDateObj = new Date(y, m - 1, d + openExpDays);
+    const expY = openExpDateObj.getFullYear();
+    const expM = String(openExpDateObj.getMonth() + 1).padStart(2, '0');
+    const expD = String(openExpDateObj.getDate()).padStart(2, '0');
+    const openExpDate = `${expY}-${expM}-${expD}`;
 
     const updatedItem: StripReagentItem = {
       ...item,

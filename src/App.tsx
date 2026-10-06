@@ -10,6 +10,7 @@ import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRec
 import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, ArrowRight, Building2, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin } from 'lucide-react';
 
 import { DEFAULT_HOSPITAL_LOGO_BASE64 } from './assets/hospitalLogoBase64';
+import { getThaiTodayDateOnly } from './lib/dateUtils';
 
 // Component Imports
 import LandingPage from './components/LandingPage';
@@ -380,7 +381,7 @@ export default function App() {
       if (m.serialNumber === updatedRepair.serialNumber) {
         affectedMachineId = m.id;
         if (updatedRepair.status === 'completed') {
-          return { ...m, status: 'active', lastQCDate: new Date().toISOString().split('T')[0] };
+          return { ...m, status: 'active', lastQCDate: getThaiTodayDateOnly() };
         } else if (updatedRepair.status === 'waiting_claim') {
           return { ...m, status: 'waiting_claim' };
         } else if (updatedRepair.status === 'claimed') {
@@ -399,7 +400,7 @@ export default function App() {
       if (affectedMachineId) {
         await dbService.updateMachine(affectedMachineId, {
           status: updatedRepair.status === 'completed' ? 'active' : updatedRepair.status as any,
-          lastQCDate: updatedRepair.status === 'completed' ? new Date().toISOString().split('T')[0] : undefined
+          lastQCDate: updatedRepair.status === 'completed' ? getThaiTodayDateOnly() : undefined
         });
       }
     } catch (err: any) {
@@ -721,6 +722,13 @@ export default function App() {
                   onClick={() => {
                     setIsSelectingRole(true);
                     setIsMobileMenuOpen(false);
+                    if (role === 'staff') {
+                      localStorage.removeItem('dtx_current_staff');
+                      localStorage.removeItem('dtx_qc_operator');
+                      localStorage.removeItem('dtx_quick_win_last_active');
+                      setRoleSelectorAuthMode('staff_quick_login');
+                      setShowToast('ออกจากเซสชัน Quick Win เรียบร้อยแล้ว');
+                    }
                   }}
                   className="w-full flex items-center justify-between p-3.5 text-left text-xs font-bold rounded-xl transition-all bg-sky-50 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-800"
                 >
@@ -911,8 +919,12 @@ export default function App() {
                 onClick={() => {
                   setIsSelectingRole(true);
                   if (role === 'staff') {
-                    // 1-step back: return to Quick Win login screen (selecting operator name)
+                    // Back button in Quick Win acts as ending the session
+                    localStorage.removeItem('dtx_current_staff');
+                    localStorage.removeItem('dtx_qc_operator');
+                    localStorage.removeItem('dtx_quick_win_last_active');
                     setRoleSelectorAuthMode('staff_quick_login');
+                    setShowToast('ออกจากเซสชัน Quick Win เรียบร้อยแล้ว');
                   } else {
                     setRoleSelectorAuthMode('selector');
                   }
@@ -1024,7 +1036,14 @@ export default function App() {
             onAddQcRecord={handleAddQcRecord}
             onAddSupply={handleAddSupply}
             onUpdateLotConfigs={handleUpdateLotConfigs}
-            onSwitchToRoleSelector={() => setIsSelectingRole(true)}
+            onSwitchToRoleSelector={() => {
+              setIsSelectingRole(true);
+              localStorage.removeItem('dtx_current_staff');
+              localStorage.removeItem('dtx_qc_operator');
+              localStorage.removeItem('dtx_quick_win_last_active');
+              setRoleSelectorAuthMode('staff_quick_login');
+              setShowToast('ออกจากเซสชัน Quick Win เรียบร้อยแล้ว');
+            }}
           />
         ) : !isAdminLoggedIn ? (
           // ADMIN LOGIN FORM

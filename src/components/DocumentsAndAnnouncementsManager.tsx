@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import CustomSelect from "./CustomSelect";
 import { UserManual, Announcement } from '../types';
 import { dbService } from '../lib/supabase';
+import { getThaiTodayDateOnly } from '../lib/dateUtils';
 import { FileText, Plus, Trash2, Link as LinkIcon, Megaphone, Bell, Calendar, User, CheckCircle, AlertCircle, FileCheck, Download, ExternalLink, AlertTriangle, QrCode, Upload, Image as ImageIcon, RotateCcw, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface DocumentsAndAnnouncementsManagerProps {
@@ -116,7 +117,7 @@ export default function DocumentsAndAnnouncementsManager({
       description: manualDescription.trim() || 'เอกสารคู่มือสำหรับเจ้าหน้าที่โรงพยาบาล',
       fileName: manualFileName.trim() || (manualDownloadUrl ? 'ลิงก์เอกสารออนไลน์' : undefined),
       downloadUrl: manualDownloadUrl.trim() || undefined,
-      uploadDate: new Date().toISOString().split('T')[0]
+      uploadDate: getThaiTodayDateOnly()
     };
 
     const updated = [newManual, ...manuals];
@@ -150,7 +151,7 @@ export default function DocumentsAndAnnouncementsManager({
       title: annTitle.trim(),
       content: annContent.trim(),
       category: annCategory,
-      date: new Date().toISOString().split('T')[0],
+      date: getThaiTodayDateOnly(),
       author: annAuthor.trim() || 'กลุ่มงานเทคนิคการแพทย์',
       pinned: annPinned,
       attachmentName: annAttachmentName.trim() || (annAttachmentUrl ? 'ลิงก์เอกสารแนบ' : undefined),

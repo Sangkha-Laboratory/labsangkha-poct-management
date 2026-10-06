@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog } from '../types';
+import { getThaiTodayDateOnly } from './dateUtils';
 
 // Helper to validate standard UUID format
 export const isUuid = (val?: string): boolean => {
@@ -491,7 +492,7 @@ export const mapMachineToDb = (m: DtxMachine) => {
     model: (m.model || '').trim(),
     ward: m.ward,
     status: m.status || 'active',
-    rec_date: m.receiveDate || new Date().toISOString().split('T')[0],
+    rec_date: m.receiveDate || getThaiTodayDateOnly(),
     last_qc_date: m.lastQCDate || null,
     lot_number: m.lotNumber || '',
     remark: m.remark || null,
@@ -507,7 +508,7 @@ export const mapDbToRepair = (db: any): RepairRequest => ({
   reporterName: db.reporter,
   reporterPhone: db.phone,
   reportedProblem: db.problem,
-  requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+  requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : getThaiTodayDateOnly()),
   status: db.status as any,
   diagnosedProblem: db.diagnosis || undefined,
   actionTaken: db.action || undefined,
@@ -544,7 +545,7 @@ export const mapRepairToDb = (r: RepairRequest) => ({
   complete_date: r.completionDate || null,
   need_backup: r.needsBackup || false,
   checklist: r.checklist || {},
-  req_date: r.requestDate || new Date().toISOString().split('T')[0]
+  req_date: r.requestDate || getThaiTodayDateOnly()
 });
 
 export const mapDbToSupply = (db: any): SupplyRequest => ({
@@ -554,7 +555,7 @@ export const mapDbToSupply = (db: any): SupplyRequest => ({
   itemType: (db.item || (db.items && db.items.itemType) || 'strip') as any,
   quantity: Number(db.qty || (db.items && db.items.quantity) || 1),
   reason: db.reason || (db.items && db.items.reason) || '',
-  requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+  requestDate: db.req_date || (db.created_at ? db.created_at.split('T')[0] : getThaiTodayDateOnly()),
   status: db.status as any,
   details: db.details || undefined
 });
@@ -566,7 +567,7 @@ export const mapSupplyToDb = (s: SupplyRequest) => ({
   qty: Number(s.quantity) || 1,
   reason: s.reason || '',
   status: s.status || 'pending',
-  req_date: s.requestDate || new Date().toISOString().split('T')[0],
+  req_date: s.requestDate || getThaiTodayDateOnly(),
   details: s.details || {}
 });
 
@@ -1743,7 +1744,7 @@ export const dbService = {
 
   async insertMaintenanceLog(log: any): Promise<any> {
     const dbPayload = {
-      date: log.date || new Date().toISOString().split('T')[0],
+      date: log.date || getThaiTodayDateOnly(),
       serial_number: log.serialNumber,
       ward: log.ward || 'LAB',
       maintenance_type: log.actionType,
@@ -1760,7 +1761,7 @@ export const dbService = {
       action: log.description,
       status: 'completed',
       operator: log.operator,
-      req_date: log.date || new Date().toISOString().split('T')[0]
+      req_date: log.date || getThaiTodayDateOnly()
     };
 
     if (getSupabaseClient()) {
@@ -1949,7 +1950,7 @@ export const dbService = {
       if (!error && Array.isArray(data)) {
         return (data as any[]).map((row): DailyChecklist => ({
           id: row.id,
-          date: row.date || row.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          date: row.date || row.created_at?.split('T')[0] || getThaiTodayDateOnly(),
           serialNumber: row.serial_number || '',
           ward: row.ward || 'งานชันสูตรสาธารณสุข',
           chkBodyClean: row.chk_body_clean ?? true,
@@ -1975,7 +1976,7 @@ export const dbService = {
 
   async insertDailyChecklist(chk: DailyChecklist): Promise<DailyChecklist> {
     const dbPayload = {
-      date: chk.date || new Date().toISOString().split('T')[0],
+      date: chk.date || getThaiTodayDateOnly(),
       serial_number: chk.serialNumber, // S/N from manufacturer
       operator: chk.operator,
       status: chk.status,
@@ -2015,7 +2016,7 @@ export const dbService = {
       problem: `[Daily Checklist: ${chk.status}] Note: ${chk.note || '-'}`,
       status: chk.status === 'issue' ? 'pending' : 'completed',
       operator: chk.operator,
-      req_date: chk.date || new Date().toISOString().split('T')[0],
+      req_date: chk.date || getThaiTodayDateOnly(),
       checklist: chk
     };
 

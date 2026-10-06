@@ -13,7 +13,7 @@ import {
   FolderKanban, CheckSquare, Search, Filter, X, Trash2, Edit3, Image as ImageIcon,
   Sparkles, Link2, Smartphone, Send, Laptop, Hash, Check, BellRing, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { formatToThaiDate } from '../lib/dateUtils';
+import { formatToThaiDate, getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 
 interface EQAManagementProps {
   machines?: DtxMachine[];
@@ -58,8 +58,8 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
   const [organizer, setOrganizer] = useState('');
   const [round, setRound] = useState('');
   const [actionStatus, setActionStatus] = useState<EqaRecord['actionStatus']>('in_progress');
-  const [actionDate, setActionDate] = useState(new Date().toISOString().split('T')[0]);
-  const [testDate, setTestDate] = useState(new Date().toISOString().split('T')[0]);
+  const [actionDate, setActionDate] = useState(getThaiTodayDateOnly());
+  const [testDate, setTestDate] = useState(getThaiTodayDateOnly());
   
   // Machine Count & Tested Machines (SN + Ward + Optional Level Values)
   const [machineCount, setMachineCount] = useState<number>(1);
@@ -79,9 +79,13 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
 
   // Submission Due Date
   const [dueDate, setDueDate] = useState<string>(() => {
-    const defaultDue = new Date();
-    defaultDue.setDate(defaultDue.getDate() + 14); // 14 days from today
-    return defaultDue.toISOString().split('T')[0];
+    const today = getThaiTodayDateOnly();
+    const [y, m, d] = today.split('-').map(Number);
+    const defaultDue = new Date(y, m - 1, d + 14);
+    const expY = defaultDue.getFullYear();
+    const expM = String(defaultDue.getMonth() + 1).padStart(2, '0');
+    const expD = String(defaultDue.getDate()).padStart(2, '0');
+    return `${expY}-${expM}-${expD}`;
   });
 
   useEffect(() => {
@@ -297,8 +301,8 @@ export default function EQAManagement({ machines = [], eqaRecords, onAddEqaRecor
     setOrganizer('');
     setRound('');
     setActionStatus('in_progress');
-    setActionDate(new Date().toISOString().split('T')[0]);
-    setTestDate(new Date().toISOString().split('T')[0]);
+    setActionDate(getThaiTodayDateOnly());
+    setTestDate(getThaiTodayDateOnly());
     setTestedMachines([]);
     setCustomSerialInput('');
     setCustomWardInput('');
