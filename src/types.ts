@@ -138,10 +138,11 @@ export interface QcLotConfig {
 
 export interface StripReagentItem {
   id: string;
-  itemCode: string; // เช่น 'ST-LOT2026A-01' (Unique Code รายกล่อง)
+  itemCode: string; // เช่น 'ST-LOT2026A-01' (Unique Code รายกล่อง) หรือ 'BAT-AAA-01'
   lotNumber: string;
   manufacturer?: string;
-  itemType: 'strip' | 'control_solution';
+  itemType: 'strip' | 'control_solution' | 'battery';
+  batteryType?: 'AAA' | 'AA' | 'CR2032' | 'other';
   receivedDate: string;
   expDate: string;
   openDate?: string;
@@ -152,6 +153,21 @@ export interface StripReagentItem {
   notes?: string;
   boxIndex?: number;
   totalBoxes?: number;
+}
+
+export interface BatteryDisbursementRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  ward: string; // หน่วยงานที่มาเบิก หรือ LAB
+  bgmCode?: string; // รหัสเครื่อง DTX ที่นำมาเบิก/เปลี่ยนถ่าน (เช่น BGM-01)
+  serialNumber?: string; // S/N เครื่องตรวจ
+  batteryType: 'AAA' | 'AA' | 'CR2032' | 'other';
+  quantity: number; // จำนวนก้อน (เช่น 2 ก้อน)
+  requesterName: string; // ผู้ขอเบิก / ผู้รับถ่าน
+  dispenserName: string; // เจ้าหน้าที่ห้องแล็บผู้จ่าย
+  reason: string; // สาเหตุ เช่น ถ่านหมด, เปลี่ยนประจำรอบ, งานซ่อมบำรุง
+  status: 'dispensed' | 'pending';
+  notes?: string;
 }
 
 export interface EqaAttachment {

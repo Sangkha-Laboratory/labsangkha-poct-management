@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog } from '../types';
+import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog, StripReagentItem, BatteryDisbursementRecord } from '../types';
 import { getThaiTodayDateOnly } from './dateUtils';
 
 // Helper to validate standard UUID format
@@ -1921,6 +1921,7 @@ export const dbService = {
           lotNumber: row.lot_number,
           manufacturer: row.manufacturer,
           itemType: row.item_type,
+          batteryType: row.battery_type || (row.notes?.includes('AAA') ? 'AAA' : row.notes?.includes('AA') ? 'AA' : row.notes?.includes('CR2032') ? 'CR2032' : undefined),
           receivedDate: row.received_date,
           expDate: row.exp_date,
           openDate: row.open_date,
@@ -2184,5 +2185,118 @@ export const dbService = {
       }
     }
     await safeApiFetch(`/api/daily-checklists/${id}`, { method: 'DELETE' });
+  },
+
+  // --- battery_disbursements (Requisition & Dispense Tracking for Batteries) ---
+  async getBatteryDisbursements(): Promise<BatteryDisbursementRecord[]> {
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
+        'supply_requests',
+        ['battery_disbursements', 'supplies']
+      );
+      if (!error && Array.isArray(data)) {
+        return (data as any[])
+          .filter(r => (r.item === 'battery' || r.items?.itemType === 'battery' || r.item_type === 'battery' || r.details?.batteryType))
+          .map((row): BatteryDisbursementRecord => ({
+            id: row.id,
+            date: row.req_date || row.created_at?.split('T')[0] || getThaiTodayDateOnly(),
+            ward: row.ward || 'LAB',
+            bgmCode: row.details?.bgmCode || row.details?.bgm_code || undefined,
+            serialNumber: row.details?.serialNumber || row.details?.serial_number || undefined,
+            batteryType: row.details?.batteryType || 'AAA',
+            quantity: Number(row.qty || 2),
+            requesterName: row.requester || 'เจ้าหน้าที่',
+            dispenserName: row.details?.dispenserName || row.operator || 'เจ้าหน้าที่ห้องแล็บ',
+            reason: row.reason || 'ถ่านหมด/เปลี่ยนถ่าน',
+            status: row.status === 'approved' ? 'dispensed' : (row.status as any || 'dispensed'),
+            notes: row.details?.notes || undefined
+          }))
+          .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase getBatteryDisbursements notice:', error.message || error);
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem('dtx_battery_disbursements');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+
+    return [];
+  },
+
+  async insertBatteryDisbursement(rec: BatteryDisbursementRecord): Promise<BatteryDisbursementRecord> {
+    const targetId = isUuid(rec.id) ? rec.id : generateUUID();
+    const payload = {
+      id: targetId,
+      ward: rec.ward,
+      requester: rec.requesterName,
+      item: 'battery',
+      qty: Number(rec.quantity) || 2,
+      reason: rec.reason || 'เปลี่ยนถ่าน/เบิกถ่าน',
+      status: 'approved',
+      req_date: rec.date || getThaiTodayDateOnly(),
+      details: {
+        batteryType: rec.batteryType,
+        bgmCode: rec.bgmCode,
+        serialNumber: rec.serialNumber,
+        dispenserName: rec.dispenserName,
+        notes: rec.notes
+      }
+    };
+
+    if (getSupabaseClient()) {
+      const { data, error } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payload]).select().maybeSingle(),
+        'supply_requests'
+      );
+      if (!error && data) {
+        // Also update local cache
+        try {
+          const list = await this.getBatteryDisbursements();
+          const updated = [rec, ...list.filter(x => x.id !== targetId)];
+          localStorage.setItem('dtx_battery_disbursements', JSON.stringify(updated));
+        } catch {}
+        return rec;
+      }
+    }
+
+    // Try API fetch fallback
+    try {
+      await safeApiFetch('/api/supplies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch {}
+
+    try {
+      const saved = localStorage.getItem('dtx_battery_disbursements');
+      const list = saved ? JSON.parse(saved) : [];
+      localStorage.setItem('dtx_battery_disbursements', JSON.stringify([rec, ...list]));
+    } catch {}
+
+    return rec;
+  },
+
+  async deleteBatteryDisbursement(id: string): Promise<void> {
+    if (getSupabaseClient()) {
+      await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'supply_requests'
+      ).catch(() => {});
+    }
+    try {
+      await safeApiFetch(`/api/supplies/${id}`, { method: 'DELETE' });
+    } catch {}
+    try {
+      const saved = localStorage.getItem('dtx_battery_disbursements');
+      if (saved) {
+        const list = JSON.parse(saved).filter((item: any) => item.id !== id);
+        localStorage.setItem('dtx_battery_disbursements', JSON.stringify(list));
+      }
+    } catch {}
   }
 };

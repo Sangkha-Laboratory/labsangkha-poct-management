@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { QcLotConfig, StripReagentItem, DtxMachine, SupplyRequest } from '../types';
+import { QcLotConfig, StripReagentItem, DtxMachine, SupplyRequest, BatteryDisbursementRecord } from '../types';
 import { dbService } from '../lib/supabase';
 import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
@@ -13,7 +13,7 @@ import {
   CheckCircle2, Barcode, Sparkles, Droplet, FlaskConical, 
   Calendar, Building2, User, ChevronRight, RefreshCw, FileText,
   Plus, Edit2, Trash2, X, SlidersHorizontal, Calculator, Save, Info, Zap, Camera, QrCode, Play,
-  Table as TableIcon, LayoutGrid, Printer, Download
+  Table as TableIcon, LayoutGrid, Printer, Download, Battery, BatteryCharging
 } from 'lucide-react';
 
 interface StripReagentStockProps {
@@ -69,14 +69,35 @@ export default function StripReagentStock({
   onUpdateLotConfigs
 }: StripReagentStockProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState<'all' | 'strip' | 'control_solution'>('all');
+  const [filterCategory, setFilterCategory] = useState<'all' | 'strip' | 'control_solution' | 'battery'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'in_stock' | 'in_use' | 'depleted'>('all');
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table'); // Default to Raw Data Table
-  const [activeTab, setActiveTab] = useState<'items' | 'lots' | 'barcode_sheet'>('items');
+  const [activeTab, setActiveTab] = useState<'items' | 'lots' | 'barcode_sheet' | 'batteries'>('items');
 
   // Items State (Individual box/bottle tracking)
   const [items, setItems] = useState<StripReagentItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
+
+  // Battery Disbursement & Tracking State
+  const [batteryDisbursements, setBatteryDisbursements] = useState<BatteryDisbursementRecord[]>([]);
+  const [isDisburseModalOpen, setIsDisburseModalOpen] = useState(false);
+  const [batterySubView, setBatterySubView] = useState<'disbursements' | 'inventory'>('disbursements');
+  const [batterySearch, setBatterySearch] = useState('');
+  const [batteryWardFilter, setBatteryWardFilter] = useState('all');
+  const [batteryTypeFilter, setBatteryTypeFilter] = useState<'all' | 'AAA' | 'AA' | 'CR2032' | 'other'>('all');
+
+  const initialDisburseForm = {
+    ward: 'งานชันสูตรสาธารณสุข',
+    bgmCode: '',
+    serialNumber: '',
+    batteryType: 'AAA' as 'AAA' | 'AA' | 'CR2032' | 'other',
+    quantity: 2,
+    requesterName: '',
+    dispenserName: 'เจ้าหน้าที่ห้องแล็บ',
+    reason: 'ถ่านหมด/เปลี่ยนถ่านประจำเครื่อง',
+    notes: ''
+  };
+  const [disburseForm, setDisburseForm] = useState(initialDisburseForm);
 
   // Modal State for Adding / Inbound Batch Entry
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -92,11 +113,12 @@ export default function StripReagentStock({
   const [selectedLotForPrint, setSelectedLotForPrint] = useState<string | undefined>(undefined);
 
   const initialFormState = {
-    category: 'strip' as 'strip' | 'control_solution',
+    category: 'strip' as 'strip' | 'control_solution' | 'battery',
+    batteryType: 'AAA' as 'AAA' | 'AA' | 'CR2032' | 'other',
     lotNumber: '',
     barcode: '',
     manufacturer: 'VivaChek Fad',
-    boxCount: 5, // จำนวนกล่องที่รับเข้าเพื่อ Auto-gen Item Codes
+    boxCount: 5, // จำนวนกล่อง/แพ็คที่รับเข้าเพื่อ Auto-gen Item Codes
     testsPerBox: 50,
     receivedDate: getThaiTodayDateOnly(),
     expDate: '',
@@ -140,8 +162,18 @@ export default function StripReagentStock({
     }
   };
 
+  const loadBatteryData = async () => {
+    try {
+      const list = await dbService.getBatteryDisbursements();
+      setBatteryDisbursements(list);
+    } catch (e) {
+      console.warn('loadBatteryData error:', e);
+    }
+  };
+
   useEffect(() => {
     loadItems();
+    loadBatteryData();
   }, []);
 
   const saveItemsState = async (newItems: StripReagentItem[]) => {
@@ -207,7 +239,7 @@ export default function StripReagentStock({
 
     const cleanLot = formData.lotNumber.trim().toUpperCase();
     const count = Math.max(1, Number(formData.boxCount) || 1);
-    const prefix = formData.category === 'control_solution' ? 'CTRL' : 'ST';
+    const prefix = formData.category === 'control_solution' ? 'CTRL' : (formData.category === 'battery' ? `BAT-${formData.batteryType || 'AAA'}` : 'ST');
 
     // Find existing count for this lot to continue serial numbering
     const existingLotItems = items.filter(i => i.lotNumber.toUpperCase() === cleanLot);
@@ -225,6 +257,7 @@ export default function StripReagentStock({
         lotNumber: cleanLot,
         manufacturer: formData.manufacturer.trim(),
         itemType: formData.category,
+        batteryType: formData.category === 'battery' ? (formData.batteryType || 'AAA') : undefined,
         receivedDate: formData.receivedDate,
         expDate: formData.expDate,
         status: 'in_stock',
@@ -234,37 +267,39 @@ export default function StripReagentStock({
       });
     }
 
-    // Also update / insert QC Lot Config if not exists
-    const lotExists = lotConfigs.some(c => c.lotNumber.toUpperCase() === cleanLot);
-    let updatedLotConfigs = [...lotConfigs];
-    if (!lotExists) {
-      const newConfig: QcLotConfig = {
-        lotNumber: cleanLot,
-        barcode: formData.barcode.trim(),
-        manufacturer: formData.manufacturer.trim(),
-        testsPerBox: Number(formData.testsPerBox) || 50,
-        receivedDate: formData.receivedDate,
-        expDate: formData.expDate,
-        openExpDays: Number(formData.openExpDays) || 90,
-        notes: formData.notes,
-        level1Target: Number(formData.level1Target),
-        level1Min: Number(formData.level1Min),
-        level1Max: Number(formData.level1Max),
-        level1SD: Number(formData.level1SD),
-        level2Target: Number(formData.level2Target),
-        level2Min: Number(formData.level2Min),
-        level2Max: Number(formData.level2Max),
-        level2SD: Number(formData.level2SD),
-        level3Target: Number(formData.level3Target),
-        level3Min: Number(formData.level3Min),
-        level3Max: Number(formData.level3Max),
-        level3SD: Number(formData.level3SD),
-      };
-      updatedLotConfigs = [newConfig, ...lotConfigs];
-      if (onUpdateLotConfigs) onUpdateLotConfigs(updatedLotConfigs);
-      try {
-        await dbService.insertLotConfig(newConfig);
-      } catch (e) {}
+    // Also update / insert QC Lot Config if not exists (only for strips/control)
+    if (formData.category !== 'battery') {
+      const lotExists = lotConfigs.some(c => c.lotNumber.toUpperCase() === cleanLot);
+      let updatedLotConfigs = [...lotConfigs];
+      if (!lotExists) {
+        const newConfig: QcLotConfig = {
+          lotNumber: cleanLot,
+          barcode: formData.barcode.trim(),
+          manufacturer: formData.manufacturer.trim(),
+          testsPerBox: Number(formData.testsPerBox) || 50,
+          receivedDate: formData.receivedDate,
+          expDate: formData.expDate,
+          openExpDays: Number(formData.openExpDays) || 90,
+          notes: formData.notes,
+          level1Target: Number(formData.level1Target),
+          level1Min: Number(formData.level1Min),
+          level1Max: Number(formData.level1Max),
+          level1SD: Number(formData.level1SD),
+          level2Target: Number(formData.level2Target),
+          level2Min: Number(formData.level2Min),
+          level2Max: Number(formData.level2Max),
+          level2SD: Number(formData.level2SD),
+          level3Target: Number(formData.level3Target),
+          level3Min: Number(formData.level3Min),
+          level3Max: Number(formData.level3Max),
+          level3SD: Number(formData.level3SD),
+        };
+        updatedLotConfigs = [newConfig, ...lotConfigs];
+        if (onUpdateLotConfigs) onUpdateLotConfigs(updatedLotConfigs);
+        try {
+          await dbService.insertLotConfig(newConfig);
+        } catch (e) {}
+      }
     }
 
     // Insert items to Supabase & Local state
@@ -277,8 +312,89 @@ export default function StripReagentStock({
     const mergedItems = [...newGeneratedItems, ...items];
     await saveItemsState(mergedItems);
 
-    showToastNotification(`รับเข้าพัสดุ ${count} กล่อง (LOT: ${cleanLot}) พร้อมสร้างบาร์โค้ดรายกล่องสำเร็จ`);
+    const unitLabel = formData.category === 'battery' ? 'ก้อน' : 'กล่อง';
+    showToastNotification(`รับเข้าพัสดุ ${count} ${unitLabel} (LOT: ${cleanLot}) พร้อมสร้างบาร์โค้ดสำเร็จ`);
     setIsModalOpen(false);
+  };
+
+  // Battery Disbursement Handlers
+  const handleSubmitDisburse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!disburseForm.ward.trim()) {
+      alert('กรุณาระบุหน่วยงาน');
+      return;
+    }
+    if (!disburseForm.requesterName.trim()) {
+      alert('กรุณาระบุชื่อผู้ขอเบิก');
+      return;
+    }
+
+    const newRec: BatteryDisbursementRecord = {
+      id: `BAT-DIS-${Date.now()}`,
+      date: getThaiTodayDateOnly(),
+      ward: disburseForm.ward.trim(),
+      bgmCode: disburseForm.bgmCode.trim() || undefined,
+      serialNumber: disburseForm.serialNumber.trim() || undefined,
+      batteryType: disburseForm.batteryType,
+      quantity: Math.max(1, Number(disburseForm.quantity) || 2),
+      requesterName: disburseForm.requesterName.trim(),
+      dispenserName: disburseForm.dispenserName.trim() || 'เจ้าหน้าที่ห้องแล็บ',
+      reason: disburseForm.reason.trim() || 'ถ่านหมด/เปลี่ยนถ่าน',
+      status: 'dispensed',
+      notes: disburseForm.notes.trim() || undefined
+    };
+
+    try {
+      await dbService.insertBatteryDisbursement(newRec);
+      setBatteryDisbursements(prev => [newRec, ...prev]);
+
+      // Automatically deplete physical in-stock batteries if available
+      const matchingBatteries = items.filter(
+        i => i.itemType === 'battery' && 
+        i.status === 'in_stock' && 
+        (i.batteryType === disburseForm.batteryType || (!i.batteryType && disburseForm.batteryType === 'AAA'))
+      );
+      if (matchingBatteries.length > 0) {
+        const qtyToDeplete = Math.min(matchingBatteries.length, Number(disburseForm.quantity) || 2);
+        const today = getThaiTodayDateOnly();
+        let updatedItems = [...items];
+        for (let i = 0; i < qtyToDeplete; i++) {
+          const itm = matchingBatteries[i];
+          const depletedItem: StripReagentItem = {
+            ...itm,
+            status: 'depleted',
+            lastUsedDate: today
+          };
+          await dbService.updateStripReagentItem(itm.id, depletedItem).catch(() => {});
+          updatedItems = updatedItems.map(x => x.id === itm.id ? depletedItem : x);
+        }
+        await saveItemsState(updatedItems);
+      }
+
+      showToastNotification(`✓ บันทึกการเบิกถ่าน ${disburseForm.batteryType} จำนวน ${disburseForm.quantity} ก้อน ให้กับ ${disburseForm.ward} เรียบร้อยแล้ว`);
+      setIsDisburseModalOpen(false);
+      setDisburseForm(prev => ({
+        ...prev,
+        bgmCode: '',
+        serialNumber: '',
+        requesterName: '',
+        notes: ''
+      }));
+    } catch (err: any) {
+      console.error(err);
+      alert(`เกิดข้อผิดพลาดในการบันทึกการเบิกถ่าน: ${err?.message || err}`);
+    }
+  };
+
+  const handleDeleteDisbursement = async (id: string) => {
+    if (!window.confirm('ยืนยันลบรายการประวัติการเบิกถ่านนี้?')) return;
+    try {
+      await dbService.deleteBatteryDisbursement(id);
+      setBatteryDisbursements(prev => prev.filter(r => r.id !== id));
+      showToastNotification('✓ ลบประวัติการเบิกถ่านเรียบร้อยแล้ว');
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาดในการลบ: ${err?.message || err}`);
+    }
   };
 
   // Lab Dispense / Open 1 Bottle/Box Action
@@ -443,6 +559,15 @@ export default function StripReagentStock({
 
           <button
             type="button"
+            onClick={() => setIsDisburseModalOpen(true)}
+            className="px-4 py-3 rounded-2xl bg-amber-600 hover:bg-amber-500 active:scale-95 text-white text-xs font-black flex items-center space-x-2 transition-all cursor-pointer shadow-md shadow-amber-600/20"
+          >
+            <BatteryCharging size={16} />
+            <span>+ บันทึกการเบิกถ่าน</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleOpenAddModal}
             className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-black flex items-center space-x-2 transition-all cursor-pointer shadow-md shadow-emerald-600/20"
           >
@@ -453,11 +578,11 @@ export default function StripReagentStock({
           <div className="flex items-center space-x-2">
             <div className="bg-emerald-50 dark:bg-emerald-950/40 px-3.5 py-2 rounded-2xl border border-emerald-200/80 dark:border-emerald-800 text-xs text-center min-w-[85px]">
               <span className="text-emerald-600 dark:text-emerald-400 block text-[10px] font-bold">ยังไม่เปิด</span>
-              <span className="text-base font-black text-emerald-700 dark:text-emerald-300">{inStockCount} กล่อง</span>
+              <span className="text-base font-black text-emerald-700 dark:text-emerald-300">{inStockCount} รายการ</span>
             </div>
             <div className="bg-sky-50 dark:bg-sky-950/40 px-3.5 py-2 rounded-2xl border border-sky-200/80 dark:border-sky-800 text-xs text-center min-w-[85px]">
               <span className="text-sky-600 dark:text-sky-400 block text-[10px] font-bold">กำลังใช้งาน</span>
-              <span className="text-base font-black text-sky-700 dark:text-sky-300">{inUseCount} กล่อง</span>
+              <span className="text-base font-black text-sky-700 dark:text-sky-300">{inUseCount} รายการ</span>
             </div>
           </div>
         </div>
@@ -465,7 +590,7 @@ export default function StripReagentStock({
 
       {/* Tabs & View Mode Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
           <button
             type="button"
             onClick={() => setActiveTab('items')}
@@ -503,6 +628,19 @@ export default function StripReagentStock({
           >
             <Layers size={15} />
             <span>สรุปยอดคงเหลือตาม LOT ({lotSummaryList.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('batteries')}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center space-x-2 cursor-pointer ${
+              activeTab === 'batteries'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Battery size={15} className="text-amber-500" />
+            <span>คลังและการเบิกถ่าน (Batteries) ({batteryDisbursements.length})</span>
           </button>
         </div>
 
@@ -582,6 +720,16 @@ export default function StripReagentStock({
             >
               <FlaskConical size={13} />
               <span>Control Solution</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterCategory('battery')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                filterCategory === 'battery' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Battery size={13} />
+              <span>ถ่านแบตเตอรี่</span>
             </button>
           </div>
 
@@ -976,6 +1124,538 @@ export default function StripReagentStock({
         </div>
       )}
 
+      {/* TAB 4: Batteries Stock & Disbursement Management */}
+      {activeTab === 'batteries' && (
+        <div className="space-y-6">
+          {/* Battery KPI Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 shadow-xs flex items-center space-x-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center shrink-0">
+                <Battery size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">ถ่าน AAA ในคลัง</p>
+                <h4 className="text-xl font-black text-slate-900 dark:text-white">
+                  {items.filter(i => i.itemType === 'battery' && (i.batteryType === 'AAA' || !i.batteryType) && i.status === 'in_stock').length} <span className="text-xs font-bold text-slate-400">ก้อน</span>
+                </h4>
+                <p className="text-[10px] text-slate-400">พร้อมใช้งาน (Standard DTX)</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 shadow-xs flex items-center space-x-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
+                <Battery size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">ถ่าน AA ในคลัง</p>
+                <h4 className="text-xl font-black text-slate-900 dark:text-white">
+                  {items.filter(i => i.itemType === 'battery' && i.batteryType === 'AA' && i.status === 'in_stock').length} <span className="text-xs font-bold text-slate-400">ก้อน</span>
+                </h4>
+                <p className="text-[10px] text-slate-400">พร้อมใช้งาน</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 shadow-xs flex items-center space-x-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 flex items-center justify-center shrink-0">
+                <Battery size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">CR2032 / อื่นๆ</p>
+                <h4 className="text-xl font-black text-slate-900 dark:text-white">
+                  {items.filter(i => i.itemType === 'battery' && (i.batteryType === 'CR2032' || i.batteryType === 'other') && i.status === 'in_stock').length} <span className="text-xs font-bold text-slate-400">ก้อน</span>
+                </h4>
+                <p className="text-[10px] text-slate-400">พร้อมใช้งาน</p>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 p-5 shadow-xs flex items-center space-x-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center shrink-0">
+                <BatteryCharging size={24} />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400">ยอดเบิกถ่านสะสม</p>
+                <h4 className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                  {batteryDisbursements.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0)} <span className="text-xs font-bold text-slate-400">ก้อน</span>
+                </h4>
+                <p className="text-[10px] text-slate-400">ทั้งหมด {batteryDisbursements.length} รายการ</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-view Switcher & Actions */}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setBatterySubView('disbursements')}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center space-x-2 ${
+                  batterySubView === 'disbursements'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                }`}
+              >
+                <BatteryCharging size={15} />
+                <span>ประวัติการเบิกเปลี่ยนถ่าน ({batteryDisbursements.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBatterySubView('inventory')}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center space-x-2 ${
+                  batterySubView === 'inventory'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                }`}
+              >
+                <Battery size={15} />
+                <span>รายการถ่านในคลัง ({items.filter(i => i.itemType === 'battery').length})</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsDisburseModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black flex items-center space-x-1.5 shadow-md shadow-amber-600/20 cursor-pointer transition-all"
+              >
+                <Plus size={16} />
+                <span>+ บันทึกการเบิกถ่าน</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFormData({
+                    ...initialFormState,
+                    category: 'battery',
+                    batteryType: 'AAA',
+                    boxCount: 10,
+                    manufacturer: 'Panasonic'
+                  });
+                  setIsModalOpen(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-black flex items-center space-x-1.5 shadow-md cursor-pointer transition-all dark:bg-slate-100 dark:text-slate-900"
+              >
+                <Plus size={16} />
+                <span>+ รับถ่านเข้าคลัง</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Battery Filters */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="relative flex-1 max-w-md">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={batterySearch}
+                onChange={(e) => setBatterySearch(e.target.value)}
+                placeholder="ค้นหาตาม หน่วยงาน, S/N, BGM Code, ผู้ขอเบิก..."
+                className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={batteryTypeFilter}
+                onChange={(e) => setBatteryTypeFilter(e.target.value as any)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+              >
+                <option value="all">ทุกชนิดถ่าน</option>
+                <option value="AAA">ถ่าน AAA (สำหรับ DTX)</option>
+                <option value="AA">ถ่าน AA</option>
+                <option value="CR2032">ถ่านกระดุม CR2032</option>
+                <option value="other">อื่นๆ</option>
+              </select>
+            </div>
+          </div>
+
+          {/* SUB-VIEW 1: DISBURSEMENTS HISTORY TABLE */}
+          {batterySubView === 'disbursements' && (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold uppercase tracking-wider">
+                      <th className="py-3.5 px-4">วันที่เบิก</th>
+                      <th className="py-3.5 px-4">หน่วยงานที่เบิก</th>
+                      <th className="py-3.5 px-4">เครื่อง DTX (Code / SN)</th>
+                      <th className="py-3.5 px-4">ชนิดถ่าน & จำนวน</th>
+                      <th className="py-3.5 px-4">ผู้ขอเบิก / ผู้รับ</th>
+                      <th className="py-3.5 px-4">ผู้จ่ายถ่าน (แล็บ)</th>
+                      <th className="py-3.5 px-4">สาเหตุการเบิก</th>
+                      <th className="py-3.5 px-4">หมายเหตุ</th>
+                      <th className="py-3.5 px-4 text-center">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                    {batteryDisbursements.filter(r => {
+                      const matchesType = batteryTypeFilter === 'all' || r.batteryType === batteryTypeFilter;
+                      const q = batterySearch.trim().toLowerCase();
+                      const matchesSearch = !q ||
+                        r.ward.toLowerCase().includes(q) ||
+                        (r.bgmCode && r.bgmCode.toLowerCase().includes(q)) ||
+                        (r.serialNumber && r.serialNumber.toLowerCase().includes(q)) ||
+                        r.requesterName.toLowerCase().includes(q) ||
+                        r.reason.toLowerCase().includes(q);
+                      return matchesType && matchesSearch;
+                    }).length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400 font-bold">
+                          ยังไม่มีประวัติการเบิกถ่าน
+                        </td>
+                      </tr>
+                    ) : (
+                      batteryDisbursements
+                        .filter(r => {
+                          const matchesType = batteryTypeFilter === 'all' || r.batteryType === batteryTypeFilter;
+                          const q = batterySearch.trim().toLowerCase();
+                          const matchesSearch = !q ||
+                            r.ward.toLowerCase().includes(q) ||
+                            (r.bgmCode && r.bgmCode.toLowerCase().includes(q)) ||
+                            (r.serialNumber && r.serialNumber.toLowerCase().includes(q)) ||
+                            r.requesterName.toLowerCase().includes(q) ||
+                            r.reason.toLowerCase().includes(q);
+                          return matchesType && matchesSearch;
+                        })
+                        .map((rec) => (
+                          <tr key={rec.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3.5 px-4 font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {rec.date}
+                            </td>
+                            <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
+                              {rec.ward}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono">
+                              {rec.bgmCode || rec.serialNumber ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold">
+                                  {rec.bgmCode ? `${rec.bgmCode}` : ''}
+                                  {rec.serialNumber && rec.bgmCode ? ` (${rec.serialNumber})` : rec.serialNumber}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic">ไม่ระบุเครื่อง</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black border bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300">
+                                <Battery size={12} />
+                                <span>{rec.batteryType} • {rec.quantity} ก้อน</span>
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-bold text-slate-800 dark:text-slate-200">
+                              {rec.requesterName}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400">
+                              {rec.dispenserName || 'เจ้าหน้าที่ห้องแล็บ'}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                              {rec.reason}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-500 text-[11px]">
+                              {rec.notes || '-'}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDisbursement(rec.id)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer transition-colors"
+                                title="ลบรายการ"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-VIEW 2: BATTERY INVENTORY TABLE */}
+          {batterySubView === 'inventory' && (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50/80 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-500 font-bold uppercase tracking-wider">
+                      <th className="py-3.5 px-4">Unit Item Code & บาร์โค้ด</th>
+                      <th className="py-3.5 px-4">ชนิดถ่าน</th>
+                      <th className="py-3.5 px-4">LOT Number</th>
+                      <th className="py-3.5 px-4">ผู้ผลิต / ยี่ห้อ</th>
+                      <th className="py-3.5 px-4">วันรับเข้า</th>
+                      <th className="py-3.5 px-4">วันหมดอายุ (Exp)</th>
+                      <th className="py-3.5 px-4">สถานะ</th>
+                      <th className="py-3.5 px-4 text-center">จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                    {items.filter(i => i.itemType === 'battery').length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
+                          ยังไม่มีสต็อกถ่านในคลัง กด "+ รับถ่านเข้าคลัง" เพื่อบันทึกรับเข้า
+                        </td>
+                      </tr>
+                    ) : (
+                      items
+                        .filter(i => i.itemType === 'battery')
+                        .filter(i => batteryTypeFilter === 'all' || (i.batteryType || 'AAA') === batteryTypeFilter)
+                        .filter(i => {
+                          const q = batterySearch.trim().toLowerCase();
+                          return !q || i.itemCode.toLowerCase().includes(q) || i.lotNumber.toLowerCase().includes(q);
+                        })
+                        .map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                            <td className="py-3.5 px-4">
+                              <BarcodeSvg text={item.itemCode} height={26} width={120} />
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-black border bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300">
+                                <Battery size={12} />
+                                <span>{item.batteryType || 'AAA'}</span>
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                              {item.lotNumber}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
+                              {item.manufacturer || 'Panasonic'}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-slate-600 dark:text-slate-300">
+                              {item.receivedDate}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                              {item.expDate}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {item.status === 'in_stock' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+                                  พร้อมใช้งาน
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-bold text-[11px]">
+                                  เบิกใช้แล้ว
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteItem(item.id)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer transition-colors"
+                                title="ลบรายการ"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DISBURSE BATTERY MODAL */}
+      {isDisburseModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-scale-up overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-md shadow-amber-500/20">
+                  <BatteryCharging size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">
+                    บันทึกการเบิกถ่านประจำเครื่อง DTX
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    บันทึกรายการเบิกเปลี่ยนถ่านสำหรับเครื่องตรวจน้ำตาลในโรงพยาบาล
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDisburseModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitDisburse} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs font-bold">
+              {/* Target Machine Selection */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  เลือกเครื่อง DTX ที่มาเบิกถ่าน (หรือพิมพ์ระบุ)
+                </label>
+                <select
+                  value={disburseForm.bgmCode || ''}
+                  onChange={(e) => {
+                    const selVal = e.target.value;
+                    const matchedMachine = machines.find(m => (m.serialNumber || m.machineSerial || m.id) === selVal);
+                    setDisburseForm(prev => ({
+                      ...prev,
+                      bgmCode: matchedMachine?.serialNumber || selVal,
+                      serialNumber: matchedMachine?.machineSerial || '',
+                      ward: matchedMachine?.ward || prev.ward
+                    }));
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="">-- เลือกเครื่อง DTX ในระบบ (หรือระบุเองด้านล่าง) --</option>
+                  {machines.map((m) => (
+                    <option key={m.id || m.serialNumber} value={m.serialNumber || m.machineSerial || m.id}>
+                      {m.serialNumber} {m.machineSerial ? `(SN: ${m.machineSerial})` : ''} - {m.ward || 'ไม่ระบุตึก'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Ward */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  หน่วยงาน / Ward ที่เบิก <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="เช่น งานชันสูตรสาธารณสุข, ER, ตึกผู้ป่วยใน"
+                  value={disburseForm.ward}
+                  onChange={(e) => setDisburseForm(prev => ({ ...prev, ward: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Battery Type & Quantity */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    ชนิดถ่าน <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={disburseForm.batteryType}
+                    onChange={(e) => setDisburseForm(prev => ({ ...prev, batteryType: e.target.value as any }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="AAA">ถ่าน AAA (มาตรฐาน DTX 2 ก้อน)</option>
+                    <option value="AA">ถ่าน AA</option>
+                    <option value="CR2032">ถ่านกระดุม CR2032</option>
+                    <option value="other">อื่นๆ</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    จำนวนก้อน <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="20"
+                    required
+                    value={disburseForm.quantity}
+                    onChange={(e) => setDisburseForm(prev => ({ ...prev, quantity: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500 text-center font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* Requester & Dispenser */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    ผู้ขอเบิก / ผู้รับถ่าน <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="ชื่อเจ้าหน้าที่ผู้รับ"
+                    value={disburseForm.requesterName}
+                    onChange={(e) => setDisburseForm(prev => ({ ...prev, requesterName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    เจ้าหน้าที่แล็บผู้จ่าย
+                  </label>
+                  <input
+                    type="text"
+                    value={disburseForm.dispenserName}
+                    onChange={(e) => setDisburseForm(prev => ({ ...prev, dispenserName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  สาเหตุการเบิก / เปลี่ยนถ่าน
+                </label>
+                <div className="grid grid-cols-2 gap-1.5 mb-2">
+                  {['ถ่านหมดระหว่างตรวจ', 'เครื่องแจ้ง Low Battery', 'เปลี่ยนตามรอบบำรุงรักษา', 'สำรองประจำวอร์ด'].map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setDisburseForm(prev => ({ ...prev, reason: r }))}
+                      className={`py-1 px-2 rounded-lg text-[11px] border transition-all text-left truncate cursor-pointer ${
+                        disburseForm.reason === r
+                          ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/80 dark:text-amber-200'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={disburseForm.reason}
+                  onChange={(e) => setDisburseForm(prev => ({ ...prev, reason: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  หมายเหตุเพิ่มเติม
+                </label>
+                <input
+                  type="text"
+                  placeholder="เช่น ตรวจสอบพบขั้วถ่านปกติ"
+                  value={disburseForm.notes}
+                  onChange={(e) => setDisburseForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDisburseModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-black flex items-center space-x-1.5 shadow-md shadow-amber-600/20 cursor-pointer"
+                >
+                  <Save size={16} />
+                  <span>บันทึกการเบิกถ่าน</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Inbound Modal with Box Count & Auto Unique Gen */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
@@ -992,7 +1672,7 @@ export default function StripReagentStock({
                     รับเข้าพัสดุ (Inbound & Auto Gen Unit IDs)
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    ระบุเลข LOT และจำนวนกล่อง ระบบจะสร้างรหัสประจำกล่องพร้อมบาร์โค้ดให้ทันที
+                    ระบุเลข LOT และจำนวน ระบบจะสร้างรหัสประจำชิ้นพร้อมบาร์โค้ดให้ทันที
                   </p>
                 </div>
               </div>
@@ -1006,18 +1686,18 @@ export default function StripReagentStock({
             </div>
 
             {/* Form Body */}
-            <form id="inbound-form" onSubmit={handleSubmitInbound} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+            <form id="inbound-form" onSubmit={handleSubmitInbound} className="flex-1 overflow-y-auto p-6 space-y-4 text-xs font-bold">
               
               {/* Category */}
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
                   ประเภทพัสดุรับเข้า <span className="text-rose-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, category: 'strip' }))}
-                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                    onClick={() => setFormData(prev => ({ ...prev, category: 'strip', manufacturer: 'VivaChek Fad' }))}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
                       formData.category === 'strip'
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                         : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
@@ -1028,28 +1708,59 @@ export default function StripReagentStock({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, category: 'control_solution' }))}
-                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                    onClick={() => setFormData(prev => ({ ...prev, category: 'control_solution', manufacturer: 'VivaChek Fad' }))}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
                       formData.category === 'control_solution'
                         ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
                         : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                     }`}
                   >
                     <FlaskConical size={14} />
-                    <span>Control Solution</span>
+                    <span>Control</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, category: 'battery', batteryType: 'AAA', manufacturer: 'Panasonic' }))}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                      formData.category === 'battery'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    <Battery size={14} />
+                    <span>ถ่านแบตเตอรี่</span>
                   </button>
                 </div>
               </div>
 
+              {/* Battery Type Selection if category === 'battery' */}
+              {formData.category === 'battery' && (
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    ชนิดของถ่าน <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.batteryType}
+                    onChange={(e) => setFormData(prev => ({ ...prev, batteryType: e.target.value as any }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="AAA">ถ่าน AAA (มาตรฐานสำหรับเครื่อง DTX)</option>
+                    <option value="AA">ถ่าน AA</option>
+                    <option value="CR2032">ถ่านกระดุม CR2032</option>
+                    <option value="other">ถ่านชนิดอื่นๆ</option>
+                  </select>
+                </div>
+              )}
+
               {/* Lot Number */}
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                  เลข Lot Number (ข้างกล่อง) <span className="text-rose-500">*</span>
+                  เลข Lot / Batch Number <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="เช่น 2026-A หรือ CTRL-2026-B"
+                  placeholder={formData.category === 'battery' ? 'เช่น PANASONIC-AAA-2026 หรือ LOT-BAT-01' : 'เช่น 2026-A หรือ CTRL-2026-B'}
                   value={formData.lotNumber}
                   onChange={(e) => setFormData(prev => ({ ...prev, lotNumber: e.target.value }))}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono font-bold focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -1060,19 +1771,19 @@ export default function StripReagentStock({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                    จำนวนกล่องที่รับเข้า <span className="text-rose-500">*</span>
+                    {formData.category === 'battery' ? 'จำนวนก้อนที่รับเข้า' : 'จำนวนกล่องที่รับเข้า'} <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="number"
                     min="1"
-                    max="100"
+                    max="200"
                     required
                     value={formData.boxCount}
                     onChange={(e) => setFormData(prev => ({ ...prev, boxCount: Number(e.target.value) }))}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-bold text-center focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block font-medium">
-                    (ระบบจะ Gen บาร์โค้ดให้ {formData.boxCount} กล่อง)
+                    (ระบบจะ Gen บาร์โค้ดให้ {formData.boxCount} {formData.category === 'battery' ? 'ก้อน' : 'กล่อง'})
                   </span>
                 </div>
                 <div>
@@ -1109,7 +1820,7 @@ export default function StripReagentStock({
                 </label>
                 <input
                   type="text"
-                  placeholder="เช่น รับเข้าจากคลังยา รพ."
+                  placeholder="เช่น รับเข้าจากคลังพัสดุ รพ."
                   value={formData.notes}
                   onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-emerald-500 outline-none"

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
 import { dbService } from '../lib/supabase';
 import { DEFAULT_HOSPITAL_LOGO_BASE64 } from '../assets/hospitalLogoBase64';
-import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput, getThaiTodayDateOnly, toThaiIsoString } from '../lib/dateUtils';
+import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput, getThaiTodayDateOnly, toThaiIsoString, getCurrentIsoTimestamp } from '../lib/dateUtils';
 import { BarcodePrinterModal } from './BarcodePrinterModal';
 import { 
   Zap, 
@@ -764,17 +764,15 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     const allPassed = chkBodyClean && chkPowerButton && chkStripSlot && chkBatterySlot && 
                       chkBattery && chkScreenDisplay && chkMeasurement && chkIqcPassed;
 
-    // รับเวลาจากระบบ ณ วินาทีที่กดบันทึก
-    const now = new Date();
+    // รับเวลาปัจจุบันในเขตเวลาประเทศไทย (Asia/Bangkok) ป้องกันปัญหา UTC date shift ก่อน 7 โมงเช้า
     const todayStr = getThaiTodayDateOnly();
     let recordDate: string;
-
     if (!chkDate || chkDate === todayStr) {
-      // ใช้วันและเวลาปัจจุบันของระบบทันที
-      recordDate = now.toISOString();
+      // ใช้เวลาปัจจุบันของประเทศไทยทันที
+      recordDate = getCurrentIsoTimestamp();
     } else {
-      // กรณีผู้ใช้เลือกวันที่อื่น ให้นำวันที่เลือกมารวมกับเวลาปัจจุบันของระบบ
-      const timeStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
+      // กรณีผู้ใช้เลือกวันที่อื่น ให้นำวันที่เลือกมารวมกับเวลาปัจจุบันของประเทศไทย
+      const timeStr = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour12: false });
       recordDate = toThaiIsoString(`${chkDate}T${timeStr}`);
     }
 
@@ -845,6 +843,16 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       return true;
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // Pagination for QC records history table
+  const [qcPage, setQcPage] = useState<number>(1);
+  const QC_PAGE_SIZE = 7;
+  const totalQcPages = Math.max(1, Math.ceil(filteredQcRecords.length / QC_PAGE_SIZE));
+  const paginatedQcRecords = filteredQcRecords.slice((qcPage - 1) * QC_PAGE_SIZE, qcPage * QC_PAGE_SIZE);
+
+  useEffect(() => {
+    setQcPage(1);
+  }, [qcSearchSerial, qcFilterStatus]);
 
   // --- SUPPLY REQUEST STATES (STAFF REQUISITION FLOW) ---
   const getThaiTodayDate = () => {
@@ -1066,8 +1074,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       itemType: supItemType,
       quantity: Number(supQuantity) || 1,
       reason: supReason.trim() || 'เบิกใช้งานประจำวัน',
-      requestDate: new Date().toISOString(),
-      issueDate: supIssueDate ? `${supIssueDate}T${new Date().toTimeString().split(' ')[0]}` : new Date().toISOString(),
+      requestDate: getCurrentIsoTimestamp(),
+      issueDate: supIssueDate ? toThaiIsoString(`${supIssueDate}T00:00:00`) : getCurrentIsoTimestamp(),
       status: 'approved', // ตัดสต็อกทันทีเมื่อทำการเบิก
       details: details
     };
@@ -1662,12 +1670,12 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                  {filteredQcRecords.length === 0 ? (
+                  {paginatedQcRecords.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="text-center py-8 text-slate-400">ไม่พบประวัติผล QC ที่ระบุหรือยังไม่มีข้อมูลบันทึกในระบบ</td>
                     </tr>
                   ) : (
-                    filteredQcRecords.map((req, idx) => {
+                    paginatedQcRecords.map((req, idx) => {
                       const isL1Out = req.level1Status === 'out_of_control';
                       const isL2Out = req.level2Status === 'out_of_control';
                       const isL3Out = req.level3Status === 'out_of_control';
@@ -1712,6 +1720,53 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 </tbody>
               </table>
             </div>
+            {/* PAGINATION BAR FOR QC RECORDS */}
+            {totalQcPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs mt-3">
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                  แสดง {((qcPage - 1) * QC_PAGE_SIZE) + 1} - {Math.min(qcPage * QC_PAGE_SIZE, filteredQcRecords.length)} จากทั้งหมด {filteredQcRecords.length} รายการ
+                </span>
+                
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setQcPage(prev => Math.max(1, prev - 1))}
+                    disabled={qcPage === 1}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    title="หน้าก่อนหน้า"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+
+                  <div className="flex items-center space-x-1">
+                    {Array.from({ length: totalQcPages }, (_, i) => i + 1).map((pageNum) => (
+                      <button
+                        key={pageNum}
+                        type="button"
+                        onClick={() => setQcPage(pageNum)}
+                        className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          qcPage === pageNum
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setQcPage(prev => Math.min(totalQcPages, prev + 1))}
+                    disabled={qcPage === totalQcPages}
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    title="หน้าถัดไป"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
