@@ -629,8 +629,9 @@ app.post("/api/qc-records", checkDbConfig, async (req, res) => {
 app.put("/api/qc-records/:id", checkDbConfig, async (req, res) => {
   try {
     const id = req.params.id;
+    const body = { ...req.body };
     const data = await executeSupabaseWrite(client =>
-      client.from("qc_records").update(req.body).eq("id", id).select("*").maybeSingle()
+      client.from("qc_records").update(body).eq("id", id).select("*").maybeSingle()
     );
     res.json(data);
   } catch (err: any) {

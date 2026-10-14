@@ -26,7 +26,7 @@ export interface DtxMachine {
   brand: string;
   model: string;
   ward: string;
-  status: 'active' | 'lost' | 'unknown' | 'claimed' | 'waiting_claim';
+  status: 'active' | 'backup' | 'standby' | 'lost' | 'unknown' | 'claimed' | 'waiting_claim';
   receiveDate: string; // Mfg Date / Receive Date
   lastQCDate?: string;
   lotNumber: string; // LOT of the machine
@@ -95,6 +95,30 @@ export interface SupplyRequest {
   };
 }
 
+export interface QcCorrectiveAction {
+  stripExpStatus?: 'normal' | 'expired' | 'near_expiry';
+  controlExpStatus?: 'normal' | 'expired' | 'near_expiry';
+  controlOpenDays?: number;
+  machineCondition?: string;
+  stripChecked?: boolean;
+  controlChecked?: boolean;
+  openDays?: number;
+  openDaysPassed?: boolean;
+  machineChecked?: boolean;
+  repeatLevel1?: string;
+  repeatLevel2?: string;
+  repeatLevel3?: string;
+  repeatLevel1Status?: 'normal' | 'out_of_control' | 'empty' | 'in_control';
+  repeatLevel2Status?: 'normal' | 'out_of_control' | 'empty' | 'in_control';
+  repeatLevel3Status?: 'normal' | 'out_of_control' | 'empty' | 'in_control';
+  repeatOverallStatus?: 'in_control' | 'out_of_control' | 'pending';
+  probableCause?: string;
+  correctiveActionNote?: string;
+  operator?: string;
+  date?: string;
+  resolvedAt?: string;
+}
+
 export interface QcRecord {
   id: string;
   date: string;
@@ -110,6 +134,7 @@ export interface QcRecord {
   level1Status: 'normal' | 'out_of_control';
   level2Status: 'normal' | 'out_of_control';
   level3Status: 'normal' | 'out_of_control';
+  correctiveAction?: QcCorrectiveAction;
 }
 
 export interface QcLotConfig {
@@ -138,11 +163,11 @@ export interface QcLotConfig {
 
 export interface StripReagentItem {
   id: string;
-  itemCode: string; // เช่น 'ST-LOT2026A-01' (Unique Code รายกล่อง) หรือ 'BAT-AAA-01'
+  itemCode: string; // เช่น 'ST-LOT2026A-01' (Unique Code รายกล่อง)
   lotNumber: string;
   manufacturer?: string;
   itemType: 'strip' | 'control_solution' | 'battery';
-  batteryType?: 'AAA' | 'AA' | 'CR2032' | 'other';
+  batteryType?: string;
   receivedDate: string;
   expDate: string;
   openDate?: string;
@@ -153,21 +178,6 @@ export interface StripReagentItem {
   notes?: string;
   boxIndex?: number;
   totalBoxes?: number;
-}
-
-export interface BatteryDisbursementRecord {
-  id: string;
-  date: string; // YYYY-MM-DD
-  ward: string; // หน่วยงานที่มาเบิก หรือ LAB
-  bgmCode?: string; // รหัสเครื่อง DTX ที่นำมาเบิก/เปลี่ยนถ่าน (เช่น BGM-01)
-  serialNumber?: string; // S/N เครื่องตรวจ
-  batteryType: 'AAA' | 'AA' | 'CR2032' | 'other';
-  quantity: number; // จำนวนก้อน (เช่น 2 ก้อน)
-  requesterName: string; // ผู้ขอเบิก / ผู้รับถ่าน
-  dispenserName: string; // เจ้าหน้าที่ห้องแล็บผู้จ่าย
-  reason: string; // สาเหตุ เช่น ถ่านหมด, เปลี่ยนประจำรอบ, งานซ่อมบำรุง
-  status: 'dispensed' | 'pending';
-  notes?: string;
 }
 
 export interface EqaAttachment {
@@ -280,5 +290,21 @@ export interface MaintenanceLog {
   actionType: 'battery_change' | 'cleaning' | 'calibration' | 'repair';
   description: string;
   operator: string;
+  createdAt?: string;
+}
+
+export interface BatteryDisbursementRecord {
+  id: string;
+  date: string;
+  ward: string;
+  bgmCode?: string;
+  serialNumber?: string;
+  batteryType: string;
+  quantity: number;
+  requesterName: string;
+  dispenserName: string;
+  reason?: string;
+  status?: string;
+  notes?: string;
   createdAt?: string;
 }

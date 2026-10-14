@@ -498,6 +498,20 @@ export default function App() {
     }
   };
 
+  const handleUpdateQcRecord = async (id: string, updatedFields: Partial<QcRecord>) => {
+    setQcRecords(prev => prev.map(r => r.id === id ? { ...r, ...updatedFields } : r));
+    try {
+      const updated = await dbService.updateQcRecord(id, updatedFields);
+      if (updated && updated.id) {
+        setQcRecords(prev => prev.map(r => (r.id === id || r.id === updated.id) ? updated : r));
+      }
+      setShowToast('✓ บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control ลงฐานข้อมูลเรียบร้อยแล้ว');
+    } catch (err: any) {
+      console.error('Failed to sync QC record update:', err);
+      setShowToast('บันทึกในระบบเครื่องแล้ว แต่ซิงก์คลาวด์ไม่สำเร็จ: ' + err.message);
+    }
+  };
+
   const handleAddQcRecord = async (newRecord: QcRecord) => {
     setQcRecords(prev => [newRecord, ...prev]);
     // Also update machine's lastQCDate and active status if normal
@@ -1034,6 +1048,7 @@ export default function App() {
             lotConfigs={lotConfigs}
             supplies={supplies}
             onAddQcRecord={handleAddQcRecord}
+            onUpdateQcRecord={handleUpdateQcRecord}
             onAddSupply={handleAddSupply}
             onUpdateLotConfigs={handleUpdateLotConfigs}
             onSwitchToRoleSelector={() => {
@@ -1378,6 +1393,7 @@ export default function App() {
                   qcRecords={qcRecords}
                   lotConfigs={lotConfigs}
                   onAddQcRecord={handleAddQcRecord}
+                  onUpdateQcRecord={handleUpdateQcRecord}
                   onUpdateLotConfigs={handleUpdateLotConfigs}
                   onDeleteLotConfig={handleDeleteLotConfig}
                   role={role}
@@ -1397,6 +1413,7 @@ export default function App() {
                   qcRecords={qcRecords}
                   lotConfigs={lotConfigs}
                   onAddQcRecord={handleAddQcRecord}
+                  onUpdateQcRecord={handleUpdateQcRecord}
                   onUpdateLotConfigs={handleUpdateLotConfigs}
                   onDeleteLotConfig={handleDeleteLotConfig}
                   eqaRecords={eqaRecords}

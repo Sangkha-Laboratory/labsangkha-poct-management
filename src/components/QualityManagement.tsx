@@ -14,6 +14,7 @@ interface QualityManagementProps {
   qcRecords: QcRecord[];
   lotConfigs: QcLotConfig[];
   onAddQcRecord: (record: QcRecord) => void;
+  onUpdateQcRecord?: (id: string, updatedFields: Partial<QcRecord>) => Promise<void> | void;
   onUpdateLotConfigs: (configs: QcLotConfig[]) => void;
   onDeleteLotConfig?: (lotNumber: string) => void;
   eqaRecords: EqaRecord[];
@@ -27,6 +28,7 @@ export default function QualityManagement({
   qcRecords,
   lotConfigs,
   onAddQcRecord,
+  onUpdateQcRecord,
   onUpdateLotConfigs,
   onDeleteLotConfig,
   eqaRecords,
@@ -49,7 +51,7 @@ export default function QualityManagement({
               <span>งานคุณภาพ (Quality Management System)</span>
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              ศูนย์การบริหารการควบคุมคุณภาพภายใน (IQC) และการประเมินคุณภาพโดยองค์กรภายนอก (EQA)
+              การบริหารการควบคุมคุณภาพภายใน (IQC) และการประเมินคุณภาพโดยองค์กรภายนอก (EQA)
             </p>
           </div>
         </div>
@@ -92,6 +94,7 @@ export default function QualityManagement({
           qcRecords={qcRecords}
           lotConfigs={lotConfigs}
           onAddQcRecord={onAddQcRecord}
+          onUpdateQcRecord={onUpdateQcRecord}
           onUpdateLotConfigs={onUpdateLotConfigs}
           onDeleteLotConfig={onDeleteLotConfig}
           role={role}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem } from '../types';
+import { DtxMachine, QcRecord, QcLotConfig, SupplyRequest, DailyChecklist, MaintenanceLog, StripReagentItem, QcCorrectiveAction } from '../types';
 import { dbService } from '../lib/supabase';
 import { DEFAULT_HOSPITAL_LOGO_BASE64 } from '../assets/hospitalLogoBase64';
 import { formatToThaiDate, formatThaiDateOnly, formatThaiDateTime, getThaiNowDateTimeInput, getThaiTodayDateOnly, toThaiIsoString, getCurrentIsoTimestamp } from '../lib/dateUtils';
@@ -51,6 +51,7 @@ interface StaffQuickPortalProps {
   supplies?: SupplyRequest[];
   stockItems?: StripReagentItem[];
   onAddQcRecord: (record: QcRecord) => void | Promise<void>;
+  onUpdateQcRecord?: (id: string, updatedFields: Partial<QcRecord>) => Promise<void> | void;
   onAddSupply?: (supply: SupplyRequest) => Promise<any>;
   onUpdateLotConfigs?: (configs: QcLotConfig[]) => Promise<any>;
   onSwitchToRoleSelector?: () => void;
@@ -66,6 +67,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   supplies = EMPTY_SUPPLIES,
   stockItems = EMPTY_STOCK_ITEMS,
   onAddQcRecord,
+  onUpdateQcRecord,
   onAddSupply,
   onUpdateLotConfigs,
   onSwitchToRoleSelector
@@ -78,6 +80,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   // กรองเฉพาะเครื่องประจำห้องปฏิบัติการ/งานชันสูตรสาธารณสุข (Lab Machines)
   const labMachines = React.useMemo(() => {
     return machines.filter(m => {
+      if (m.status === 'backup' || m.status === 'standby') return false;
       const w = (m.ward || '').toLowerCase().trim();
       return (
         w.includes('ชันสูตร') || 
@@ -385,6 +388,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     level3: string;
   }>>([]);
   const [batchToast, setBatchToast] = useState<string>('');
+  const [shakingSerials, setShakingSerials] = useState<string[]>([]);
+  const [batchErrorMessage, setBatchErrorMessage] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Initialize batch rows and dropdown serials for machines when data loads
@@ -483,10 +488,20 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       alert('กรุณาระบุชื่อเจ้าหน้าที่ผู้ตรวจ');
       return;
     }
-    // Filter rows that have at least one level entered or are selected with entries
-    const rowsWithEntries = batchRows.filter(r => (r.selected || r.level1.trim() || r.level2.trim() || r.level3.trim()) && (r.level1.trim() || r.level2.trim() || r.level3.trim()));
+    // Filter rows that have ANY level entered (even if not selected via checkbox)
+    const rowsWithEntries = batchRows.filter(r => r.level1.trim() !== "" || r.level2.trim() !== "" || r.level3.trim() !== "");
     if (rowsWithEntries.length === 0) {
-      alert('กรุณากรอกผลตรวจ QC สำหรับเครื่องที่ต้องการบันทึกอย่างน้อย 1 เครื่อง');
+      setBatchErrorMessage("กรุณากรอกผลตรวจ QC สำหรับเครื่องที่ต้องการบันทึกอย่างน้อย 1 เครื่อง");
+      setTimeout(() => setBatchErrorMessage(""), 4000);
+      return;
+    }
+    const incompleteRows = rowsWithEntries.filter(r => !r.level1.trim() || !r.level2.trim() || !r.level3.trim());
+    if (incompleteRows.length > 0) {
+      setShakingSerials(incompleteRows.map(r => r.serialNumber));
+      setBatchErrorMessage("กรุณากรอกข้อมูลให้ครบถ้วน");
+      setTimeout(() => {
+        setShakingSerials([]);
+      }, 700);
       return;
     }
 
@@ -498,6 +513,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     setIsSubmitting(true);
     try {
       let count = 0;
+      let firstOutRecord = null;
       for (const row of rowsWithEntries) {
         const l1 = row.level1.trim() !== '' ? Number(row.level1) : activeLotConfig.level1Target;
         const l2 = row.level2.trim() !== '' ? Number(row.level2) : activeLotConfig.level2Target;
@@ -516,7 +532,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
         const recordDate = toThaiIsoString(batchDate);
 
         const record: QcRecord = {
-          id: `QC-LAB-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+          id: crypto.randomUUID(),
           date: recordDate,
           receiveDate: recordDate,
           returnDate: recordDate,
@@ -532,13 +548,20 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           level3Status: l3Status === 'out_of_control' ? 'out_of_control' : 'normal'
         };
 
-        await onAddQcRecord(record);
+        const saved = await onAddQcRecord(record);
+        if ((l1Status === 'out_of_control' || l2Status === 'out_of_control' || l3Status === 'out_of_control') && !firstOutRecord) {
+          firstOutRecord = (saved as any) || record;
+        }
         count++;
       }
 
       setBatchToast(`✓ บันทึกผล QC สำเร็จจำนวน ${count} เครื่องเรียบร้อยแล้ว`);
       setTimeout(() => setBatchToast(''), 4000);
       handleBatchClearValues();
+
+      if (firstOutRecord) {
+        setTimeout(() => handleOpenCaModal(firstOutRecord), 100);
+      }
     } catch (err: any) {
       console.error(err);
       alert(`เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${err?.message || err}`);
@@ -724,9 +747,9 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   // --- DAILY CHECKLIST ---
   const [chkDate, setChkDate] = useState<string>(() => getThaiTodayDateOnly());
   const [chkPage, setChkPage] = useState<number>(1);
-  const CHK_PAGE_SIZE = 7;
-  const totalChkPages = Math.max(1, Math.ceil(dailyChecklists.length / CHK_PAGE_SIZE));
-  const paginatedChecklists = dailyChecklists.slice((chkPage - 1) * CHK_PAGE_SIZE, chkPage * CHK_PAGE_SIZE);
+  const [chkPageSize, setChkPageSize] = useState<number>(10);
+  const totalChkPages = Math.max(1, Math.ceil(dailyChecklists.length / chkPageSize));
+  const paginatedChecklists = dailyChecklists.slice((chkPage - 1) * chkPageSize, chkPage * chkPageSize);
 
   const [chkSerial, setChkSerial] = useState<string>(() => {
     return localStorage.getItem('dtx_quick_win_chk_serial') || (targetMachines[0]?.machineSerial || targetMachines[0]?.serialNumber || '');
@@ -844,15 +867,118 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     })
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  // Pagination for QC records history table
+  // Pagination for QC records history table (Default 10 items)
   const [qcPage, setQcPage] = useState<number>(1);
-  const QC_PAGE_SIZE = 7;
-  const totalQcPages = Math.max(1, Math.ceil(filteredQcRecords.length / QC_PAGE_SIZE));
-  const paginatedQcRecords = filteredQcRecords.slice((qcPage - 1) * QC_PAGE_SIZE, qcPage * QC_PAGE_SIZE);
+  const [qcPageSize, setQcPageSize] = useState<number>(10);
+  const totalQcPages = Math.max(1, Math.ceil(filteredQcRecords.length / qcPageSize));
+  const paginatedQcRecords = filteredQcRecords.slice((qcPage - 1) * qcPageSize, qcPage * qcPageSize);
 
   useEffect(() => {
     setQcPage(1);
   }, [qcSearchSerial, qcFilterStatus]);
+
+  // --- QC CORRECTIVE ACTION (CA) STATES & HANDLERS ---
+  const [isCaModalOpen, setIsCaModalOpen] = useState<boolean>(false);
+  const [caViewMode, setCaViewMode] = useState<"report" | "edit">("report");
+  const [selectedQcForCa, setSelectedQcForCa] = useState<QcRecord | null>(null);
+  const [caForm, setCaForm] = useState({
+    stripExpNormal: true,
+    controlExpNormal: true,
+    controlOpenDays: 0,
+    machineConditionClean: true,
+    repeatLevel1: "",
+    repeatLevel2: "",
+    repeatLevel3: "",
+    probableCause: "น้ำยาควบคุมเสื่อมสภาพ/หมดอายุ",
+    correctiveActionNote: ""
+  });
+
+  const handleOpenCaModal = (qc: QcRecord, forceMode?: "report" | "edit") => {
+    setSelectedQcForCa(qc);
+    const mode = forceMode || (qc.correctiveAction ? "report" : "edit");
+    setCaViewMode(mode);
+    if (qc.correctiveAction) {
+      setCaForm({
+        stripExpNormal: qc.correctiveAction.stripChecked !== undefined 
+          ? qc.correctiveAction.stripChecked 
+          : qc.correctiveAction.stripExpStatus !== "expired",
+        controlExpNormal: qc.correctiveAction.controlChecked !== undefined 
+          ? qc.correctiveAction.controlChecked 
+          : qc.correctiveAction.controlExpStatus !== "expired",
+        controlOpenDays: qc.correctiveAction.openDays !== undefined 
+          ? qc.correctiveAction.openDays 
+          : (qc.correctiveAction.controlOpenDays || 0),
+        machineConditionClean: qc.correctiveAction.machineChecked !== undefined
+          ? qc.correctiveAction.machineChecked
+          : !qc.correctiveAction.machineCondition?.includes("ผิดปกติ"),
+        repeatLevel1: qc.correctiveAction.repeatLevel1 || "",
+        repeatLevel2: qc.correctiveAction.repeatLevel2 || "",
+        repeatLevel3: qc.correctiveAction.repeatLevel3 || "",
+        probableCause: qc.correctiveAction.probableCause || "น้ำยาควบคุมเสื่อมสภาพ/หมดอายุ",
+        correctiveActionNote: qc.correctiveAction.correctiveActionNote || ""
+      });
+    } else {
+      setCaForm({
+        stripExpNormal: true,
+        controlExpNormal: true,
+        controlOpenDays: 0,
+        machineConditionClean: true,
+        repeatLevel1: "",
+        repeatLevel2: "",
+        repeatLevel3: "",
+        probableCause: "น้ำยาควบคุมเสื่อมสภาพ/หมดอายุ",
+        correctiveActionNote: ""
+      });
+    }
+    setIsCaModalOpen(true);
+  };
+
+  const handleSaveCa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedQcForCa) return;
+    const caTargetLot = lotConfigs.find(l => l.lotNumber === selectedQcForCa.lotNumber) || activeLotConfig;
+    const repL1Status = evaluateValue(caForm.repeatLevel1, caTargetLot?.level1Min, caTargetLot?.level1Max, caTargetLot?.level1Target, caTargetLot?.level1SD);
+    const repL2Status = evaluateValue(caForm.repeatLevel2, caTargetLot?.level2Min, caTargetLot?.level2Max, caTargetLot?.level2Target, caTargetLot?.level2SD);
+    const repL3Status = evaluateValue(caForm.repeatLevel3, caTargetLot?.level3Min, caTargetLot?.level3Max, caTargetLot?.level3Target, caTargetLot?.level3SD);
+    const isRepeatComplete = caForm.repeatLevel1.trim() && caForm.repeatLevel2.trim() && caForm.repeatLevel3.trim();
+    const isRepeatAllIn = isRepeatComplete && repL1Status === "normal" && repL2Status === "normal" && repL3Status === "normal";
+    const isRepeatAnyOut = repL1Status === "out_of_control" || repL2Status === "out_of_control" || repL3Status === "out_of_control";
+
+    const caData: QcCorrectiveAction = {
+      stripChecked: caForm.stripExpNormal,
+      controlChecked: caForm.controlExpNormal,
+      openDays: Number(caForm.controlOpenDays) || 0,
+      openDaysPassed: (Number(caForm.controlOpenDays) || 0) <= 90,
+      machineChecked: caForm.machineConditionClean,
+      stripExpStatus: caForm.stripExpNormal ? "normal" : "expired",
+      controlExpStatus: caForm.controlExpNormal ? "normal" : "expired",
+      controlOpenDays: Number(caForm.controlOpenDays) || 0,
+      machineCondition: caForm.machineConditionClean ? "ช่องใส่แถบตรวจสะอาด / ทำงานปกติ" : "พบความผิดปกติที่เครื่อง/ช่องใส่แถบตรวจ",
+      repeatLevel1: caForm.repeatLevel1,
+      repeatLevel2: caForm.repeatLevel2,
+      repeatLevel3: caForm.repeatLevel3,
+      repeatLevel1Status: repL1Status as any,
+      repeatLevel2Status: repL2Status as any,
+      repeatLevel3Status: repL3Status as any,
+      repeatOverallStatus: isRepeatAllIn ? "in_control" : (isRepeatAnyOut ? "out_of_control" : "pending"),
+      probableCause: caForm.probableCause,
+      correctiveActionNote: caForm.correctiveActionNote,
+      operator: operator.trim(),
+      date: getThaiTodayDateOnly(),
+      resolvedAt: new Date().toISOString()
+    };
+    try {
+      if (onUpdateQcRecord) {
+        await onUpdateQcRecord(selectedQcForCa.id, { correctiveAction: caData });
+      }
+      setSelectedQcForCa(prev => prev ? { ...prev, correctiveAction: caData } : null);
+      setCaViewMode("report");
+      setBatchToast("✓ บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control (CA) สำเร็จ!");
+      setTimeout(() => setBatchToast(""), 4000);
+    } catch (err: any) {
+      alert(`❌ ไม่สามารถบันทึกข้อมูล CA ได้: ${err?.message || err}`);
+    }
+  };
 
   // --- SUPPLY REQUEST STATES (STAFF REQUISITION FLOW) ---
   const getThaiTodayDate = () => {
@@ -1519,9 +1645,17 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       
                       const isComplete = row.level1.trim() && row.level2.trim() && row.level3.trim();
                       const hasOut = l1Status === 'out_of_control' || l2Status === 'out_of_control' || l3Status === 'out_of_control';
+                      const isRowShaking = shakingSerials.includes(row.serialNumber);
+                      const hasAnyInput = Boolean(row.level1.trim() || row.level2.trim() || row.level3.trim());
 
                       return (
-                        <tr key={idx} className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${!row.selected ? 'opacity-50 bg-slate-50/40 dark:bg-slate-900/40' : ''}`}>
+                        <tr key={idx} className={`transition-all ${
+                          isRowShaking 
+                            ? 'animate-shake bg-rose-50/90 dark:bg-rose-950/60 ring-2 ring-rose-500 z-10 relative shadow-md' 
+                            : !row.selected && !hasAnyInput 
+                              ? 'opacity-60 bg-slate-50/40 dark:bg-slate-900/40' 
+                              : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'
+                        }`}>
                           <td className="py-3 px-3.5 text-center">
                             <input
                               type="checkbox"
@@ -1540,9 +1674,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               step="0.1"
                               value={row.level1}
                               onChange={(e) => handleRowChange(row.serialNumber, 'level1', e.target.value)}
-                              placeholder="ค่าที่วัดได้"
+                              placeholder={isRowShaking && !row.level1.trim() ? "กรุณากรอก" : "ค่าที่วัดได้"}
                               className={`w-28 text-center text-xs py-1.5 px-2 rounded-lg border font-mono font-bold transition-all ${
-                                l1Status === 'out_of_control' 
+                                isRowShaking && !row.level1.trim()
+                                  ? 'border-rose-500 ring-2 ring-rose-400 bg-rose-50 placeholder-rose-500'
+                                  : l1Status === 'out_of_control' 
                                   ? 'bg-rose-100 border-rose-400 text-rose-900' 
                                   : l1Status === 'normal' 
                                   ? 'bg-emerald-50 border-emerald-300 text-emerald-900' 
@@ -1557,9 +1693,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               step="0.1"
                               value={row.level2}
                               onChange={(e) => handleRowChange(row.serialNumber, 'level2', e.target.value)}
-                              placeholder="ค่าที่วัดได้"
+                              placeholder={isRowShaking && !row.level2.trim() ? "กรุณากรอก" : "ค่าที่วัดได้"}
                               className={`w-28 text-center text-xs py-1.5 px-2 rounded-lg border font-mono font-bold transition-all ${
-                                l2Status === 'out_of_control' 
+                                isRowShaking && !row.level2.trim()
+                                  ? 'border-rose-500 ring-2 ring-rose-400 bg-rose-50 placeholder-rose-500'
+                                  : l2Status === 'out_of_control' 
                                   ? 'bg-rose-100 border-rose-400 text-rose-900' 
                                   : l2Status === 'normal' 
                                   ? 'bg-emerald-50 border-emerald-300 text-emerald-900' 
@@ -1574,9 +1712,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               step="0.1"
                               value={row.level3}
                               onChange={(e) => handleRowChange(row.serialNumber, 'level3', e.target.value)}
-                              placeholder="ค่าที่วัดได้"
+                              placeholder={isRowShaking && !row.level3.trim() ? "กรุณากรอก" : "ค่าที่วัดได้"}
                               className={`w-28 text-center text-xs py-1.5 px-2 rounded-lg border font-mono font-bold transition-all ${
-                                l3Status === 'out_of_control' 
+                                isRowShaking && !row.level3.trim()
+                                  ? 'border-rose-500 ring-2 ring-rose-400 bg-rose-50 placeholder-rose-500'
+                                  : l3Status === 'out_of_control' 
                                   ? 'bg-rose-100 border-rose-400 text-rose-900' 
                                   : l3Status === 'normal' 
                                   ? 'bg-emerald-50 border-emerald-300 text-emerald-900' 
@@ -1705,13 +1845,17 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                           </td>
                           <td className="py-3 px-3 text-slate-600 dark:text-slate-400">{req.operator}</td>
                           <td className="py-3 px-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                              hasOut
-                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400'
-                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400'
-                            }`}>
-                              {hasOut ? 'Out of Control' : 'In Control'}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => hasOut && handleOpenCaModal(req)}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold cursor-pointer ${
+                                hasOut
+                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400 hover:bg-rose-200 transition-colors'
+                                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 cursor-default'
+                              }`}
+                            >
+                              {hasOut ? (req.correctiveAction ? 'Out of Control' : 'Out of Control') : 'In Control'}
+                            </button>
                           </td>
                         </tr>
                       );
@@ -1721,12 +1865,37 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               </table>
             </div>
             {/* PAGINATION BAR FOR QC RECORDS */}
-            {totalQcPages > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs mt-3">
-                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                  แสดง {((qcPage - 1) * QC_PAGE_SIZE) + 1} - {Math.min(qcPage * QC_PAGE_SIZE, filteredQcRecords.length)} จากทั้งหมด {filteredQcRecords.length} รายการ
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 border-t border-slate-100 dark:border-slate-800 text-xs mt-3">
+              <div className="flex items-center gap-3">
+                <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">
+                  {filteredQcRecords.length > 0 ? (
+                    <>
+                      แสดง <strong className="font-mono text-slate-800 dark:text-slate-200 font-bold">{((qcPage - 1) * qcPageSize) + 1}</strong> - <strong className="font-mono text-slate-800 dark:text-slate-200 font-bold">{Math.min(qcPage * qcPageSize, filteredQcRecords.length)}</strong> จากทั้งหมด <strong className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{filteredQcRecords.length}</strong> รายการ
+                    </>
+                  ) : (
+                    "ยังไม่มีข้อมูลบันทึก"
+                  )}
                 </span>
-                
+
+                <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-200 dark:border-slate-700">
+                  <span className="text-[11px] text-slate-400">แสดงหน้าละ:</span>
+                  <select
+                    value={qcPageSize}
+                    onChange={(e) => {
+                      setQcPageSize(Number(e.target.value));
+                      setQcPage(1);
+                    }}
+                    className="text-xs py-1 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    <option value={5}>5 รายการ</option>
+                    <option value={10}>10 รายการ</option>
+                    <option value={20}>20 รายการ</option>
+                    <option value={50}>50 รายการ</option>
+                  </select>
+                </div>
+              </div>
+
+              {totalQcPages > 1 && (
                 <div className="flex items-center space-x-1">
                   <button
                     type="button"
@@ -1737,7 +1906,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   >
                     <ChevronLeft size={14} />
                   </button>
-
                   <div className="flex items-center space-x-1">
                     {Array.from({ length: totalQcPages }, (_, i) => i + 1).map((pageNum) => (
                       <button
@@ -1746,15 +1914,14 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                         onClick={() => setQcPage(pageNum)}
                         className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                           qcPage === pageNum
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                            ? "bg-emerald-600 text-white shadow-xs"
+                            : "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60"
                         }`}
                       >
                         {pageNum}
                       </button>
                     ))}
                   </div>
-
                   <button
                     type="button"
                     onClick={() => setQcPage(prev => Math.min(totalQcPages, prev + 1))}
@@ -1765,10 +1932,9 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     <ChevronRight size={14} />
                   </button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-
         </div>
       )}
 
@@ -2107,55 +2273,90 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
               </div>
             </div>
 
-            {/* PAGINATION BAR */}
-            {totalChkPages > 1 && (
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
-                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                  แสดง {(chkPage - 1) * CHK_PAGE_SIZE + 1} - {Math.min(chkPage * CHK_PAGE_SIZE, dailyChecklists.length)} จากทั้งหมด {dailyChecklists.length} รายการ
+            {/* PAGINATION & SUMMARY BAR */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 border-t border-slate-100 dark:border-slate-800 text-xs">
+              <div className="flex items-center gap-3">
+                <span className="text-slate-500 dark:text-slate-400 text-xs font-medium">
+                  {dailyChecklists.length > 0 ? (
+                    <>
+                      แสดง <strong className="font-mono text-slate-800 dark:text-slate-200 font-bold">{(chkPage - 1) * chkPageSize + 1}</strong> - <strong className="font-mono text-slate-800 dark:text-slate-200 font-bold">{Math.min(chkPage * chkPageSize, dailyChecklists.length)}</strong> จากทั้งหมด <strong className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{dailyChecklists.length}</strong> รายการ
+                    </>
+                  ) : (
+                    "ยังไม่มีข้อมูลบันทึก"
+                  )}
                 </span>
-                
+
+                <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-200 dark:border-slate-700">
+                  <span className="text-[11px] text-slate-400">แสดงหน้าละ:</span>
+                  <select
+                    value={chkPageSize}
+                    onChange={(e) => {
+                      setChkPageSize(Number(e.target.value));
+                      setChkPage(1);
+                    }}
+                    className="text-xs py-1 px-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 cursor-pointer"
+                  >
+                    <option value={5}>5 รายการ</option>
+                    <option value={10}>10 รายการ</option>
+                    <option value={20}>20 รายการ</option>
+                    <option value={50}>50 รายการ</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Page navigation buttons */}
+              {totalChkPages > 1 && (
                 <div className="flex items-center space-x-1">
                   <button
                     type="button"
                     onClick={() => setChkPage(prev => Math.max(1, prev - 1))}
                     disabled={chkPage === 1}
-                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
                     title="หน้าก่อนหน้า"
                   >
                     <ChevronLeft size={14} />
                   </button>
 
                   <div className="flex items-center space-x-1">
-                    {Array.from({ length: totalChkPages }, (_, i) => i + 1).map((pageNum) => (
-                      <button
-                        key={pageNum}
-                        type="button"
-                        onClick={() => setChkPage(pageNum)}
-                        className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                          chkPage === pageNum
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    ))}
+                    {Array.from({ length: totalChkPages }, (_, i) => i + 1).map((pageNum) => {
+                      if (totalChkPages > 7) {
+                        if (pageNum !== 1 && pageNum !== totalChkPages && Math.abs(pageNum - chkPage) > 2) {
+                          if (pageNum === 2 || pageNum === totalChkPages - 1) {
+                            return <span key={pageNum} className="px-1 text-slate-400">...</span>;
+                          }
+                          return null;
+                        }
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => setChkPage(pageNum)}
+                          className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            chkPage === pageNum
+                              ? "bg-emerald-600 text-white shadow-xs"
+                              : "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60"
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <button
                     type="button"
                     onClick={() => setChkPage(prev => Math.min(totalChkPages, prev + 1))}
                     disabled={chkPage === totalChkPages}
-                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
                     title="หน้าถัดไป"
                   >
                     <ChevronRight size={14} />
                   </button>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
-
           {/* CHECKLIST DETAIL MODAL */}
           {selectedChecklistDetail && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
@@ -3019,6 +3220,410 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* CORRECTIVE ACTION (CA) INVESTIGATION & REPORT MODAL */}
+      {isCaModalOpen && selectedQcForCa && (() => {
+        const caTargetLot = lotConfigs.find(l => l.lotNumber === selectedQcForCa.lotNumber) || activeLotConfig;
+        const repL1Status = evaluateValue(caForm.repeatLevel1, caTargetLot?.level1Min, caTargetLot?.level1Max, caTargetLot?.level1Target, caTargetLot?.level1SD);
+        const repL2Status = evaluateValue(caForm.repeatLevel2, caTargetLot?.level2Min, caTargetLot?.level2Max, caTargetLot?.level2Target, caTargetLot?.level2SD);
+        const repL3Status = evaluateValue(caForm.repeatLevel3, caTargetLot?.level3Min, caTargetLot?.level3Max, caTargetLot?.level3Target, caTargetLot?.level3SD);
+        const isRepeatComplete = Boolean(caForm.repeatLevel1.trim() && caForm.repeatLevel2.trim() && caForm.repeatLevel3.trim());
+        const isRepeatAllIn = isRepeatComplete && repL1Status === "normal" && repL2Status === "normal" && repL3Status === "normal";
+        const isRepeatAnyOut = repL1Status === "out_of_control" || repL2Status === "out_of_control" || repL3Status === "out_of_control";
+
+        const existingCa = selectedQcForCa.correctiveAction;
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-800 text-xs overflow-y-auto max-h-[92vh]">
+              {/* Modal Header */}
+              <div className="flex items-start justify-between border-b border-slate-150 dark:border-slate-800 pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                    caViewMode === "report" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400" : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
+                  }`}>
+                    {caViewMode === "report" ? <ClipboardCheck size={24} /> : <ShieldAlert size={24} />}
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                      {caViewMode === "report" ? "ใบบันทึกรายงานการทวนสอบและแก้ไขปัญหา (QC CA Report)" : "บันทึกทวนสอบและแก้ไข Out of Control (QC CA)"}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      เครื่อง: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatMachineLabel(selectedQcForCa.serialNumber)}</strong> | แผนก: <strong>{selectedQcForCa.ward}</strong> | LOT: <span className="font-mono">{selectedQcForCa.lotNumber}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCaModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  title="ปิดหน้าต่าง"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* REPORT VIEW */}
+              {caViewMode === "report" && existingCa ? (
+                <div className="space-y-4">
+                  {/* Summary Header Box */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">วันที่ตรวจพบปัญหา</span>
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{formatThaiDateTime(selectedQcForCa.date)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">ผู้ตรวจรอบแรก</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{selectedQcForCa.operator}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">ผู้บันทึกการทวนสอบ</span>
+                      <span className="font-bold text-amber-700 dark:text-amber-400">{existingCa.operator || operator || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">สถานะการแก้ไข</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 mt-0.5">
+                        ✓ ดำเนินการแก้ไขแล้ว
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Original vs Repeat Comparison */}
+                  <div className="space-y-2">
+                    <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center space-x-1.5">
+                      <Activity size={14} className="text-sky-600" />
+                      <span>ผลการตรวจเปรียบเทียบ (Original Out vs Repeat Test):</span>
+                    </h4>
+
+                    <div className="grid grid-cols-3 gap-2.5 text-center">
+                      {/* Level 1 */}
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 1 (Low)</span>
+                        <div className="text-[11px] text-slate-500">
+                          เดิม: <strong className={selectedQcForCa.level1Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level1}</strong>
+                        </div>
+                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                          <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
+                          <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
+                            {existingCa.repeatLevel1 || "-"}
+                          </span>
+                          {existingCa.repeatLevel1 && (
+                            <span className={`block text-[10px] font-extrabold mt-0.5 ${
+                              repL1Status === "normal" ? "text-emerald-600" : "text-rose-600"
+                            }`}>
+                              {repL1Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Level 2 */}
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 2 (Normal)</span>
+                        <div className="text-[11px] text-slate-500">
+                          เดิม: <strong className={selectedQcForCa.level2Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level2}</strong>
+                        </div>
+                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                          <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
+                          <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
+                            {existingCa.repeatLevel2 || "-"}
+                          </span>
+                          {existingCa.repeatLevel2 && (
+                            <span className={`block text-[10px] font-extrabold mt-0.5 ${
+                              repL2Status === "normal" ? "text-emerald-600" : "text-rose-600"
+                            }`}>
+                              {repL2Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Level 3 */}
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
+                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 3 (High)</span>
+                        <div className="text-[11px] text-slate-500">
+                          เดิม: <strong className={selectedQcForCa.level3Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level3}</strong>
+                        </div>
+                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                          <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
+                          <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
+                            {existingCa.repeatLevel3 || "-"}
+                          </span>
+                          {existingCa.repeatLevel3 && (
+                            <span className={`block text-[10px] font-extrabold mt-0.5 ${
+                              repL3Status === "normal" ? "text-emerald-600" : "text-rose-600"
+                            }`}>
+                              {repL3Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4 Checklists Summary Grid */}
+                  <div className="space-y-2">
+                    <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center space-x-1.5">
+                      <ClipboardCheck size={14} className="text-emerald-600" />
+                      <span>ผลการทวนสอบเช็คลิสต์ 4 ด้าน:</span>
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">1. แผ่นตรวจ (Test Strip):</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          ✓ ปกติ ไม่หมดอายุ
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">2. น้ำยาควบคุม (Control):</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          ✓ ปกติ ไม่หมดอายุ
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">3. ระยะเวลาเปิดใช้ขวดน้ำยา:</span>
+                        <span className="font-mono font-extrabold text-slate-800 dark:text-slate-200">
+                          {existingCa.openDays !== undefined ? existingCa.openDays : (existingCa.controlOpenDays || 0)} วัน (เกณฑ์ ≤ 90 วัน)
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                        <span className="font-medium text-slate-700 dark:text-slate-300">4. สภาพตัวเครื่อง / ช่องเสียบ:</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          ✓ สะอาด ทำงานปกติ
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Root Cause & Corrective Action Display */}
+                  <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 space-y-2.5">
+                    <div>
+                      <span className="text-[10px] font-extrabold uppercase text-amber-800 dark:text-amber-400 block">สาเหตุของปัญหา (Root Cause):</span>
+                      <p className="font-bold text-slate-900 dark:text-white text-xs mt-0.5">
+                        {existingCa.probableCause || "ไม่ได้ระบุสาเหตุ"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-extrabold uppercase text-amber-800 dark:text-amber-400 block">การดำเนินการแก้ไขและการป้องกัน (Corrective / Preventive Action):</span>
+                      <p className="text-slate-700 dark:text-slate-200 text-xs whitespace-pre-wrap mt-0.5 font-medium">
+                        {existingCa.correctiveActionNote || "ไม่มีหมายเหตุเพิ่มเติม"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setCaViewMode("edit")}
+                      className="px-4 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-extrabold text-xs cursor-pointer transition-all flex items-center space-x-1.5"
+                    >
+                      <span>✏️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsCaModalOpen(false)}
+                      className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs cursor-pointer transition-all"
+                    >
+                      ปิดหน้าต่างรายงาน
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* EDIT / INPUT FORM VIEW */
+                <form onSubmit={handleSaveCa} className="space-y-4">
+                  <div className="space-y-3 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs mb-1">1. การทวนสอบเช็คลิสต์ 4 ด้าน:</h4>
+                    <div className="space-y-2.5">
+                      <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
+                        <input
+                          type="checkbox"
+                          checked={caForm.stripExpNormal}
+                          onChange={(e) => setCaForm({ ...caForm, stripExpNormal: e.target.checked })}
+                          className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span className="font-bold text-slate-700 dark:text-slate-300">แผ่นตรวจ (Test Strip) ปกติ (ไม่หมดอายุ / เก็บรักษาถูกต้อง)</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
+                        <input
+                          type="checkbox"
+                          checked={caForm.controlExpNormal}
+                          onChange={(e) => setCaForm({ ...caForm, controlExpNormal: e.target.checked })}
+                          className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span className="font-bold text-slate-700 dark:text-slate-300">น้ำยาควบคุม (Control Solution) ปกติ (ไม่หมดอายุ)</span>
+                      </label>
+
+                      <div className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-1">
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 text-[11px]">ระยะเวลาน้ำยาตั้งแต่เปิดใช้ (วัน):</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="365"
+                          value={caForm.controlOpenDays ?? 0}
+                          onChange={(e) => setCaForm({ ...caForm, controlOpenDays: Number(e.target.value) })}
+                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-xs"
+                          placeholder="เช่น 15 วัน (กำหนดเปิดใช้ไม่เกิน 90 วัน)"
+                        />
+                      </div>
+
+                      <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
+                        <input
+                          type="checkbox"
+                          checked={caForm.machineConditionClean}
+                          onChange={(e) => setCaForm({ ...caForm, machineConditionClean: e.target.checked })}
+                          className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span className="font-bold text-slate-700 dark:text-slate-300">สภาพตัวเครื่องและช่องใส่แถบตรวจสะอาด / ทำงานปกติ</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Repeat Test with Real-time In/Out Detection */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <label className="block font-bold text-slate-800 dark:text-slate-200">2. ผลการทดสอบซ้ำ (Repeat Test หลังแก้ไข):</label>
+                      {isRepeatComplete && (
+                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                          isRepeatAllIn 
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300" 
+                            : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 animate-pulse"
+                        }`}>
+                          {isRepeatAllIn ? "✓ ผ่านเกณฑ์ In Control" : "✕ ยังคง Out of Control"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className={`p-2.5 rounded-xl border transition-all ${
+                        repL1Status === "normal"
+                          ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                          : repL1Status === "out_of_control"
+                            ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                      }`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold text-slate-500">Level 1 (Low)</span>
+                          {repL1Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
+                          {repL1Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
+                        </div>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={caForm.repeatLevel1 || ""}
+                          onChange={(e) => setCaForm({ ...caForm, repeatLevel1: e.target.value })}
+                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
+                          placeholder="ค่าซ้ำ L1"
+                        />
+                        {caTargetLot && (
+                          <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level1Min} - {caTargetLot.level1Max}</span>
+                        )}
+                      </div>
+
+                      <div className={`p-2.5 rounded-xl border transition-all ${
+                        repL2Status === "normal"
+                          ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                          : repL2Status === "out_of_control"
+                            ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                      }`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold text-slate-500">Level 2 (Normal)</span>
+                          {repL2Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
+                          {repL2Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
+                        </div>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={caForm.repeatLevel2 || ""}
+                          onChange={(e) => setCaForm({ ...caForm, repeatLevel2: e.target.value })}
+                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
+                          placeholder="ค่าซ้ำ L2"
+                        />
+                        {caTargetLot && (
+                          <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level2Min} - {caTargetLot.level2Max}</span>
+                        )}
+                      </div>
+
+                      <div className={`p-2.5 rounded-xl border transition-all ${
+                        repL3Status === "normal"
+                          ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                          : repL3Status === "out_of_control"
+                            ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                      }`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-bold text-slate-500">Level 3 (High)</span>
+                          {repL3Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
+                          {repL3Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
+                        </div>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={caForm.repeatLevel3 || ""}
+                          onChange={(e) => setCaForm({ ...caForm, repeatLevel3: e.target.value })}
+                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
+                          placeholder="ค่าซ้ำ L3"
+                        />
+                        {caTargetLot && (
+                          <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level3Min} - {caTargetLot.level3Max}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">3. สรุปสาเหตุที่น่าจะเป็นของความผิดปกติ (Probable Cause):</label>
+                    <select
+                      value={caForm.probableCause || ""}
+                      onChange={(e) => setCaForm({ ...caForm, probableCause: e.target.value })}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-white"
+                    >
+                      <option value="น้ำยาควบคุมเสื่อมสภาพ/หมดอายุ">น้ำยาควบคุมเสื่อมสภาพ / หมดอายุ / เปิดใช้นานเกินกำหนด</option>
+                      <option value="แถบตรวจชื้นหรือเสื่อมสภาพ">แถบตรวจ (Test Strip) ชื้นหรือเสื่อมสภาพ</option>
+                      <option value="ช่องใส่แถบตรวจสกปรก">ช่องใส่แถบตรวจ (Strip Holder) มีคราบสกปรก</option>
+                      <option value="เทคนิคการปิเปตหรือหยดน้ำยาไม่ถูกต้อง">เทคนิคการหยดน้ำยาหรือการผสมไม่ถูกต้อง</option>
+                      <option value="เครื่องวัดน้ำตาลผิดปกติ">ตัวเครื่องวัดน้ำตาลผิดปกติ / แบตเตอรี่อ่อน</option>
+                      <option value="ปัจจัยอุณหภูมิสิ่งแวดล้อม">ปัจจัยอุณหภูมิ / ความชื้นในห้องตรวจ</option>
+                      <option value="อื่นๆ">อื่นๆ (ระบุในหมายเหตุ)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">4. หมายเหตุ / การดำเนินการแก้ไข (Corrective Action Note):</label>
+                    <textarea
+                      rows={3}
+                      value={caForm.correctiveActionNote || ""}
+                      onChange={(e) => setCaForm({ ...caForm, correctiveActionNote: e.target.value })}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-white"
+                      placeholder="ระบุรายละเอียดการแก้ไข เช่น เปลี่ยนขวดน้ำยาใหม่, ทำความสะอาดเครื่อง, ทดสอบซ้ำผ่านแล้ว..."
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => existingCa ? setCaViewMode("report") : setIsCaModalOpen(false)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs cursor-pointer transition-all"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <span>บันทึกผลการทวนสอบ (CA)</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Barcode Printer Modal (50x25 mm) */}
       <BarcodePrinterModal

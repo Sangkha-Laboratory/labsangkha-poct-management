@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog, StripReagentItem, BatteryDisbursementRecord } from '../types';
+import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog } from '../types';
 import { getThaiTodayDateOnly } from './dateUtils';
 
 // Helper to validate standard UUID format
@@ -586,24 +586,42 @@ export const mapDbToQcRecord = (db: any): QcRecord => ({
   level3: Number(db.level3 ?? db.l3_val ?? 0),
   level1Status: (db.l1_status || 'normal') as any,
   level2Status: (db.l2_status || 'normal') as any,
-  level3Status: (db.l3_status || 'normal') as any
+  level3Status: (db.l3_status || 'normal') as any,
+  correctiveAction: db.corrective_action || db.correctiveAction || undefined
 });
 
-export const mapQcRecordToDb = (q: QcRecord) => ({
-  date: q.date,
-  rec_date: q.receiveDate,
-  ret_date: q.returnDate || q.receiveDate,
-  ward: q.ward,
-  bgm_code: q.serialNumber,
-  operator: q.operator,
-  lot_number: q.lotNumber,
-  level1: Number(q.level1) || 0,
-  level2: Number(q.level2) || 0,
-  level3: Number(q.level3) || 0,
-  l1_status: q.level1Status || 'normal',
-  l2_status: q.level2Status || 'normal',
-  l3_status: q.level3Status || 'normal'
-});
+export const mapQcRecordToDb = (q: QcRecord) => {
+  const ca = q.correctiveAction;
+  const payload: any = {
+    date: q.date,
+    rec_date: q.receiveDate,
+    ret_date: q.returnDate || q.receiveDate,
+    ward: q.ward,
+    bgm_code: q.serialNumber,
+    operator: q.operator,
+    lot_number: q.lotNumber,
+    level1: Number(q.level1) || 0,
+    level2: Number(q.level2) || 0,
+    level3: Number(q.level3) || 0,
+    l1_status: q.level1Status || "normal",
+    l2_status: q.level2Status || "normal",
+    l3_status: q.level3Status || "normal",
+    corrective_action: ca || null,
+    ca_strip_checked: ca ? (ca.stripChecked ?? (ca.stripExpStatus !== "expired")) : null,
+    ca_control_checked: ca ? (ca.controlChecked ?? (ca.controlExpStatus !== "expired")) : null,
+    ca_open_days: ca ? (ca.openDays !== undefined ? ca.openDays : (ca.controlOpenDays ?? null)) : null,
+    ca_machine_checked: ca ? (ca.machineChecked ?? (!ca.machineCondition?.includes("ผิดปกติ"))) : null,
+    ca_repeat_l1: ca?.repeatLevel1 ? Number(ca.repeatLevel1) : null,
+    ca_repeat_l2: ca?.repeatLevel2 ? Number(ca.repeatLevel2) : null,
+    ca_repeat_l3: ca?.repeatLevel3 ? Number(ca.repeatLevel3) : null,
+    ca_repeat_status: ca?.repeatOverallStatus ?? null,
+    ca_cause: ca?.probableCause ?? null,
+    ca_action_note: ca?.correctiveActionNote ?? null,
+    ca_operator: ca?.operator ?? null,
+    ca_resolved_at: ca?.resolvedAt ?? (ca ? new Date().toISOString() : null)
+  };
+  return payload;
+};
 
 export const mapDbToLotConfig = (db: any): QcLotConfig => ({
   lotNumber: db.lot_number,
@@ -1421,20 +1439,52 @@ export const dbService = {
     if (qc.level1Status !== undefined) dbPayload.l1_status = qc.level1Status;
     if (qc.level2Status !== undefined) dbPayload.l2_status = qc.level2Status;
     if (qc.level3Status !== undefined) dbPayload.l3_status = qc.level3Status;
+    
+    if (qc.correctiveAction !== undefined) {
+      const ca = qc.correctiveAction;
+      dbPayload.corrective_action = ca || null;
+      dbPayload.ca_strip_checked = ca ? (ca.stripChecked ?? (ca.stripExpStatus !== "expired")) : null;
+      dbPayload.ca_control_checked = ca ? (ca.controlChecked ?? (ca.controlExpStatus !== "expired")) : null;
+      dbPayload.ca_open_days = ca ? (ca.openDays !== undefined ? ca.openDays : (ca.controlOpenDays ?? null)) : null;
+      dbPayload.ca_machine_checked = ca ? (ca.machineChecked ?? (!ca.machineCondition?.includes("ผิดปกติ"))) : null;
+      dbPayload.ca_repeat_l1 = ca?.repeatLevel1 ? Number(ca.repeatLevel1) : null;
+      dbPayload.ca_repeat_l2 = ca?.repeatLevel2 ? Number(ca.repeatLevel2) : null;
+      dbPayload.ca_repeat_l3 = ca?.repeatLevel3 ? Number(ca.repeatLevel3) : null;
+      dbPayload.ca_repeat_status = ca?.repeatOverallStatus ?? null;
+      dbPayload.ca_cause = ca?.probableCause ?? null;
+      dbPayload.ca_action_note = ca?.correctiveActionNote ?? null;
+      dbPayload.ca_operator = ca?.operator ?? null;
+      dbPayload.ca_resolved_at = ca?.resolvedAt ?? (ca ? new Date().toISOString() : null);
+    }
 
+    let targetRecordId = id;
     if (getSupabaseClient()) {
-      const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id).select().maybeSingle(),
-        'qc_records'
-      );
-      if (!error && data) return mapDbToQcRecord(data);
-      if (error && !isMissingTable) {
-        console.warn('Supabase updateQcRecord notice:', error.message || error);
+      if (!isUuid(targetRecordId) && qc.serialNumber) {
+        const { data: found } = await querySupabaseClient(
+          (c, tbl) => c.from(tbl).select("id").eq("bgm_code", qc.serialNumber).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+          "qc_records"
+        );
+        const foundRec: any = found;
+        if (foundRec && foundRec.id) {
+          targetRecordId = foundRec.id;
+        }
+      }
+
+      if (isUuid(targetRecordId)) {
+        const { data, error, isMissingTable } = await querySupabaseClient(
+          (c, tbl) => c.from(tbl).update(dbPayload).eq("id", targetRecordId).select().maybeSingle(),
+          "qc_records"
+        );
+        if (!error && data) return mapDbToQcRecord(data);
+        if (error && !isMissingTable) {
+          console.warn("Supabase updateQcRecord notice:", error.message || error);
+        }
       }
     }
-    const data = await safeApiFetch(`/api/qc-records/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+
+    const data = await safeApiFetch(`/api/qc-records/${targetRecordId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(dbPayload)
     });
     return data ? mapDbToQcRecord(data) : (qc as QcRecord);
@@ -1921,7 +1971,6 @@ export const dbService = {
           lotNumber: row.lot_number,
           manufacturer: row.manufacturer,
           itemType: row.item_type,
-          batteryType: row.battery_type || (row.notes?.includes('AAA') ? 'AAA' : row.notes?.includes('AA') ? 'AA' : row.notes?.includes('CR2032') ? 'CR2032' : undefined),
           receivedDate: row.received_date,
           expDate: row.exp_date,
           openDate: row.open_date,
@@ -2186,117 +2235,39 @@ export const dbService = {
     }
     await safeApiFetch(`/api/daily-checklists/${id}`, { method: 'DELETE' });
   },
-
-  // --- battery_disbursements (Requisition & Dispense Tracking for Batteries) ---
-  async getBatteryDisbursements(): Promise<BatteryDisbursementRecord[]> {
-    if (getSupabaseClient()) {
-      const { data, error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).select('*').range(0, 99999),
-        'supply_requests',
-        ['battery_disbursements', 'supplies']
-      );
-      if (!error && Array.isArray(data)) {
-        return (data as any[])
-          .filter(r => (r.item === 'battery' || r.items?.itemType === 'battery' || r.item_type === 'battery' || r.details?.batteryType))
-          .map((row): BatteryDisbursementRecord => ({
-            id: row.id,
-            date: row.req_date || row.created_at?.split('T')[0] || getThaiTodayDateOnly(),
-            ward: row.ward || 'LAB',
-            bgmCode: row.details?.bgmCode || row.details?.bgm_code || undefined,
-            serialNumber: row.details?.serialNumber || row.details?.serial_number || undefined,
-            batteryType: row.details?.batteryType || 'AAA',
-            quantity: Number(row.qty || 2),
-            requesterName: row.requester || 'เจ้าหน้าที่',
-            dispenserName: row.details?.dispenserName || row.operator || 'เจ้าหน้าที่ห้องแล็บ',
-            reason: row.reason || 'ถ่านหมด/เปลี่ยนถ่าน',
-            status: row.status === 'approved' ? 'dispensed' : (row.status as any || 'dispensed'),
-            notes: row.details?.notes || undefined
-          }))
-          .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      }
-      if (error && !isMissingTable) {
-        console.warn('Supabase getBatteryDisbursements notice:', error.message || error);
-      }
-    }
-
-    try {
-      const saved = localStorage.getItem('dtx_battery_disbursements');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-
-    return [];
-  },
-
-  async insertBatteryDisbursement(rec: BatteryDisbursementRecord): Promise<BatteryDisbursementRecord> {
-    const targetId = isUuid(rec.id) ? rec.id : generateUUID();
-    const payload = {
-      id: targetId,
-      ward: rec.ward,
-      requester: rec.requesterName,
-      item: 'battery',
-      qty: Number(rec.quantity) || 2,
-      reason: rec.reason || 'เปลี่ยนถ่าน/เบิกถ่าน',
-      status: 'approved',
-      req_date: rec.date || getThaiTodayDateOnly(),
-      details: {
-        batteryType: rec.batteryType,
-        bgmCode: rec.bgmCode,
-        serialNumber: rec.serialNumber,
-        dispenserName: rec.dispenserName,
-        notes: rec.notes
-      }
-    };
-
+  async getBatteryDisbursements(): Promise<any[]> {
     if (getSupabaseClient()) {
       const { data, error } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).insert([payload]).select().maybeSingle(),
-        'supply_requests'
+        (c, tbl) => c.from(tbl).select("*").order("date", { ascending: false }),
+        "battery_disbursements"
       );
-      if (!error && data) {
-        // Also update local cache
-        try {
-          const list = await this.getBatteryDisbursements();
-          const updated = [rec, ...list.filter(x => x.id !== targetId)];
-          localStorage.setItem('dtx_battery_disbursements', JSON.stringify(updated));
-        } catch {}
-        return rec;
-      }
+      if (!error && data) return data as any[];
     }
-
-    // Try API fetch fallback
-    try {
-      await safeApiFetch('/api/supplies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } catch {}
-
-    try {
-      const saved = localStorage.getItem('dtx_battery_disbursements');
-      const list = saved ? JSON.parse(saved) : [];
-      localStorage.setItem('dtx_battery_disbursements', JSON.stringify([rec, ...list]));
-    } catch {}
-
-    return rec;
+    const data = await safeApiFetch("/api/battery-disbursements");
+    return data ? (data as any[]) : [];
   },
-
+  async insertBatteryDisbursement(rec: any): Promise<any> {
+    if (getSupabaseClient()) {
+      const { data, error } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([rec]).select().maybeSingle(),
+        "battery_disbursements"
+      );
+      if (!error && data) return data;
+    }
+    const data = await safeApiFetch("/api/battery-disbursements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rec)
+    });
+    return data || rec;
+  },
   async deleteBatteryDisbursement(id: string): Promise<void> {
     if (getSupabaseClient()) {
       await querySupabaseClient(
-        (c, tbl) => c.from(tbl).delete().eq('id', id),
-        'supply_requests'
-      ).catch(() => {});
+        (c, tbl) => c.from(tbl).delete().eq("id", id),
+        "battery_disbursements"
+      );
     }
-    try {
-      await safeApiFetch(`/api/supplies/${id}`, { method: 'DELETE' });
-    } catch {}
-    try {
-      const saved = localStorage.getItem('dtx_battery_disbursements');
-      if (saved) {
-        const list = JSON.parse(saved).filter((item: any) => item.id !== id);
-        localStorage.setItem('dtx_battery_disbursements', JSON.stringify(list));
-      }
-    } catch {}
+    await safeApiFetch(`/api/battery-disbursements/${id}`, { method: "DELETE" });
   }
 };

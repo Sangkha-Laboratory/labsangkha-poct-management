@@ -895,6 +895,9 @@ export default function StockManagement({
         return <span className={`${baseClasses} font-bold bg-orange-100 text-orange-800 border border-orange-200`}>สูญหาย</span>;
       case 'unknown':
         return <span className={`${baseClasses} font-bold bg-slate-100 text-slate-600`}>ไม่ทราบ</span>;
+      case 'backup':
+      case 'standby':
+        return <span className={`${baseClasses} font-extrabold bg-amber-500 text-white uppercase tracking-wider`}>Backup</span>;
       case 'waiting_claim':
         return <span className={`${baseClasses} font-bold bg-amber-500 text-white`}>รอส่งเคลม</span>;
       case 'claimed':
@@ -1008,6 +1011,7 @@ export default function StockManagement({
           >
             <option value="">-- สถานะทั้งหมด --</option>
             <option value="active">active (ใช้งานปกติ)</option>
+            <option value="backup">backup (สำรอง/รอหมุนเวียน)</option>
             <option value="lost">สูญหาย</option>
             <option value="unknown">ไม่ทราบสถานะ</option>
             <option value="waiting_claim">รอส่งเคลม</option>
@@ -1898,6 +1902,7 @@ export default function StockManagement({
                     required
                   >
                     <option value="active">active (ใช้งานปกติ)</option>
+            <option value="backup">backup (สำรอง/รอหมุนเวียน)</option>
                     <option value="lost">สูญหาย</option>
                     <option value="unknown">ไม่ทราบสถานะ</option>
                     <option value="waiting_claim">รอส่งเคลม</option>
