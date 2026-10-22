@@ -630,7 +630,7 @@ export const RoleSelector: React.FC<RoleSelectorProps> = ({
                 className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-xs"
                 id="btn-ward-legacy-system"
               >
-                <span>🌐 ใช้ระบบเดิม (Canva Site)</span>
+                <span> ใช้ระบบเดิม (Canva Site)</span>
                 <ArrowRight size={14} />
               </a>
 

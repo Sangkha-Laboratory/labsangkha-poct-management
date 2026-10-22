@@ -126,7 +126,7 @@ export default function PrintForm({ repair, onClose }: PrintFormProps) {
 
   const c = repair.checklist;
 
-  // Render a tick mark (✓) or empty box matching the exact scanned form
+  // Render a tick mark () or empty box matching the exact scanned form
   const renderCheckValue = (itemVal: 'pass' | 'fail' | 'pending' | undefined, statusToMatch: 'pass' | 'fail' | 'pending') => {
     if (itemVal === statusToMatch) {
       return (
@@ -224,10 +224,10 @@ export default function PrintForm({ repair, onClose }: PrintFormProps) {
           <span>ความต้องการเครื่องสำรองใช้ชั่วคราว:</span>
           {repair.needsBackup ? (
             <span className="font-bold text-amber-850 bg-amber-50 px-2 py-0.5 rounded border border-amber-300">
-              ✓ ต้องการขอเบิกเครื่องสำรองใช้ชั่วคราวระหว่างรอซ่อม
+               ต้องการขอเบิกเครื่องสำรองใช้ชั่วคราวระหว่างรอซ่อม
             </span>
           ) : (
-            <span className="text-slate-400 font-medium">✗ ไม่ต้องการเครื่องสำรอง</span>
+            <span className="text-slate-400 font-medium"> ไม่ต้องการเครื่องสำรอง</span>
           )}
         </div>
 

@@ -3,14 +3,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import CustomSelect from "./CustomSelect";
+import QCComparisonChart from './QCComparisonChart';
 import { DtxMachine, QcRecord, QcLotConfig, MasterWard, StripReagentItem, QcCorrectiveAction } from '../types';
 import { dbService } from '../lib/supabase';
 import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
 import { 
   SlidersVertical, Activity, Plus, TrendingUp, AlertTriangle, 
   CheckCircle2, Download, Settings, ChevronLeft, ChevronRight,
+  ChevronsLeft, ChevronsRight,
   Lightbulb, Eye, Check, Calendar, User, Zap, BarChart3, 
   FileSpreadsheet, ShieldAlert, Sparkles, Filter, RefreshCw,
   Clock, Hourglass, Bell, Send, Share2, Copy, AlertOctagon, Info,
@@ -159,6 +161,8 @@ interface QCManagementProps {
   initialTab?: 'batch' | 'history' | 'config';
 }
 
+export type QcTab = 'batch' | 'chart' | 'comparison' | 'table' | 'config';
+
 export default function QCManagement({
   machines,
   qcRecords,
@@ -170,8 +174,12 @@ export default function QCManagement({
   role = 'admin',
   initialTab = 'batch'
 }: QCManagementProps) {
-  // Main view tab: 'batch' (Batch/Spreadsheet Entry), 'history' (Log Table & LJ Chart), 'config' (Target Ranges)
-  const [activeTab, setActiveTab] = useState<'batch' | 'history' | 'config'>(initialTab);
+  // Main view tab: 'batch', 'chart' (LJ), 'comparison', 'table', 'config'
+  const [activeTab, setActiveTab] = useState<QcTab>(() => {
+    if (initialTab === 'history') return 'chart';
+    if (initialTab === 'config') return 'config';
+    return 'batch';
+  });
 
   // --- QC CORRECTIVE ACTION (CA) STATES & HANDLERS ---
   const [isCaModalOpen, setIsCaModalOpen] = useState<boolean>(false);
@@ -280,16 +288,20 @@ export default function QCManagement({
       }
       setSelectedQcForCa(prev => prev ? { ...prev, correctiveAction: caData } : null);
       setCaViewMode("report");
-      setBatchToast("✓ บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control (CA) สำเร็จ!");
+      setBatchToast(" บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control (CA) สำเร็จ!");
       setTimeout(() => setBatchToast(""), 4000);
     } catch (err: any) {
-      alert(`❌ ไม่สามารถบันทึกข้อมูล CA ได้: ${err?.message || err}`);
+      alert(` ไม่สามารถบันทึกข้อมูล CA ได้: ${err?.message || err}`);
     }
   };
 
   useEffect(() => {
     if (initialTab) {
-      setActiveTab(initialTab);
+      if (initialTab === 'history') {
+        setActiveTab('chart');
+      } else {
+        setActiveTab(initialTab as any);
+      }
     }
   }, [initialTab]);
   const [wards, setWards] = useState<MasterWard[]>([]);
@@ -384,7 +396,41 @@ export default function QCManagement({
   const [entrySuccessToast, setEntrySuccessToast] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  // Filter states for Chart and History
+  // --- LEVEY-JENNINGS CHART: BY MACHINE & SELECTABLE TIME RANGE ---
+  const [chartFilterWard, setChartFilterWard] = useState<string>("");
+  const [chartMachineSerial, setChartMachineSerial] = useState<string>(() => {
+    return localStorage.getItem("dtx_lj_chart_machine_serial") || "";
+  });
+  const [chartTimeRangePreset, setChartTimeRangePreset] = useState<"7days" | "15days" | "30days" | "this_month" | "all" | "custom">("30days");
+  const [chartStartDate, setChartStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().substring(0, 10);
+  });
+  const [chartEndDate, setChartEndDate] = useState<string>(() => getThaiTodayDateOnly());
+  const [chartSelectedLot, setChartSelectedLot] = useState<string>("all");
+  const [selectedChartLevel, setSelectedChartLevel] = useState<"all" | 1 | 2 | 3>("all");
+
+  const setRangePreset = (preset: "7days" | "15days" | "30days" | "this_month" | "all") => {
+    setChartTimeRangePreset(preset);
+    const today = getThaiTodayDateOnly();
+    if (preset === "all") {
+      setChartStartDate("");
+      setChartEndDate("");
+    } else if (preset === "this_month") {
+      const yearMonth = today.substring(0, 7);
+      setChartStartDate(`${yearMonth}-01`);
+      setChartEndDate(today);
+    } else {
+      const days = preset === "7days" ? 7 : preset === "15days" ? 15 : 30;
+      const d = new Date();
+      d.setDate(d.getDate() - days);
+      setChartStartDate(d.toISOString().substring(0, 10));
+      setChartEndDate(today);
+    }
+  };
+
+  // Filter states for History Table
   const [filterWard, setFilterWard] = useState<string>('');
   const [filterLot, setFilterLot] = useState<string>(() => {
     const list = [...lotConfigs].sort((a, b) => {
@@ -396,6 +442,10 @@ export default function QCManagement({
     return list[0]?.lotNumber || 'LOT2026-A';
   });
   const [filterMonth, setFilterMonth] = useState<string>('');
+  const [filterSerial, setFilterSerial] = useState<string>('');
+  const [dateRangeMode, setDateRangeMode] = useState<'all' | 'custom'>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'normal' | 'out_of_control'>('all');
   const [activeLevels, setActiveLevels] = useState<{ [key: number]: boolean }>({ 1: true, 2: true, 3: true });
   const [hoveredPoint, setHoveredPoint] = useState<{
@@ -410,6 +460,7 @@ export default function QCManagement({
     status: string;
     x: number;
     y: number;
+    lot?: string;
   } | null>(null);
 
   // Pagination for History Table
@@ -635,8 +686,15 @@ export default function QCManagement({
   const [colFilterL3, setColFilterL3] = useState<string>('');
   const [colFilterStatus, setColFilterStatus] = useState<'all' | 'in_control' | 'out_control'>('all');
 
-  // Toggle state for LJ Chart inside History view
-  const [showLJChartSection, setShowLJChartSection] = useState<boolean>(true);
+  // Toggle state for LJ Chart & Comparison inside History view
+  const [historyViewMode, setHistoryViewMode] = useState<"chart" | "comparison" | "table">(() => {
+    const saved = localStorage.getItem("dtx_qc_history_view_mode");
+    return (saved === "table" || saved === "chart" || saved === "comparison") ? (saved as any) : "chart";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("dtx_qc_history_view_mode", historyViewMode);
+  }, [historyViewMode]);
 
   // Synchronize batchRows when machines or filters change
   useEffect(() => {
@@ -705,6 +763,36 @@ export default function QCManagement({
       return true;
     });
   }, [batchRows, colFilterWard, colFilterSerial, colFilterL1, colFilterL2, colFilterL3, colFilterStatus, activeLotConfig]);
+
+  // Batch Sub-Page Pagination State
+  const [batchPage, setBatchPage] = useState<number>(1);
+  const [batchPageSize, setBatchPageSize] = useState<number>(10);
+
+  // Reset batch page when filters change
+  useEffect(() => {
+    setBatchPage(1);
+  }, [batchScope, batchWardFilter, colFilterWard, colFilterSerial, colFilterL1, colFilterL2, colFilterL3, colFilterStatus]);
+
+  const effectiveBatchPageSize = batchPageSize === 0 ? Math.max(1, filteredBatchRows.length) : batchPageSize;
+  const totalBatchPages = Math.max(1, Math.ceil(filteredBatchRows.length / effectiveBatchPageSize));
+
+  useEffect(() => {
+    if (batchPage > totalBatchPages) {
+      setBatchPage(totalBatchPages);
+    }
+  }, [batchPage, totalBatchPages]);
+
+  const paginatedBatchRows = useMemo(() => {
+    if (batchPageSize === 0) return filteredBatchRows;
+    const startIndex = (batchPage - 1) * batchPageSize;
+    return filteredBatchRows.slice(startIndex, startIndex + batchPageSize);
+  }, [filteredBatchRows, batchPage, batchPageSize]);
+
+  // Toggle selection for current page
+  const handleToggleSelectCurrentBatchPage = (select: boolean) => {
+    const pageSerials = new Set(paginatedBatchRows.map(r => r.serialNumber));
+    setBatchRows(rows => rows.map(r => pageSerials.has(r.serialNumber) ? { ...r, selected: select } : r));
+  };
 
   // Batch cell update helper
   const handleBatchCellChange = (serialNumber: string, field: 'level1' | 'level2' | 'level3', value: string) => {
@@ -788,7 +876,7 @@ export default function QCManagement({
         savedCount++;
       }
 
-      setBatchToast(`✓ บันทึกผล QC แบบชุดสำเร็จทั้งหมด ${savedCount} เครื่อง (${batchLot})`);
+      setBatchToast(` บันทึกผล QC แบบชุดสำเร็จทั้งหมด ${savedCount} เครื่อง (${batchLot})`);
       setTimeout(() => setBatchToast(''), 5000);
 
       // Clear values from the saved rows
@@ -933,7 +1021,7 @@ export default function QCManagement({
 
     try {
       await onAddQcRecord(newRecord);
-      setEntrySuccessToast(`✓ บันทึกผล QC เครื่อง ${selectedSerial} (${selectedWard}) สำเร็จ`);
+      setEntrySuccessToast(` บันทึกผล QC เครื่อง ${selectedSerial} (${selectedWard}) สำเร็จ`);
       setTimeout(() => setEntrySuccessToast(''), 4000);
 
       // Reset values for next machine
@@ -955,7 +1043,7 @@ export default function QCManagement({
 
     try {
       await onAddQcRecord(pendingExpiredRecord);
-      setEntrySuccessToast(`✓ บันทึกผล QC เครื่อง ${pendingExpiredRecord.serialNumber} (${pendingExpiredRecord.ward}) เรียบร้อยแล้ว`);
+      setEntrySuccessToast(` บันทึกผล QC เครื่อง ${pendingExpiredRecord.serialNumber} (${pendingExpiredRecord.ward}) เรียบร้อยแล้ว`);
       setTimeout(() => setEntrySuccessToast(''), 5000);
 
       setLevel1Val('');
@@ -982,13 +1070,22 @@ export default function QCManagement({
   };
 
   // Stats Calculations
-  const getCalculatedStats = (records: QcRecord[], lot: string, level: 1 | 2 | 3, month: string, ward: string) => {
+  const getCalculatedStats = (records: QcRecord[], lot: string, level: 1 | 2 | 3, month: string, ward: string, serial: string, mode: string, start: string, end: string) => {
     const config = lotConfigs.find(c => c.lotNumber === lot);
-    const filtered = records.filter(r =>
-      r.lotNumber === lot &&
-      (ward === '' || r.ward === ward) &&
-      (month === '' || r.date.startsWith(month))
-    );
+    const filtered = records.filter(r => {
+      const matchLot = r.lotNumber === lot;
+      const matchWard = ward === '' || r.ward === ward;
+      const matchMonth = month === '' || r.date.startsWith(month);
+      const matchSerial = serial === '' || r.serialNumber === serial;
+      
+      let matchDate = true;
+      if (mode === 'custom') {
+        const d = r.date.substring(0, 10);
+        if (start && d < start) matchDate = false;
+        if (end && d > end) matchDate = false;
+      }
+      return matchLot && matchWard && matchMonth && matchSerial && matchDate;
+    });
     const values = filtered.map(r => level === 1 ? r.level1 : level === 2 ? r.level2 : r.level3);
     const n = values.length;
 
@@ -1026,9 +1123,296 @@ export default function QCManagement({
     };
   };
 
-  const level1Stats = useMemo(() => getCalculatedStats(qcRecords, filterLot, 1, filterMonth, filterWard), [qcRecords, filterLot, filterMonth, filterWard]);
-  const level2Stats = useMemo(() => getCalculatedStats(qcRecords, filterLot, 2, filterMonth, filterWard), [qcRecords, filterLot, filterMonth, filterWard]);
-  const level3Stats = useMemo(() => getCalculatedStats(qcRecords, filterLot, 3, filterMonth, filterWard), [qcRecords, filterLot, filterMonth, filterWard]);
+  // --- Available Machines for LJ Chart (Combo: Ward -> Machine) ---
+  const allChartMachines = useMemo(() => {
+    const map = new Map<string, { serialNumber: string; displayLabel: string; ward: string; brand: string }>();
+
+    // 1. Registered machines
+    machines.forEach(m => {
+      const serial = m.serialNumber || m.id;
+      if (serial) {
+        map.set(serial.trim().toUpperCase(), {
+          serialNumber: serial.trim(),
+          displayLabel: formatMachineLabel(serial),
+          ward: m.ward || "งานชันสูตรสาธารณสุข",
+          brand: m.brand || ""
+        });
+      }
+    });
+
+    // 2. Additional machines from qcRecords
+    qcRecords.forEach(r => {
+      if (r.serialNumber) {
+        const key = r.serialNumber.trim().toUpperCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            serialNumber: r.serialNumber.trim(),
+            displayLabel: formatMachineLabel(r.serialNumber),
+            ward: r.ward || "งานชันสูตรสาธารณสุข",
+            brand: ""
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.serialNumber.localeCompare(b.serialNumber, undefined, { numeric: true }));
+  }, [machines, qcRecords, machineDisplayMode]);
+
+  // Cascading Filter: Filter machines by selected Ward (Combo)
+  const filteredChartMachines = useMemo(() => {
+    if (!chartFilterWard) return allChartMachines;
+    return allChartMachines.filter(m => m.ward === chartFilterWard);
+  }, [allChartMachines, chartFilterWard]);
+
+  // Legacy alias for compatibility
+  const availableChartMachines = filteredChartMachines;
+
+  // Current machine index in the filtered machines list
+  const currentMachineIndex = useMemo(() => {
+    if (!chartMachineSerial || filteredChartMachines.length === 0) return -1;
+    return filteredChartMachines.findIndex(m => m.serialNumber.toUpperCase() === chartMachineSerial.toUpperCase());
+  }, [filteredChartMachines, chartMachineSerial]);
+
+  // Machine previews for Flank Buttons
+  const prevMachineObj = useMemo(() => {
+    if (filteredChartMachines.length <= 1 || currentMachineIndex === -1) return null;
+    const prevIdx = currentMachineIndex <= 0 ? filteredChartMachines.length - 1 : currentMachineIndex - 1;
+    return filteredChartMachines[prevIdx];
+  }, [filteredChartMachines, currentMachineIndex]);
+
+  const nextMachineObj = useMemo(() => {
+    if (filteredChartMachines.length <= 1 || currentMachineIndex === -1) return null;
+    const nextIdx = currentMachineIndex >= filteredChartMachines.length - 1 ? 0 : currentMachineIndex + 1;
+    return filteredChartMachines[nextIdx];
+  }, [filteredChartMachines, currentMachineIndex]);
+
+  // Keyboard navigation (ArrowLeft / ArrowRight) for switching machines
+  useEffect(() => {
+    if (activeTab !== "chart") return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        handlePrevMachine();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        handleNextMachine();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTab, filteredChartMachines, currentMachineIndex]);
+
+  // Reference and position tracking for floating flank stepper buttons outside content area
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [navPositions, setNavPositions] = useState<{
+    visible: boolean;
+    leftX: number;
+    rightX: number;
+  }>({
+    visible: false,
+    leftX: 0,
+    rightX: 0,
+  });
+
+  useEffect(() => {
+    if (activeTab !== "chart" || filteredChartMachines.length <= 1) {
+      setNavPositions(prev => ({ ...prev, visible: false }));
+      return;
+    }
+
+    const updatePositions = () => {
+      if (!chartContainerRef.current) return;
+      const chartRect = chartContainerRef.current.getBoundingClientRect();
+      const sidebarEl = document.getElementById("admin-sidebar");
+      const sidebarRight = sidebarEl ? sidebarEl.getBoundingClientRect().right : 0;
+
+      // Check if chart section is currently visible in viewport (follows vertical scroll)
+      const isInView = chartRect.top < window.innerHeight - 80 && chartRect.bottom > 80;
+
+      const buttonWidth = 44;
+      const marginGap = 12;
+
+      // Left button: Positioned strictly outside chart border, but clamped so it NEVER overlaps sidebar!
+      const idealLeft = chartRect.left - buttonWidth - marginGap;
+      const safeLeft = Math.max(sidebarRight + 12, idealLeft);
+
+      // Right button: Positioned strictly outside chart right border, but clamped so it does not overflow screen
+      const idealRight = chartRect.right + marginGap;
+      const safeRight = Math.min(window.innerWidth - buttonWidth - 12, idealRight);
+
+      setNavPositions({
+        visible: isInView,
+        leftX: safeLeft,
+        rightX: safeRight,
+      });
+    };
+
+    updatePositions();
+    window.addEventListener("scroll", updatePositions, { passive: true });
+    window.addEventListener("resize", updatePositions, { passive: true });
+
+    // Watch for smooth sidebar collapse/expand animations
+    const interval = setInterval(updatePositions, 60);
+    const timeout = setTimeout(() => clearInterval(interval), 1000);
+
+    return () => {
+      window.removeEventListener("scroll", updatePositions);
+      window.removeEventListener("resize", updatePositions);
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [activeTab, filteredChartMachines.length]);
+
+  // Stepper handlers to navigate between machines one by one
+  const handlePrevMachine = () => {
+    if (filteredChartMachines.length === 0) return;
+    const newIdx = currentMachineIndex <= 0 ? filteredChartMachines.length - 1 : currentMachineIndex - 1;
+    setChartMachineSerial(filteredChartMachines[newIdx].serialNumber);
+  };
+
+  const handleNextMachine = () => {
+    if (filteredChartMachines.length === 0) return;
+    const newIdx = currentMachineIndex >= filteredChartMachines.length - 1 ? 0 : currentMachineIndex + 1;
+    setChartMachineSerial(filteredChartMachines[newIdx].serialNumber);
+  };
+
+  // Ensure an initial machine is selected from the active filtered list
+  useEffect(() => {
+    if (filteredChartMachines.length > 0) {
+      const exists = filteredChartMachines.some(m => m.serialNumber.toUpperCase() === chartMachineSerial.toUpperCase());
+      if (!exists) {
+        setChartMachineSerial(filteredChartMachines[0].serialNumber);
+      }
+    }
+  }, [filteredChartMachines, chartMachineSerial]);
+
+  // Save selected machine to localStorage
+  useEffect(() => {
+    if (chartMachineSerial) {
+      localStorage.setItem("dtx_lj_chart_machine_serial", chartMachineSerial);
+    }
+  }, [chartMachineSerial]);
+
+  const currentChartMachineObj = useMemo(() => {
+    if (!chartMachineSerial) return null;
+    return allChartMachines.find(m => m.serialNumber.toUpperCase() === chartMachineSerial.toUpperCase()) || null;
+  }, [allChartMachines, chartMachineSerial]);
+
+  // Machine used LOTs
+  const machineUsedLots = useMemo(() => {
+    if (!chartMachineSerial) return [];
+    const cleanSerial = chartMachineSerial.trim().toUpperCase();
+    const lots = new Set<string>();
+    qcRecords.forEach(r => {
+      if ((r.serialNumber || "").trim().toUpperCase() === cleanSerial && r.lotNumber) {
+        lots.add(r.lotNumber.trim());
+      }
+    });
+    return Array.from(lots).sort();
+  }, [qcRecords, chartMachineSerial]);
+
+  // Machine Chart Records filtered by machine, date range, and optional lot
+  const machineChartRecords = useMemo(() => {
+    if (!chartMachineSerial) return [];
+    const cleanSerial = chartMachineSerial.trim().toUpperCase();
+
+    return qcRecords
+      .filter(r => {
+        // 1. Must match selected machine
+        const rSerial = (r.serialNumber || "").trim().toUpperCase();
+        if (rSerial !== cleanSerial) return false;
+
+        // 2. Optional LOT filter
+        if (chartSelectedLot && chartSelectedLot !== "all" && r.lotNumber !== chartSelectedLot) {
+          return false;
+        }
+
+        // 3. Date range filter
+        const recDate = r.date.substring(0, 10);
+        if (chartStartDate && recDate < chartStartDate) return false;
+        if (chartEndDate && recDate > chartEndDate) return false;
+
+        return true;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [qcRecords, chartMachineSerial, chartSelectedLot, chartStartDate, chartEndDate]);
+
+  // Date range label
+  const dateRangeLabel = useMemo(() => {
+    if (!chartStartDate && !chartEndDate) return "ทุกช่วงเวลา (All time)";
+    if (chartStartDate && chartEndDate) {
+      return `${formatThaiDateOnly(chartStartDate)} ถึง ${formatThaiDateOnly(chartEndDate)}`;
+    }
+    if (chartStartDate) return `ตั้งแต่ ${formatThaiDateOnly(chartStartDate)}`;
+    return `จนถึง ${formatThaiDateOnly(chartEndDate)}`;
+  }, [chartStartDate, chartEndDate]);
+
+  // Machine Stats Calculations for LJ Chart
+  const getMachineStats = (records: QcRecord[], level: 1 | 2 | 3) => {
+    const values: number[] = [];
+    let outCount = 0;
+    records.forEach(r => {
+      const val = level === 1 ? Number(r.level1) : level === 2 ? Number(r.level2) : Number(r.level3);
+      const status = level === 1 ? r.level1Status : level === 2 ? r.level2Status : r.level3Status;
+      if (!isNaN(val) && val > 0) {
+        values.push(val);
+        if (status === "out_of_control") outCount++;
+      }
+    });
+
+    const n = values.length;
+    const refLot = (chartSelectedLot && chartSelectedLot !== "all")
+      ? chartSelectedLot
+      : records[records.length - 1]?.lotNumber || records[0]?.lotNumber || lotConfigs[0]?.lotNumber;
+    const config = lotConfigs.find(c => c.lotNumber === refLot);
+
+    const configTarget = config ? (level === 1 ? config.level1Target : level === 2 ? config.level2Target : config.level3Target) : 0;
+    const configSD = config ? (level === 1 ? config.level1SD : level === 2 ? config.level2SD : config.level3SD) : 0;
+
+    if (n === 0) {
+      return {
+        n: 0,
+        mean: configTarget,
+        sd: configSD || 1,
+        cv: 0,
+        outOfControlCount: 0,
+        target: configTarget,
+        targetSD: configSD || 1,
+        lotRef: refLot || "-"
+      };
+    }
+
+    const sum = values.reduce((acc, v) => acc + v, 0);
+    const mean = Math.round((sum / n) * 100) / 100;
+    let sd = 0;
+    if (n > 1) {
+      const variance = values.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (n - 1);
+      sd = Math.round(Math.sqrt(variance) * 100) / 100;
+    } else {
+      sd = configSD || 1;
+    }
+    const cv = mean > 0 ? Math.round((sd / mean) * 10000) / 100 : 0;
+
+    return {
+      n,
+      mean,
+      sd,
+      cv,
+      outOfControlCount: outCount,
+      target: configTarget || mean,
+      targetSD: configSD || sd || 1,
+      lotRef: refLot || "-"
+    };
+  };
+
+  const level1Stats = useMemo(() => getMachineStats(machineChartRecords, 1), [machineChartRecords, chartSelectedLot, lotConfigs]);
+  const level2Stats = useMemo(() => getMachineStats(machineChartRecords, 2), [machineChartRecords, chartSelectedLot, lotConfigs]);
+  const level3Stats = useMemo(() => getMachineStats(machineChartRecords, 3), [machineChartRecords, chartSelectedLot, lotConfigs]);
 
   // Filtered History Table records
   const tableRecords = useMemo(() => {
@@ -1153,7 +1537,7 @@ export default function QCManagement({
         setEditingLotIdx(null);
         setEditedLot(null);
       }
-      alert(`✓ ลบการตั้งค่าช่วงมาตรฐาน LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
+      alert(` ลบการตั้งค่าช่วงมาตรฐาน LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
     } catch (err: any) {
       console.error('Failed to delete lot config:', err);
       alert(`เกิดข้อผิดพลาดในการลบการตั้งค่า LOT: ${err?.message || err}`);
@@ -1261,7 +1645,7 @@ export default function QCManagement({
       onUpdateLotConfigs([...filtered, saved || toSave]);
       setEditingLotIdx(null);
       setEditedLot(null);
-      alert(`✓ บันทึกการตั้งค่า Target Range สำหรับ LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
+      alert(` บันทึกการตั้งค่า Target Range สำหรับ LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
     } catch (err: any) {
       console.error('Failed to save lot config:', err);
       alert(`เกิดข้อผิดพลาดในการบันทึก LOT Config: ${err?.message || err}`);
@@ -1270,74 +1654,528 @@ export default function QCManagement({
     }
   };
 
+  // CA Modal calculations
+  const caTargetLot = selectedQcForCa ? (lotConfigs.find(l => l.lotNumber === selectedQcForCa.lotNumber) || activeLotConfig) : activeLotConfig;
+  const evaluateCaVal = (valStr: string, min: number, max: number, target: number, sd: number) => {
+    if (!valStr || !valStr.trim()) return "empty";
+    const val = Number(valStr);
+    if (isNaN(val)) return "empty";
+    if (min !== undefined && max !== undefined && (min !== 0 || max !== 0)) {
+      return (val < min || val > max) ? "out_of_control" : "normal";
+    }
+    return (val < target - 3 * sd || val > target + 3 * sd) ? "out_of_control" : "normal";
+  };
+  const repL1Status = selectedQcForCa ? evaluateCaVal(caForm.repeatLevel1, caTargetLot?.level1Min || 0, caTargetLot?.level1Max || 0, caTargetLot?.level1Target || 0, caTargetLot?.level1SD || 1) : "empty";
+  const repL2Status = selectedQcForCa ? evaluateCaVal(caForm.repeatLevel2, caTargetLot?.level2Min || 0, caTargetLot?.level2Max || 0, caTargetLot?.level2Target || 0, caTargetLot?.level2SD || 1) : "empty";
+  const repL3Status = selectedQcForCa ? evaluateCaVal(caForm.repeatLevel3, caTargetLot?.level3Min || 0, caTargetLot?.level3Max || 0, caTargetLot?.level3Target || 0, caTargetLot?.level3SD || 1) : "empty";
+  const isRepeatComplete = Boolean(caForm.repeatLevel1.trim() && caForm.repeatLevel2.trim() && caForm.repeatLevel3.trim());
+  const isRepeatAllIn = isRepeatComplete && repL1Status === "normal" && repL2Status === "normal" && repL3Status === "normal";
+  const existingCa = selectedQcForCa?.correctiveAction;
+
+  const renderCaModal = () => {
+    if (!isCaModalOpen || !selectedQcForCa) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-800 text-xs overflow-y-auto max-h-[92vh]">
+          {/* Modal Header */}
+          <div className="flex items-start justify-between border-b border-slate-150 dark:border-slate-800 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                caViewMode === "report" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400" : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
+              }`}>
+                {caViewMode === "report" ? <CheckCircle2 size={24} /> : <ShieldAlert size={24} />}
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  {caViewMode === "report" ? "ใบบันทึกรายงานการทวนสอบและแก้ไขปัญหา (QC CA Report)" : "บันทึกทวนสอบและแก้ไข Out of Control (QC CA)"}
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  เครื่อง: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatMachineLabel(selectedQcForCa.serialNumber)}</strong> | วอร์ด: <strong>{selectedQcForCa.ward}</strong> | LOT: <span className="font-mono">{selectedQcForCa.lotNumber}</span>
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsCaModalOpen(false)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="ปิดหน้าต่าง"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* REPORT VIEW */}
+          {caViewMode === "report" && existingCa ? (
+            <div className="space-y-4">
+              {/* Summary Header Box */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">วันที่ตรวจพบปัญหา</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{selectedQcForCa.date}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">ผู้ตรวจรอบแรก</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-200">{selectedQcForCa.operator}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">ผู้บันทึกการทวนสอบ</span>
+                  <span className="font-bold text-amber-700 dark:text-amber-400">{existingCa.operator || operator || "-"}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block font-bold">สถานะการแก้ไข</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 mt-0.5">
+                     ดำเนินการแก้ไขแล้ว
+                  </span>
+                </div>
+              </div>
+
+              {/* Original vs Repeat Comparison */}
+              <div className="space-y-2">
+                <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center space-x-1.5">
+                  <Activity size={14} className="text-sky-600" />
+                  <span>ผลการตรวจเปรียบเทียบ (Original Out vs Repeat Test):</span>
+                </h4>
+
+                <div className="grid grid-cols-3 gap-2.5 text-center">
+                  {/* Level 1 */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 1 (Low)</span>
+                    <div className="text-[11px] text-slate-500">
+                      เดิม: <strong className={selectedQcForCa.level1Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level1}</strong>
+                    </div>
+                    <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                      <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
+                      <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
+                        {existingCa.repeatLevel1 || "-"}
+                      </span>
+                      {existingCa.repeatLevel1 && (
+                        <span className={`block text-[10px] font-extrabold mt-0.5 ${
+                          repL1Status === "normal" ? "text-emerald-600" : "text-rose-600"
+                        }`}>
+                          {repL1Status === "normal" ? " In Control" : " Out of Control"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Level 2 */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 2 (Normal)</span>
+                    <div className="text-[11px] text-slate-500">
+                      เดิม: <strong className={selectedQcForCa.level2Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level2}</strong>
+                    </div>
+                    <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                      <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
+                      <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
+                        {existingCa.repeatLevel2 || "-"}
+                      </span>
+                      {existingCa.repeatLevel2 && (
+                        <span className={`block text-[10px] font-extrabold mt-0.5 ${
+                          repL2Status === "normal" ? "text-emerald-600" : "text-rose-600"
+                        }`}>
+                          {repL2Status === "normal" ? " In Control" : " Out of Control"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Level 3 */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 3 (High)</span>
+                    <div className="text-[11px] text-slate-500">
+                      เดิม: <strong className={selectedQcForCa.level3Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level3}</strong>
+                    </div>
+                    <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                      <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
+                      <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
+                        {existingCa.repeatLevel3 || "-"}
+                      </span>
+                      {existingCa.repeatLevel3 && (
+                        <span className={`block text-[10px] font-extrabold mt-0.5 ${
+                          repL3Status === "normal" ? "text-emerald-600" : "text-rose-600"
+                        }`}>
+                          {repL3Status === "normal" ? " In Control" : " Out of Control"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4 Checklists Summary Grid */}
+              <div className="space-y-2">
+                <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center space-x-1.5">
+                  <CheckCircle2 size={14} className="text-emerald-600" />
+                  <span>ผลการทวนสอบเช็คลิสต์ 4 ด้าน:</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <span className="font-medium text-slate-700 dark:text-slate-300">1. แผ่นตรวจ (Test Strip):</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                       ปกติ ไม่หมดอายุ
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <span className="font-medium text-slate-700 dark:text-slate-300">2. น้ำยาควบคุม (Control):</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                       ปกติ ไม่หมดอายุ
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <span className="font-medium text-slate-700 dark:text-slate-300">3. ระยะเวลาเปิดใช้ขวดน้ำยา:</span>
+                    <span className="font-mono font-extrabold text-slate-800 dark:text-slate-200">
+                      {existingCa.openDays !== undefined ? existingCa.openDays : (existingCa.controlOpenDays || 0)} วัน (เกณฑ์ ≤ 90 วัน)
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                    <span className="font-medium text-slate-700 dark:text-slate-300">4. สภาพตัวเครื่อง / ช่องเสียบ:</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                       สะอาด ทำงานปกติ
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Root Cause & Corrective Action Display */}
+              <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 space-y-2.5">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-amber-800 dark:text-amber-400 block">สาเหตุของปัญหา (Root Cause):</span>
+                  <p className="font-bold text-slate-900 dark:text-white text-xs mt-0.5">
+                    {existingCa.probableCause || "ไม่ได้ระบุสาเหตุ"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase text-amber-800 dark:text-amber-400 block">การดำเนินการแก้ไขและการป้องกัน (Corrective / Preventive Action):</span>
+                  <p className="text-slate-700 dark:text-slate-200 text-xs whitespace-pre-wrap mt-0.5 font-medium">
+                    {existingCa.correctiveActionNote || "ไม่มีหมายเหตุเพิ่มเติม"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCaViewMode("edit")}
+                  className="px-4 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-extrabold text-xs cursor-pointer transition-all flex items-center space-x-1.5"
+                >
+                  <span>️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCaModalOpen(false)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs cursor-pointer transition-all"
+                >
+                  ปิดหน้าต่างรายงาน
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* EDIT / INPUT FORM VIEW */
+            <form onSubmit={handleSaveCa} className="space-y-4">
+              <div className="space-y-3 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs mb-1">1. การทวนสอบเช็คลิสต์ 4 ด้าน:</h4>
+                <div className="space-y-2.5">
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
+                    <input
+                      type="checkbox"
+                      checked={caForm.stripExpNormal}
+                      onChange={(e) => setCaForm({ ...caForm, stripExpNormal: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="font-bold text-slate-700 dark:text-slate-300">แผ่นตรวจ (Test Strip) ปกติ (ไม่หมดอายุ / เก็บรักษาถูกต้อง)</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
+                    <input
+                      type="checkbox"
+                      checked={caForm.controlExpNormal}
+                      onChange={(e) => setCaForm({ ...caForm, controlExpNormal: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="font-bold text-slate-700 dark:text-slate-300">น้ำยาควบคุม (Control Solution) ปกติ (ไม่หมดอายุ)</span>
+                  </label>
+
+                  <div className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-1">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 text-[11px]">ระยะเวลาน้ำยาตั้งแต่เปิดใช้ (วัน):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="365"
+                      value={caForm.controlOpenDays ?? 0}
+                      onChange={(e) => setCaForm({ ...caForm, controlOpenDays: Number(e.target.value) })}
+                      className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-xs"
+                      placeholder="เช่น 15 วัน (กำหนดเปิดใช้ไม่เกิน 90 วัน)"
+                    />
+                  </div>
+
+                  <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
+                    <input
+                      type="checkbox"
+                      checked={caForm.machineConditionClean}
+                      onChange={(e) => setCaForm({ ...caForm, machineConditionClean: e.target.checked })}
+                      className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="font-bold text-slate-700 dark:text-slate-300">สภาพตัวเครื่องและช่องใส่แถบตรวจสะอาด / ทำงานปกติ</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Repeat Test with Real-time In/Out Detection */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800 dark:text-slate-200">2. ผลการทดสอบซ้ำ (Repeat Test หลังแก้ไข):</label>
+                  {isRepeatComplete && (
+                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                      isRepeatAllIn 
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300" 
+                        : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 animate-pulse"
+                    }`}>
+                      {isRepeatAllIn ? " ผ่านเกณฑ์ In Control" : " ยังคง Out of Control"}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className={`p-2.5 rounded-xl border transition-all ${
+                    repL1Status === "normal"
+                      ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                      : repL1Status === "out_of_control"
+                        ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                  }`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-slate-500">Level 1 (Low)</span>
+                      {repL1Status === "normal" && <span className="text-[9px] font-black text-emerald-600"> In</span>}
+                      {repL1Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600"> Out</span>}
+                    </div>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={caForm.repeatLevel1 || ""}
+                      onChange={(e) => setCaForm({ ...caForm, repeatLevel1: e.target.value })}
+                      className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
+                      placeholder="ค่าซ้ำ L1"
+                    />
+                    {caTargetLot && (
+                      <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level1Min} - {caTargetLot.level1Max}</span>
+                    )}
+                  </div>
+
+                  <div className={`p-2.5 rounded-xl border transition-all ${
+                    repL2Status === "normal"
+                      ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                      : repL2Status === "out_of_control"
+                        ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                  }`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-slate-500">Level 2 (Normal)</span>
+                      {repL2Status === "normal" && <span className="text-[9px] font-black text-emerald-600"> In</span>}
+                      {repL2Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600"> Out</span>}
+                    </div>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={caForm.repeatLevel2 || ""}
+                      onChange={(e) => setCaForm({ ...caForm, repeatLevel2: e.target.value })}
+                      className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
+                      placeholder="ค่าซ้ำ L2"
+                    />
+                    {caTargetLot && (
+                      <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level2Min} - {caTargetLot.level2Max}</span>
+                    )}
+                  </div>
+
+                  <div className={`p-2.5 rounded-xl border transition-all ${
+                    repL3Status === "normal"
+                      ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
+                      : repL3Status === "out_of_control"
+                        ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
+                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                  }`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-slate-500">Level 3 (High)</span>
+                      {repL3Status === "normal" && <span className="text-[9px] font-black text-emerald-600"> In</span>}
+                      {repL3Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600"> Out</span>}
+                    </div>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={caForm.repeatLevel3 || ""}
+                      onChange={(e) => setCaForm({ ...caForm, repeatLevel3: e.target.value })}
+                      className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
+                      placeholder="ค่าซ้ำ L3"
+                    />
+                    {caTargetLot && (
+                      <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level3Min} - {caTargetLot.level3Max}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">3. สรุปสาเหตุที่น่าจะเป็นของความผิดปกติ (Probable Cause):</label>
+                <select
+                  value={caForm.probableCause || ""}
+                  onChange={(e) => setCaForm({ ...caForm, probableCause: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-white"
+                >
+                  <option value="น้ำยาควบคุมเสื่อมสภาพ/หมดอายุ">น้ำยาควบคุมเสื่อมสภาพ / หมดอายุ / เปิดใช้นานเกินกำหนด</option>
+                  <option value="แถบตรวจชื้นหรือเสื่อมสภาพ">แถบตรวจ (Test Strip) ชื้นหรือเสื่อมสภาพ</option>
+                  <option value="ช่องใส่แถบตรวจสกปรก">ช่องใส่แถบตรวจ (Strip Holder) มีคราบสกปรก</option>
+                  <option value="เทคนิคการปิเปตหรือหยดน้ำยาไม่ถูกต้อง">เทคนิคการหยดน้ำยาหรือการผสมไม่ถูกต้อง</option>
+                  <option value="เครื่องวัดน้ำตาลผิดปกติ">ตัวเครื่องวัดน้ำตาลผิดปกติ / แบตเตอรี่อ่อน</option>
+                  <option value="ปัจจัยอุณหภูมิสิ่งแวดล้อม">ปัจจัยอุณหภูมิ / ความชื้นในห้องตรวจ</option>
+                  <option value="อื่นๆ">อื่นๆ (ระบุในหมายเหตุ)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">4. หมายเหตุ / การดำเนินการแก้ไข (Corrective Action Note):</label>
+                <textarea
+                  rows={3}
+                  value={caForm.correctiveActionNote || ""}
+                  onChange={(e) => setCaForm({ ...caForm, correctiveActionNote: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-white"
+                  placeholder="ระบุรายละเอียดการแก้ไข เช่น เปลี่ยนขวดน้ำยาใหม่, ทำความสะอาดเครื่อง, ทดสอบซ้ำผ่านแล้ว..."
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => existingCa ? setCaViewMode("report") : setIsCaModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs cursor-pointer transition-all"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center space-x-1.5"
+                >
+                  <span>บันทึกผลการทวนสอบ (CA)</span>
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6" id="qc-management-redesigned">
       
-      {/* Top Header & Navigation Tabs */}
-      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-extrabold text-slate-800 flex items-center space-x-2">
-            <Activity size={20} className="text-sky-600" />
-            <span>ระบบควบคุมคุณภาพภายใน (IQC 3-Level POCT)</span>
-          </h2>
+      {/* Unified Clean Header & Navigation Bar */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-sky-50 dark:bg-sky-950 text-sky-600 dark:text-sky-300 border border-sky-200 dark:border-sky-800 flex items-center justify-center font-black shrink-0 shadow-2xs">
+              <Activity size={20} className="text-sky-600 dark:text-sky-300" />
+            </div>
+            <div>
+              <h2 className="text-base font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <span>ควบคุมคุณภาพภายใน (IQC POCT)</span>
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                  3 LEVELS
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                บันทึกและประเมินผล QC รายวัน พร้อมวิเคราะห์กราฟ Levey-Jennings และเปรียบเทียบระหว่างเครื่อง
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 self-start sm:self-auto text-xs font-bold text-slate-500 font-mono">
+            <span className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              {qcRecords.length} ผลตรวจ
+            </span>
+            <span className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              {machines.length} เครื่อง DTX
+            </span>
+          </div>
         </div>
 
-        {/* Tab Buttons Navigation Header */}
-        <div className="w-full space-y-2">
-          {/* Mobile Dropdown Navigation */}
-          <div className="sm:hidden w-full">
-            <select
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value as any)}
-              className="w-full px-3 py-2.5 bg-slate-100 border border-slate-300 rounded-xl text-xs font-extrabold text-slate-800 outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer shadow-xs"
-            >
-              <option value="batch">📋 1. กรอกผลเป็นชุด (Batch Grid)</option>
-              <option value="history">📈 2. ประวัติ IQC & กราฟ Levey-Jennings ({qcRecords.length})</option>
-              <option value="config">⚙️ 3. ตั้งค่า LOT Strip & Target Range</option>
-            </select>
-          </div>
+        {/* Mobile Dropdown Navigation */}
+        <div className="sm:hidden w-full">
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as QcTab)}
+            className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer shadow-xs"
+          >
+            <option value="batch"> บันทึกผล QC</option>
+            <option value="chart"> กราฟเดี่ยว LJ</option>
+            <option value="comparison"> เปรียบเทียบกลุ่ม (Peer)</option>
+            <option value="table"> ประวัติผลตรวจ</option>
+            <option value="config">️ ตั้งค่า LOT</option>
+          </select>
+        </div>
 
-          {/* Desktop 3-Column Grid Navigation */}
-          <div className="hidden sm:grid grid-cols-3 gap-2 p-1.5 bg-slate-100/90 rounded-2xl border border-slate-200/90 w-full shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setActiveTab('batch')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center space-x-2 cursor-pointer text-center ${
-                activeTab === 'batch'
-                  ? 'bg-sky-600 text-white shadow-xs ring-1 ring-sky-500'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
-            >
-              <TableProperties size={15} className="shrink-0" />
-              <span className="truncate">1. กรอกผลเป็นชุด</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('history')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center space-x-2 cursor-pointer text-center ${
-                activeTab === 'history'
-                  ? 'bg-sky-600 text-white shadow-xs ring-1 ring-sky-500'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
-            >
-              <BarChart3 size={15} className="shrink-0" />
-              <span className="truncate">2. ประวัติ IQC & กราฟ LJ ({qcRecords.length})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('config')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center space-x-2 cursor-pointer text-center ${
-                activeTab === 'config'
-                  ? 'bg-amber-600 text-white shadow-xs ring-1 ring-amber-500'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
-            >
-              <Settings size={15} className="shrink-0" />
-              <span className="truncate">3. Setting Range by LOT</span>
-            </button>
-          </div>
+        {/* Desktop Clean Segmented Tabs (Minimalist, Crisp & Modern) */}
+        <div className="hidden sm:flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-xl border border-slate-200 dark:border-slate-700/80 w-full overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setActiveTab('batch')}
+            className={`flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+              activeTab === 'batch'
+                ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs ring-1 ring-slate-200 dark:ring-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            <TableProperties size={14} className="shrink-0" />
+            <span>บันทึกผล QC</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('chart')}
+            className={`flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+              activeTab === 'chart'
+                ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs ring-1 ring-slate-200 dark:ring-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            <BarChart3 size={14} className="shrink-0" />
+            <span>กราฟเดี่ยว LJ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('comparison')}
+            className={`flex-1 min-w-[130px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+              activeTab === 'comparison'
+                ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs ring-1 ring-slate-200 dark:ring-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            <TrendingUp size={14} className="shrink-0" />
+            <span>เปรียบเทียบกลุ่ม (Peer)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('table')}
+            className={`flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+              activeTab === 'table'
+                ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs ring-1 ring-slate-200 dark:ring-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            <FileSpreadsheet size={14} className="shrink-0" />
+            <span>ประวัติผลตรวจ</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('config')}
+            className={`flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
+              activeTab === 'config'
+                ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs ring-1 ring-slate-200 dark:ring-slate-700'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            <Settings size={14} className="shrink-0" />
+            <span>ตั้งค่า LOT</span>
+          </button>
         </div>
       </div>
 
@@ -1426,7 +2264,7 @@ export default function QCManagement({
               <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs flex items-start gap-2.5 text-rose-900 animate-pulse">
                 <AlertOctagon size={16} className="text-rose-600 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <strong className="block font-black">⛔ คำเตือน: Control {selectedLot} หมดอายุแล้ว!</strong>
+                  <strong className="block font-black"> คำเตือน: Control {selectedLot} หมดอายุแล้ว!</strong>
                   <p className="text-[11px] text-rose-700">
                     หมดอายุเมื่อ {selectedLotExpInfo.effectiveExpDate} (เกินมา {Math.abs(selectedLotExpInfo.daysRemaining || 0)} วัน) กรุณาตรวจสอบหรือเปลี่ยนขวดใหม่
                   </p>
@@ -1437,7 +2275,7 @@ export default function QCManagement({
               <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs flex items-start gap-2.5 text-amber-900">
                 <Clock size={16} className="text-amber-600 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <strong className="block font-bold">⚠️ แจ้งเตือน: Control {selectedLot} ใกล้หมดอายุ</strong>
+                  <strong className="block font-bold">️ แจ้งเตือน: Control {selectedLot} ใกล้หมดอายุ</strong>
                   <p className="text-[11px] text-amber-700">
                     จะหมดอายุในอีก {selectedLotExpInfo.daysRemaining} วัน (วันที่ {selectedLotExpInfo.effectiveExpDate}) กรุณาเตรียมเบิกขวด LOT ใหม่
                   </p>
@@ -1572,7 +2410,7 @@ export default function QCManagement({
                         const exp = calculateLotExpInfo(cfg);
                         return (
                           <option key={idx} value={cfg.lotNumber}>
-                            {cfg.lotNumber} {exp.status === 'expired' ? '(⛔ หมดอายุ)' : exp.status === 'critical' || exp.status === 'warning' ? `(⚠️ เหลือ ${exp.daysRemaining} วัน)` : ''}
+                            {cfg.lotNumber} {exp.status === 'expired' ? '( หมดอายุ)' : exp.status === 'critical' || exp.status === 'warning' ? `(️ เหลือ ${exp.daysRemaining} วัน)` : ''}
                           </option>
                         );
                       })}
@@ -1751,7 +2589,7 @@ export default function QCManagement({
                 </h4>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('history')}
+                  onClick={() => setActiveTab('table')}
                   className="text-[11px] font-bold text-sky-600 hover:text-sky-800 hover:underline"
                 >
                   ดูทั้งหมด →
@@ -1908,17 +2746,7 @@ export default function QCManagement({
 
               {/* Quick Helper Tools */}
               <div className="flex items-center gap-2 flex-wrap">
-                {activeLotConfig && (
-                  <button
-                    type="button"
-                    onClick={() => handleBatchFillSample(activeLotConfig.level1Target, activeLotConfig.level2Target, activeLotConfig.level3Target)}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-bold flex items-center space-x-1 cursor-pointer transition-all"
-                    title="กรอกค่า Target เป็นค่าเริ่มต้นลงในเครื่องที่เลือก"
-                  >
-                    <Sparkles size={13} className="text-amber-500" />
-                    <span>เติมค่า Target อัตโนมัติ</span>
-                  </button>
-                )}
+                
 
                 <button
                   type="button"
@@ -1960,6 +2788,8 @@ export default function QCManagement({
             </div>
           )}
 
+
+
           {/* Spreadsheet Table Grid */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
@@ -1969,9 +2799,10 @@ export default function QCManagement({
                     <th className="py-3 px-3.5 w-10 text-center">
                       <input
                         type="checkbox"
-                        checked={filteredBatchRows.length > 0 && filteredBatchRows.every(r => r.selected)}
-                        onChange={(e) => handleToggleSelectAllBatch(e.target.checked)}
+                        checked={paginatedBatchRows.length > 0 && paginatedBatchRows.every(r => r.selected)}
+                        onChange={(e) => handleToggleSelectCurrentBatchPage(e.target.checked)}
                         className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                        title="เลือก/ยกเลิก ทั้งหมดในหน้านี้"
                       />
                     </th>
                     <th className="py-3 px-3.5 w-12 text-center">#</th>
@@ -2043,7 +2874,7 @@ export default function QCManagement({
                   {/* Header Column Filters Row */}
                   <tr className="bg-slate-100/90 border-b border-slate-200">
                     <td className="py-1.5 px-2 text-center text-[10px] text-slate-400 font-bold">กรอง:</td>
-                    <td className="py-1.5 px-2 text-center text-[10px] text-slate-400 font-mono">🔍</td>
+                    <td className="py-1.5 px-2 text-center text-[10px] text-slate-400 font-mono"></td>
                     <td className="py-1.5 px-2">
                       <input
                         type="text"
@@ -2096,8 +2927,8 @@ export default function QCManagement({
                         className="w-full text-[11px] px-1.5 py-1 rounded-lg border border-slate-200 bg-white font-bold cursor-pointer"
                       >
                         <option value="all">ทุกสถานะ</option>
-                        <option value="in_control">✓ In Control</option>
-                        <option value="out_control">⚠️ Out Control</option>
+                        <option value="in_control"> In Control</option>
+                        <option value="out_control">️ Out Control</option>
                       </select>
                     </td>
                   </tr>
@@ -2110,7 +2941,8 @@ export default function QCManagement({
                       </td>
                     </tr>
                   ) : (
-                    filteredBatchRows.map((row, idx) => {
+                    paginatedBatchRows.map((row, idx) => {
+                      const globalIdx = (batchPage - 1) * effectiveBatchPageSize + idx + 1;
                       const l1Status = evaluateValue(row.level1, activeLotConfig?.level1Min || 0, activeLotConfig?.level1Max || 0, activeLotConfig?.level1Target || 0, activeLotConfig?.level1SD || 1);
                       const l2Status = evaluateValue(row.level2, activeLotConfig?.level2Min || 0, activeLotConfig?.level2Max || 0, activeLotConfig?.level2Target || 0, activeLotConfig?.level2SD || 1);
                       const l3Status = evaluateValue(row.level3, activeLotConfig?.level3Min || 0, activeLotConfig?.level3Max || 0, activeLotConfig?.level3Target || 0, activeLotConfig?.level3SD || 1);
@@ -2140,7 +2972,7 @@ export default function QCManagement({
                               className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
                             />
                           </td>
-                          <td className="py-2 px-3.5 text-center text-slate-400 text-[11px] font-mono">{idx + 1}</td>
+                          <td className="py-2 px-3.5 text-center text-slate-400 text-[11px] font-mono">{globalIdx}</td>
                           <td className="py-2 px-3.5 text-slate-900 font-bold">{row.ward}</td>
                           <td className="py-2 px-3.5 text-sky-800 font-mono font-bold" title={`CODE: ${row.serialNumber}`}>{formatMachineLabel(row.serialNumber)}</td>
                           
@@ -2223,13 +3055,65 @@ export default function QCManagement({
               </table>
             </div>
 
-            {/* Bottom Submit Action Bar */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="text-xs text-slate-600">
-                พร้อมบันทึก: <strong className="text-sky-700">{batchRows.filter(r => r.selected && r.level1.trim() && r.level2.trim() && r.level3.trim()).length}</strong> จาก {batchRows.filter(r => r.selected).length} เครื่องที่เลือก
+            {/* Bottom Submit Action Bar with Clean Minimalist Pagination */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3 flex-wrap text-slate-600">
+                <div>
+                  แสดงเครื่องที่ <strong className="font-mono text-slate-800">{(batchPage - 1) * effectiveBatchPageSize + 1} - {Math.min(batchPage * effectiveBatchPageSize, filteredBatchRows.length)}</strong> จากทั้งหมด <strong className="font-mono text-slate-800">{filteredBatchRows.length}</strong> เครื่อง
+                </div>
+                <div className="text-slate-300">|</div>
+                <div>
+                  พร้อมบันทึก: <strong className="text-sky-700 font-mono font-bold">{batchRows.filter(r => r.selected && r.level1.trim() && r.level2.trim() && r.level3.trim()).length}</strong> จาก {batchRows.filter(r => r.selected).length} เครื่อง
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Page Size & Navigation */}
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1 text-slate-500 font-medium">
+                    <span>แสดง:</span>
+                    <CustomSelect
+                      value={String(batchPageSize)}
+                      onChange={(e) => {
+                        setBatchPageSize(Number(e.target.value));
+                        setBatchPage(1);
+                      }}
+                      className="text-xs py-1 px-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-700"
+                    >
+                      <option value="10">10 เครื่อง</option>
+                      <option value="15">15 เครื่อง</option>
+                      <option value="20">20 เครื่อง</option>
+                      <option value="0">ทั้งหมด ({filteredBatchRows.length})</option>
+                    </CustomSelect>
+                  </div>
+
+                  {totalBatchPages > 1 && (
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        disabled={batchPage <= 1}
+                        onClick={() => setBatchPage(p => Math.max(1, p - 1))}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                        title="หน้าก่อนหน้า"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 shadow-2xs font-mono">
+                        {batchPage} / {totalBatchPages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={batchPage >= totalBatchPages}
+                        onClick={() => setBatchPage(p => Math.min(totalBatchPages, p + 1))}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-30 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                        title="หน้าถัดไป"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   disabled={isSubmittingBatch || batchRows.filter(r => r.selected && r.level1.trim() && r.level2.trim() && r.level3.trim()).length === 0}
@@ -2256,831 +3140,965 @@ export default function QCManagement({
         </div>
       )}
 
-      {/* VIEW 2: QC RECORDS HISTORY TABLE & EXPANDABLE LEVEY-JENNINGS CHART */}
-      {activeTab === 'history' && (
-        <div className="space-y-6" id="qc-history-view">
-          
-          {/* Header Bar with Toggle LJ Chart Button */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-black shrink-0">
-                <BarChart3 size={20} />
-              </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-800">
-                  ประวัติผลตรวจ IQC & กราฟควบคุมคุณภาพ Levey-Jennings
-                </h3>
-                <p className="text-xs text-slate-500 font-medium">
-                  แสดงตารางประวัติผลตรวจย้อนหลัง พร้อมเครื่องมือขยายดูวิเคราะห์กราฟ LJ Chart & สถิติ (Mean, SD, CV%)
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowLJChartSection(!showLJChartSection)}
-              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center space-x-2 transition-all cursor-pointer shadow-xs ${
-                showLJChartSection 
-                  ? 'bg-slate-800 text-white hover:bg-slate-700' 
-                  : 'bg-sky-600 hover:bg-sky-500 text-white shadow-sky-500/20'
-              }`}
-            >
-              <BarChart3 size={15} />
-              <span>{showLJChartSection ? '▲ ซ่อนกราฟ LJ Chart' : '📈 แสดงกราฟ LJ Chart & สถิติ'}</span>
-            </button>
-          </div>
-
-          {/* Expandable LJ Chart Section */}
-          {showLJChartSection && (
-            <div className="space-y-6 bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 animate-fade-in">
-              
-              {/* Chart Filter Controls */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center space-x-1 font-bold text-slate-700">
-                <Filter size={14} className="text-sky-600" />
-                <span>ตัวกรองกราฟ:</span>
-              </div>
-
-              {/* Month */}
-              <div className="flex items-center space-x-1">
-                <span className="text-slate-500 font-medium">เดือน:</span>
-                <CustomSelect
-                  value={filterMonth}
-                  onChange={(e) => setFilterMonth(e.target.value)}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
-                >
-                  <option value="">-- ทุกเดือน --</option>
-                  {availableMonths.map((m, idx) => (
-                    <option key={idx} value={m}>{m}</option>
-                  ))}
-                </CustomSelect>
-              </div>
-
-              {/* Ward */}
-              <div className="flex items-center space-x-1">
-                <span className="text-slate-500 font-medium">หน่วยงาน:</span>
-                <CustomSelect
-                  value={filterWard}
-                  onChange={(e) => setFilterWard(e.target.value)}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[150px]"
-                >
-                  <option value="">-- ทุกหน่วยงาน --</option>
-                  {wards.map((w, idx) => (
-                    <option key={idx} value={w.thai_name}>{w.thai_name}</option>
-                  ))}
-                </CustomSelect>
-              </div>
-
-              {/* Lot */}
-              <div className="flex items-center space-x-1">
-                <span className="text-slate-500 font-medium">LOT:</span>
-                <CustomSelect
-                  value={filterLot}
-                  onChange={(e) => setFilterLot(e.target.value)}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
-                >
-                  {lotConfigs.map((c, idx) => (
-                    <option key={idx} value={c.lotNumber}>{c.lotNumber}</option>
-                  ))}
-                </CustomSelect>
-              </div>
-            </div>
-
-            {/* Level Toggle Chips */}
-            <div className="flex items-center space-x-2">
-              <span className="text-[11px] font-bold text-slate-500">แสดงระดับ:</span>
-              <button
-                type="button"
-                onClick={() => toggleLevel(1)}
-                className={`px-2.5 py-1 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all ${
-                  activeLevels[1] ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-white text-slate-400 border-slate-200'
-                }`}
-              >
-                Level 1 (Low)
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleLevel(2)}
-                className={`px-2.5 py-1 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all ${
-                  activeLevels[2] ? 'bg-sky-50 text-sky-800 border-sky-300' : 'bg-white text-slate-400 border-slate-200'
-                }`}
-              >
-                Level 2 (Normal)
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleLevel(3)}
-                className={`px-2.5 py-1 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all ${
-                  activeLevels[3] ? 'bg-purple-50 text-purple-800 border-purple-300' : 'bg-white text-slate-400 border-slate-200'
-                }`}
-              >
-                Level 3 (High)
-              </button>
-            </div>
-          </div>
-
-          {/* 3 Level Stats Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            
-            {/* Level 1 Stats Card */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-md">
-                  Level 1 (Low)
-                </span>
-                <span className="text-[10px] font-bold text-slate-400">N = {level1Stats.n}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center py-1">
-                <div>
-                  <span className="text-[10px] text-slate-400 block">Mean</span>
-                  <span className="text-sm font-extrabold text-slate-900">{level1Stats.mean}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">S.D.</span>
-                  <span className="text-sm font-extrabold text-slate-900">{level1Stats.sd}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">C.V.%</span>
-                  <span className={`text-sm font-extrabold ${level1Stats.cv > 10 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                    {level1Stats.cv}%
-                  </span>
-                </div>
-              </div>
-              <div className="text-[10px] pt-1.5 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-slate-400">หลุดเกณฑ์ 3SD:</span>
-                {level1Stats.outOfControlCount > 0 ? (
-                  <span className="text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded">
-                    {level1Stats.outOfControlCount} ครั้ง
-                  </span>
-                ) : (
-                  <span className="text-emerald-600 font-bold">0 ครั้ง (ปกติ)</span>
-                )}
-              </div>
-            </div>
-
-            {/* Level 2 Stats Card */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold text-sky-800 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-md">
-                  Level 2 (Normal)
-                </span>
-                <span className="text-[10px] font-bold text-slate-400">N = {level2Stats.n}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center py-1">
-                <div>
-                  <span className="text-[10px] text-slate-400 block">Mean</span>
-                  <span className="text-sm font-extrabold text-slate-900">{level2Stats.mean}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">S.D.</span>
-                  <span className="text-sm font-extrabold text-slate-900">{level2Stats.sd}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">C.V.%</span>
-                  <span className={`text-sm font-extrabold ${level2Stats.cv > 8 ? 'text-rose-600' : 'text-sky-600'}`}>
-                    {level2Stats.cv}%
-                  </span>
-                </div>
-              </div>
-              <div className="text-[10px] pt-1.5 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-slate-400">หลุดเกณฑ์ 3SD:</span>
-                {level2Stats.outOfControlCount > 0 ? (
-                  <span className="text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded">
-                    {level2Stats.outOfControlCount} ครั้ง
-                  </span>
-                ) : (
-                  <span className="text-emerald-600 font-bold">0 ครั้ง (ปกติ)</span>
-                )}
-              </div>
-            </div>
-
-            {/* Level 3 Stats Card */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded-md">
-                  Level 3 (High)
-                </span>
-                <span className="text-[10px] font-bold text-slate-400">N = {level3Stats.n}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center py-1">
-                <div>
-                  <span className="text-[10px] text-slate-400 block">Mean</span>
-                  <span className="text-sm font-extrabold text-slate-900">{level3Stats.mean}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">S.D.</span>
-                  <span className="text-sm font-extrabold text-slate-900">{level3Stats.sd}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">C.V.%</span>
-                  <span className={`text-sm font-extrabold ${level3Stats.cv > 8 ? 'text-rose-600' : 'text-purple-600'}`}>
-                    {level3Stats.cv}%
-                  </span>
-                </div>
-              </div>
-              <div className="text-[10px] pt-1.5 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-slate-400">หลุดเกณฑ์ 3SD:</span>
-                {level3Stats.outOfControlCount > 0 ? (
-                  <span className="text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded">
-                    {level3Stats.outOfControlCount} ครั้ง
-                  </span>
-                ) : (
-                  <span className="text-emerald-600 font-bold">0 ครั้ง (ปกติ)</span>
-                )}
-              </div>
-            </div>
-
-          </div>
-
-          {/* SVG Levey-Jennings Plot */}
-          {(() => {
-            const currentLotConfig = lotConfigs.find(c => c.lotNumber === filterLot);
-            const filteredChartRecords = qcRecords
-              .filter(r =>
-                r.lotNumber === filterLot &&
-                (filterWard === '' || r.ward === filterWard) &&
-                (filterMonth === '' || r.date.startsWith(filterMonth))
-              )
-              .sort((a, b) => a.date.localeCompare(b.date));
-
-            if (!currentLotConfig) {
-              return (
-                <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
-                  <p className="text-xs text-slate-400">ไม่พบข้อมูล LOT {filterLot} ในระบบ</p>
-                </div>
-              );
-            }
-
-            const levelDefs = [
-              { level: 1, key: 'L1', label: 'Level 1 (Low)', dataKey: 'level1' as const, color: '#10b981', stats: level1Stats, target: currentLotConfig.level1Target, sd: currentLotConfig.level1SD },
-              { level: 2, key: 'L2', label: 'Level 2 (Normal)', dataKey: 'level2' as const, color: '#0284c7', stats: level2Stats, target: currentLotConfig.level2Target, sd: currentLotConfig.level2SD },
-              { level: 3, key: 'L3', label: 'Level 3 (High)', dataKey: 'level3' as const, color: '#9333ea', stats: level3Stats, target: currentLotConfig.level3Target, sd: currentLotConfig.level3SD },
-            ];
-
-            const activeDefs = levelDefs.filter(d => activeLevels[d.level]);
-
-            if (filteredChartRecords.length === 0) {
-              return (
-                <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
-                  <BarChart3 size={36} className="mx-auto text-slate-300 mb-2" />
-                  <p className="text-xs font-bold text-slate-600">ไม่มีข้อมูลบันทึก QC ของ LOT {filterLot} ตามตัวกรองที่ระบุ</p>
-                  <p className="text-[11px] text-slate-400 mt-1">กรุณาลงผลตรวจ QC ที่แท็บ "ลงผลตรวจด่วน" หรือเปลี่ยนตัวกรอง</p>
-                </div>
-              );
-            }
-
-            // Calculate SVG bounding box ranges
-            let rangeMin = Infinity;
-            let rangeMax = -Infinity;
-
-            activeDefs.forEach(d => {
-              const target = d.stats.mean || d.target;
-              const sd = d.stats.sd || d.sd || 1;
-              const minVal = target - 3.5 * sd;
-              const maxVal = target + 3.5 * sd;
-              if (minVal < rangeMin) rangeMin = minVal;
-              if (maxVal > rangeMax) rangeMax = maxVal;
-            });
-
-            if (!isFinite(rangeMin) || !isFinite(rangeMax) || rangeMin === rangeMax) {
-              rangeMin = 0;
-              rangeMax = 400;
-            }
-
-            const width = 860;
-            const height = 360;
-            const paddingLeft = 70;
-            const paddingRight = 60;
-            const paddingTop = 30;
-            const paddingBottom = 45;
-
-            const plotWidth = width - paddingLeft - paddingRight;
-            const plotHeight = height - paddingTop - paddingBottom;
-
-            const getX = (idx: number) => {
-              if (filteredChartRecords.length <= 1) return paddingLeft + plotWidth / 2;
-              return paddingLeft + (idx / (filteredChartRecords.length - 1)) * plotWidth;
-            };
-
-            const getY = (val: number) => {
-              const fraction = (val - rangeMin) / (rangeMax - rangeMin);
-              return paddingTop + plotHeight - fraction * plotHeight;
-            };
-
-            return (
-              <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm space-y-4 relative">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-100 pb-3">
-                  <div>
-                    <h3 className="font-extrabold text-slate-800">
-                      กราฟควบคุมคุณภาพ Levey-Jennings Plot (LOT {filterLot})
-                    </h3>
-                    <p className="text-[11px] text-slate-400">
-                      แสดงจุดข้อมูล {filteredChartRecords.length} จุด พร้อมเส้น Mean และเกณฑ์ Standard Deviation (SD)
-                    </p>
+      {/* VIEW 2: LEVEY-JENNINGS GRAPH VIEW */}
+      {activeTab === 'chart' && (
+        <div
+          ref={chartContainerRef}
+          className="space-y-6 bg-slate-50/70 p-4 sm:p-5 rounded-2xl border border-slate-200/80 animate-fade-in relative"
+        >
+              {/* Floating Flank Stepper Navigation: Frosted Glass Arrows outside Content Area (Never overlaps sidebar & follows scroll) */}
+              {filteredChartMachines.length > 1 && (
+                <>
+                  {/* Left Flank Button: Fixed at viewport center, follows scroll, never overlaps sidebar */}
+                  <div
+                    style={{
+                      left: `${navPositions.leftX}px`,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                    }}
+                    className={`fixed z-40 transition-opacity duration-200 ${
+                      navPositions.visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={handlePrevMachine}
+                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border border-slate-200/90 dark:border-white/20 shadow-lg hover:shadow-xl hover:bg-white/95 dark:hover:bg-slate-800/95 text-slate-700 dark:text-slate-200 hover:text-sky-600 flex items-center justify-center hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                      title={`เครื่องก่อนหน้า: ${prevMachineObj?.serialNumber || ""} (หรือกดปุ่ม ← บนคีย์บอร์ด)`}
+                    >
+                      <ChevronLeft size={24} className="-ml-0.5" />
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {activeDefs.map(d => (
-                      <span key={d.level} className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700">
-                        <span className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: d.color }} />
-                        {d.label} (Mean: {Math.round(d.stats.mean)})
+                  {/* Right Flank Button: Fixed at viewport center, follows scroll, stays outside right border */}
+                  <div
+                    style={{
+                      left: `${navPositions.rightX}px`,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                    }}
+                    className={`fixed z-40 transition-opacity duration-200 ${
+                      navPositions.visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={handleNextMachine}
+                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border border-slate-200/90 dark:border-white/20 shadow-lg hover:shadow-xl hover:bg-white/95 dark:hover:bg-slate-800/95 text-slate-700 dark:text-slate-200 hover:text-sky-600 flex items-center justify-center hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                      title={`เครื่องถัดไป: ${nextMachineObj?.serialNumber || ""} (หรือกดปุ่ม → บนคีย์บอร์ด)`}
+                    >
+                      <ChevronRight size={24} className="-mr-0.5" />
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Chart Filter Controls: Clean & Well-Organized Block (จัดเรียงเป็นระเบียบ) */}
+              <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4 text-xs">
+                {/* Block 1: Combo Selection (หน่วยงาน, เครื่องตรวจ, LOT แถบตรวจ) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {/* Filter 1: Ward */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
+                      <Filter size={13} className="text-sky-600" />
+                      <span>1. เลือกหน่วยงาน / วอร์ด</span>
+                    </label>
+                    <CustomSelect
+                      value={chartFilterWard}
+                      onChange={(e) => setChartFilterWard(e.target.value)}
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                    >
+                      <option value="">-- ทุกหน่วยงาน ({wards.length} หน่วยงาน) --</option>
+                      {wards.map((w, idx) => (
+                        <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                      ))}
+                    </CustomSelect>
+                  </div>
+
+                  {/* Filter 2: Machine */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold text-slate-700 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Activity size={13} className="text-sky-600" />
+                        <span>2. เลือกเครื่องตรวจ DTX</span>
                       </span>
-                    ))}
+                      {filteredChartMachines.length > 0 && (
+                        <span className="text-[10px] font-mono text-slate-400 font-bold">
+                          เครื่องที่ {currentMachineIndex + 1}/{filteredChartMachines.length}
+                        </span>
+                      )}
+                    </label>
+                    <CustomSelect
+                      value={chartMachineSerial}
+                      onChange={(e) => setChartMachineSerial(e.target.value)}
+                      className="w-full text-xs p-2.5 rounded-xl border border-sky-300 bg-sky-50/70 font-bold text-sky-950 focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                    >
+                      {filteredChartMachines.map((m) => (
+                        <option key={m.serialNumber} value={m.serialNumber}>
+                          เครื่อง {m.displayLabel} — ({m.ward})
+                        </option>
+                      ))}
+                    </CustomSelect>
+                  </div>
+
+                  {/* Filter 3: LOT */}
+                  <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                    <label className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
+                      <Layers size={13} className="text-sky-600" />
+                      <span>3. LOT แถบตรวจ (ทางเลือก)</span>
+                    </label>
+                    <CustomSelect
+                      value={chartSelectedLot}
+                      onChange={(e) => setChartSelectedLot(e.target.value)}
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-slate-50 font-semibold text-slate-800 focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                    >
+                      <option value="all">-- ทุก LOT ที่เครื่องนี้ใช้ ({machineUsedLots.length}) --</option>
+                      {machineUsedLots.map((lot) => (
+                        <option key={lot} value={lot}>LOT {lot}</option>
+                      ))}
+                    </CustomSelect>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <svg className="w-full min-w-[760px] h-88" viewBox={`0 0 ${width} ${height}`}>
-                    {/* Plot Background */}
-                    <rect x={paddingLeft} y={paddingTop} width={plotWidth} height={plotHeight} fill="#f8fafc" rx="8" />
+                {/* Block 2: Time Range & Level Toggles (เรียงแถวที่ 2 สวยงาม ชัดเจน) */}
+                <div className="pt-3.5 border-t border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  {/* Time Range Selector */}
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-extrabold text-slate-600 flex items-center gap-1.5">
+                        <Calendar size={13} className="text-sky-600" />
+                        <span>ช่วงเวลาที่ต้องการดู:</span>
+                      </span>
+                      {/* Presets */}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {[
+                          { id: "7days", label: "7 วันล่าสุด" },
+                          { id: "15days", label: "15 วันล่าสุด" },
+                          { id: "30days", label: "30 วันล่าสุด" },
+                          { id: "this_month", label: "เดือนนี้" },
+                          { id: "all", label: "ทั้งหมด" },
+                        ].map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setRangePreset(p.id as any)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              chartTimeRangePreset === p.id
+                                ? "bg-sky-600 text-white shadow-2xs"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                    {/* Single or Multi-level Target & SD Lines */}
-                    {activeDefs.map(d => {
-                      const target = d.stats.mean || d.target;
-                      const sd = d.stats.sd || d.sd || 1;
+                    {/* From - To Date Pickers */}
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <span className="text-[11px] font-medium text-slate-400">ระบุวันที่:</span>
+                      <input
+                        type="date"
+                        value={chartStartDate}
+                        onChange={(e) => {
+                          setChartStartDate(e.target.value);
+                          setChartTimeRangePreset("custom");
+                        }}
+                        className="text-xs py-1 px-2.5 rounded-lg border border-slate-200 bg-slate-50 font-mono text-slate-700 focus:outline-none focus:border-sky-500"
+                      />
+                      <span className="text-slate-400">-</span>
+                      <input
+                        type="date"
+                        value={chartEndDate}
+                        onChange={(e) => {
+                          setChartEndDate(e.target.value);
+                          setChartTimeRangePreset("custom");
+                        }}
+                        className="text-xs py-1 px-2.5 rounded-lg border border-slate-200 bg-slate-50 font-mono text-slate-700 focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
 
-                      if (activeDefs.length === 1) {
-                        const lines = [
-                          { val: target, color: d.color, label: 'Mean', strokeWidth: 1.5, strokeDash: '' },
-                          { val: target + sd, color: '#94a3b8', label: '+1 SD', strokeWidth: 1, strokeDash: '4,4' },
-                          { val: target - sd, color: '#94a3b8', label: '-1 SD', strokeWidth: 1, strokeDash: '4,4' },
-                          { val: target + 2 * sd, color: '#f59e0b', label: '+2 SD', strokeWidth: 1.2, strokeDash: '4,2' },
-                          { val: target - 2 * sd, color: '#f59e0b', label: '-2 SD', strokeWidth: 1.2, strokeDash: '4,2' },
-                          { val: target + 3 * sd, color: '#ef4444', label: '+3 SD', strokeWidth: 1.5, strokeDash: '' },
-                          { val: target - 3 * sd, color: '#ef4444', label: '-3 SD', strokeWidth: 1.5, strokeDash: '' },
-                        ];
+                  {/* Level Mode Selector */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
+                    <span className="text-[11px] font-extrabold text-slate-600">ระดับที่แสดง:</span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedChartLevel("all")}
+                        className={`px-3 py-1.5 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all ${
+                          selectedChartLevel === "all"
+                            ? "bg-slate-800 text-white border-slate-800 shadow-2xs"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        แสดงครบ 3 ระดับ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedChartLevel(1)}
+                        className={`px-2.5 py-1.5 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all flex items-center space-x-1 ${
+                          selectedChartLevel === 1
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                            : "bg-white text-emerald-800 border-slate-200 hover:bg-emerald-50"
+                        }`}
+                      >
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        <span>Level 1</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedChartLevel(2)}
+                        className={`px-2.5 py-1.5 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all flex items-center space-x-1 ${
+                          selectedChartLevel === 2
+                            ? "bg-sky-600 text-white border-sky-600 shadow-2xs"
+                            : "bg-white text-sky-800 border-slate-200 hover:bg-sky-50"
+                        }`}
+                      >
+                        <span className="w-2 h-2 rounded-full bg-sky-500" />
+                        <span>Level 2</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedChartLevel(3)}
+                        className={`px-2.5 py-1.5 rounded-lg font-extrabold text-[11px] border cursor-pointer transition-all flex items-center space-x-1 ${
+                          selectedChartLevel === 3
+                            ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
+                            : "bg-white text-purple-800 border-slate-200 hover:bg-purple-50"
+                        }`}
+                      >
+                        <span className="w-2 h-2 rounded-full bg-purple-500" />
+                        <span>Level 3</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                        return (
-                          <g key={`grid-${d.level}`}>
-                            {/* Translucent Zone Highlights */}
-                            <rect x={paddingLeft} y={getY(target + 2 * sd)} width={plotWidth} height={Math.max(0, getY(target - 2 * sd) - getY(target + 2 * sd))} fill="#10b981" fillOpacity="0.04" />
-                            <rect x={paddingLeft} y={getY(target + 3 * sd)} width={plotWidth} height={Math.max(0, getY(target + 2 * sd) - getY(target + 3 * sd))} fill="#f59e0b" fillOpacity="0.07" />
-                            <rect x={paddingLeft} y={getY(target - 2 * sd)} width={plotWidth} height={Math.max(0, getY(target - 3 * sd) - getY(target - 2 * sd))} fill="#f59e0b" fillOpacity="0.07" />
+              {/* 3 Level Stats Summary Cards with Explicit ±1SD, ±2SD, ±3SD Limits */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { lvl: 1 as const, title: "Level 1 (Low)", badgeBg: "bg-emerald-50 text-emerald-800 border-emerald-200", stats: level1Stats, themeColor: "#10b981" },
+                  { lvl: 2 as const, title: "Level 2 (Normal)", badgeBg: "bg-sky-50 text-sky-800 border-sky-200", stats: level2Stats, themeColor: "#0284c7" },
+                  { lvl: 3 as const, title: "Level 3 (High)", badgeBg: "bg-purple-50 text-purple-800 border-purple-200", stats: level3Stats, themeColor: "#9333ea" }
+                ].map(({ lvl, title, badgeBg, stats, themeColor }) => {
+                  const target = stats.target || stats.mean;
+                  const sd = stats.targetSD || stats.sd || 1;
+                  const isSelected = selectedChartLevel === "all" || selectedChartLevel === lvl;
 
-                            {lines.map((line, idx) => (
+                  return (
+                    <div
+                      key={lvl}
+                      onClick={() => setSelectedChartLevel(lvl)}
+                      className={`bg-white p-4 rounded-2xl border transition-all cursor-pointer shadow-sm space-y-3 ${
+                        isSelected ? "border-slate-300 ring-2 ring-sky-500/20" : "border-slate-200/90 opacity-75 hover:opacity-100"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-extrabold border px-2.5 py-0.5 rounded-md ${badgeBg}`}>
+                          {title}
+                        </span>
+                        <div className="flex items-center space-x-1.5 font-mono text-[10px] text-slate-400">
+                          <span>N = {stats.n}</span>
+                          <span className="text-slate-300">•</span>
+                          <span>LOT: {stats.lotRef}</span>
+                        </div>
+                      </div>
+
+                      {/* Observed Metrics */}
+                      <div className="grid grid-cols-3 gap-2 text-center py-1">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Mean (เป้าหมาย)</span>
+                          <span className="text-sm font-extrabold text-slate-900 font-mono">
+                            {stats.mean} <span className="text-[10px] text-slate-400 font-normal">({Math.round(target)})</span>
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">S.D. (ส่วนเบี่ยงเบน)</span>
+                          <span className="text-sm font-extrabold text-slate-900 font-mono">{stats.sd}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">C.V.%</span>
+                          <span className={`text-sm font-extrabold font-mono ${stats.cv > 8 ? "text-rose-600" : "text-emerald-600"}`}>
+                            {stats.cv}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Explicit ±1SD, ±2SD, ±3SD Table */}
+                      <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500">
+                          <span>ช่วงเกณฑ์ควบคุม (Control Limits):</span>
+                          <span className="text-slate-400 font-mono">mg/dL</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5 text-[10px] text-center font-mono">
+                          <div className="p-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-100/80">
+                            <span className="text-[9px] block text-emerald-600 font-bold font-sans">±1 SD</span>
+                            {(target - sd).toFixed(1)} - {(target + sd).toFixed(1)}
+                          </div>
+                          <div className="p-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200/80">
+                            <span className="text-[9px] block text-amber-600 font-bold font-sans">±2 SD (Warning)</span>
+                            {(target - 2 * sd).toFixed(1)} - {(target + 2 * sd).toFixed(1)}
+                          </div>
+                          <div className="p-1 rounded-lg bg-rose-50 text-rose-800 border border-rose-200/80">
+                            <span className="text-[9px] block text-rose-600 font-bold font-sans">±3 SD (Action)</span>
+                            {(target - 3 * sd).toFixed(1)} - {(target + 3 * sd).toFixed(1)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Out of Control Warning Footer */}
+                      <div className="text-[10px] pt-1.5 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-slate-400">หลุดเกณฑ์ 3SD:</span>
+                        {stats.outOfControlCount > 0 ? (
+                          <span className="text-rose-600 font-bold bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                            {stats.outOfControlCount} ครั้ง (Out of Control)
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 font-bold">0 ครั้ง (ปกติ)</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* SVG Levey-Jennings Plots with Full ±1SD, ±2SD, ±3SD Lines & Zones */}
+              {(() => {
+                if (!chartMachineSerial) {
+                  return (
+                    <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
+                      <BarChart3 size={36} className="mx-auto text-slate-300 mb-2" />
+                      <p className="text-xs font-bold text-slate-600">กรุณาเลือกเครื่องตรวจที่ต้องการดูกราฟ Levey-Jennings</p>
+                    </div>
+                  );
+                }
+
+                if (machineChartRecords.length === 0) {
+                  return (
+                    <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
+                      <BarChart3 size={36} className="mx-auto text-slate-300 mb-2" />
+                      <p className="text-xs font-bold text-slate-600">
+                        ไม่พบข้อมูลผลตรวจ QC ของเครื่อง {formatMachineLabel(chartMachineSerial)} ในช่วงเวลาที่เลือก
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        ช่วงเวลา: {dateRangeLabel} • ลองเปลี่ยนช่วงเวลาการดู หรือเลือกเครื่องตรวจอื่น
+                      </p>
+                    </div>
+                  );
+                }
+
+                // Prepare configurations for active levels
+                const allLevelConfigs = [
+                  { level: 1 as const, title: "Level 1 (Low)", key: "L1", dataKey: "level1" as const, statusKey: "level1Status" as const, color: "#10b981", stats: level1Stats },
+                  { level: 2 as const, title: "Level 2 (Normal)", key: "L2", dataKey: "level2" as const, statusKey: "level2Status" as const, color: "#0284c7", stats: level2Stats },
+                  { level: 3 as const, title: "Level 3 (High)", key: "L3", dataKey: "level3" as const, statusKey: "level3Status" as const, color: "#9333ea", stats: level3Stats },
+                ];
+
+                const levelsToRender = selectedChartLevel === "all"
+                  ? allLevelConfigs
+                  : allLevelConfigs.filter(cfg => cfg.level === selectedChartLevel);
+
+                const renderSingleLevelChart = (cfg: typeof allLevelConfigs[0]) => {
+                  const target = cfg.stats.target || cfg.stats.mean;
+                  const sd = cfg.stats.targetSD || cfg.stats.sd || 1;
+
+                  // Values in records for this level
+                  const recordValues = machineChartRecords
+                    .map(r => Number(r[cfg.dataKey]))
+                    .filter(v => !isNaN(v) && v > 0);
+
+                  const rangeMin = Math.min(target - 3.8 * sd, ...recordValues);
+                  const rangeMax = Math.max(target + 3.8 * sd, ...recordValues);
+
+                  const width = 860;
+                  const height = 300;
+                  const paddingLeft = 75;
+                  const paddingRight = 95;
+                  const paddingTop = 25;
+                  const paddingBottom = 40;
+                  const plotWidth = width - paddingLeft - paddingRight;
+                  const plotHeight = height - paddingTop - paddingBottom;
+
+                  const getX = (idx: number) => {
+                    if (machineChartRecords.length <= 1) return paddingLeft + plotWidth / 2;
+                    return paddingLeft + (idx / (machineChartRecords.length - 1)) * plotWidth;
+                  };
+
+                  const getY = (val: number) => {
+                    const fraction = (val - rangeMin) / (rangeMax - rangeMin);
+                    return paddingTop + plotHeight - fraction * plotHeight;
+                  };
+
+                  // 7 reference lines: +3SD, +2SD, +1SD, Mean, -1SD, -2SD, -3SD
+                  const refLines = [
+                    { val: target + 3 * sd, label: "+3 SD (Action)", color: "#ef4444", strokeWidth: 1.5, strokeDash: "" },
+                    { val: target + 2 * sd, label: "+2 SD (Warning)", color: "#f59e0b", strokeWidth: 1.2, strokeDash: "4,2" },
+                    { val: target + 1 * sd, label: "+1 SD", color: "#94a3b8", strokeWidth: 1, strokeDash: "4,4" },
+                    { val: target, label: "Mean (Target)", color: cfg.color, strokeWidth: 2, strokeDash: "" },
+                    { val: target - 1 * sd, label: "-1 SD", color: "#94a3b8", strokeWidth: 1, strokeDash: "4,4" },
+                    { val: target - 2 * sd, label: "-2 SD (Warning)", color: "#f59e0b", strokeWidth: 1.2, strokeDash: "4,2" },
+                    { val: target - 3 * sd, label: "-3 SD (Action)", color: "#ef4444", strokeWidth: 1.5, strokeDash: "" },
+                  ];
+
+                  // Construct line path for data points
+                  let pathD = "";
+                  machineChartRecords.forEach((rec, idx) => {
+                    const val = rec[cfg.dataKey];
+                    const x = getX(idx);
+                    const y = getY(val);
+                    if (idx === 0) pathD = `M ${x} ${y}`;
+                    else pathD += ` L ${x} ${y}`;
+                  });
+
+                  return (
+                    <div key={cfg.level} className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-sm space-y-3 relative">
+                      {/* Sub-chart Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-100 pb-2.5">
+                        <div className="flex items-center space-x-2 flex-wrap">
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cfg.color }} />
+                          <h4 className="font-extrabold text-slate-800 text-sm">
+                            {cfg.title} — เครื่อง {formatMachineLabel(chartMachineSerial)}
+                          </h4>
+                          {currentChartMachineObj?.ward && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-100 text-sky-800">
+                              {currentChartMachineObj.ward}
+                            </span>
+                          )}
+                          <span className="text-[11px] font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                            Mean: {Math.round(target)} | SD: {sd.toFixed(1)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] font-mono text-slate-500">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                            ±2SD: {(target - 2 * sd).toFixed(1)} - {(target + 2 * sd).toFixed(1)}
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="inline-flex items-center gap-1 text-rose-600 font-bold">
+                            <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                            ±3SD: {(target - 3 * sd).toFixed(1)} - {(target + 3 * sd).toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* SVG Plot */}
+                      <div className="overflow-x-auto">
+                        <svg className="w-full min-w-[760px] h-76" viewBox={`0 0 ${width} ${height}`}>
+                          {/* Plot Background */}
+                          <rect x={paddingLeft} y={paddingTop} width={plotWidth} height={plotHeight} fill="#f8fafc" rx="8" />
+
+                          {/* Shaded Control Zones */}
+                          {/* In Control Zone (±2SD): Soft Green */}
+                          <rect
+                            x={paddingLeft}
+                            y={getY(target + 2 * sd)}
+                            width={plotWidth}
+                            height={Math.max(0, getY(target - 2 * sd) - getY(target + 2 * sd))}
+                            fill="#10b981"
+                            fillOpacity="0.04"
+                          />
+                          {/* Warning Zone (+2SD to +3SD): Soft Amber */}
+                          <rect
+                            x={paddingLeft}
+                            y={getY(target + 3 * sd)}
+                            width={plotWidth}
+                            height={Math.max(0, getY(target + 2 * sd) - getY(target + 3 * sd))}
+                            fill="#f59e0b"
+                            fillOpacity="0.07"
+                          />
+                          {/* Warning Zone (-2SD to -3SD): Soft Amber */}
+                          <rect
+                            x={paddingLeft}
+                            y={getY(target - 2 * sd)}
+                            width={plotWidth}
+                            height={Math.max(0, getY(target - 3 * sd) - getY(target - 2 * sd))}
+                            fill="#f59e0b"
+                            fillOpacity="0.07"
+                          />
+
+                          {/* 7 Reference Lines: +3SD, +2SD, +1SD, Mean, -1SD, -2SD, -3SD */}
+                          {refLines.map((line, idx) => {
+                            const y = getY(line.val);
+                            return (
                               <g key={idx}>
                                 <line
                                   x1={paddingLeft}
-                                  y1={getY(line.val)}
+                                  y1={y}
                                   x2={width - paddingRight}
-                                  y2={getY(line.val)}
+                                  y2={y}
                                   stroke={line.color}
                                   strokeWidth={line.strokeWidth}
                                   strokeDasharray={line.strokeDash}
                                 />
+                                {/* Left Axis Number (Exact Value) */}
                                 <text
                                   x={paddingLeft - 8}
-                                  y={getY(line.val) + 3.5}
+                                  y={y + 3.5}
                                   textAnchor="end"
                                   fill={line.color}
                                   className="font-mono text-[9px] font-extrabold"
                                 >
-                                  {Math.round(line.val)}
+                                  {line.val.toFixed(1)}
                                 </text>
+                                {/* Right Axis Label */}
                                 <text
                                   x={width - paddingRight + 6}
-                                  y={getY(line.val) + 3.5}
+                                  y={y + 3.5}
                                   textAnchor="start"
                                   fill={line.color}
-                                  className="font-bold text-[8px]"
+                                  className="font-bold text-[8.5px]"
                                 >
                                   {line.label}
                                 </text>
                               </g>
-                            ))}
-                          </g>
-                        );
-                      } else {
-                        // Multi-level simplified mean lines
-                        return (
-                          <g key={`grid-multi-${d.level}`}>
-                            <line
-                              x1={paddingLeft}
-                              y1={getY(target)}
-                              x2={width - paddingRight}
-                              y2={getY(target)}
-                              stroke={d.color}
-                              strokeWidth={1.5}
-                              strokeDasharray="4,3"
-                            />
-                            <text
-                              x={paddingLeft - 8}
-                              y={getY(target) + 3.5}
-                              textAnchor="end"
-                              fill={d.color}
-                              className="font-mono text-[9px] font-extrabold"
-                            >
-                              {Math.round(target)}
-                            </text>
-                            <text
-                              x={width - paddingRight + 6}
-                              y={getY(target) + 3.5}
-                              textAnchor="start"
-                              fill={d.color}
-                              className="font-bold text-[8px]"
-                            >
-                              {d.key} Mean
-                            </text>
-                          </g>
-                        );
-                      }
-                    })}
+                            );
+                          })}
 
-                    {/* Timeline Paths */}
-                    {activeDefs.map(d => {
-                      let pathD = '';
-                      filteredChartRecords.forEach((rec, idx) => {
-                        const val = rec[d.dataKey];
-                        const x = getX(idx);
-                        const y = getY(val);
-                        if (idx === 0) pathD = `M ${x} ${y}`;
-                        else pathD += ` L ${x} ${y}`;
-                      });
-
-                      return (
-                        <path
-                          key={`path-${d.level}`}
-                          d={pathD}
-                          fill="transparent"
-                          stroke={d.color}
-                          strokeWidth={2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      );
-                    })}
-
-                    {/* Data Points */}
-                    {activeDefs.map(d => {
-                      return filteredChartRecords.map((rec, idx) => {
-                        const val = rec[d.dataKey];
-                        const x = getX(idx);
-                        const y = getY(val);
-                        const status = d.level === 1 ? rec.level1Status : d.level === 2 ? rec.level2Status : rec.level3Status;
-                        const isOut = status === 'out_of_control';
-
-                        return (
-                          <circle
-                            key={`point-${d.level}-${idx}`}
-                            cx={x}
-                            cy={y}
-                            r={isOut ? 5.5 : 4}
-                            fill={isOut ? '#ef4444' : d.color}
-                            stroke="#ffffff"
-                            strokeWidth={1.5}
-                            className="cursor-pointer hover:scale-150 transition-all"
-                            onMouseEnter={() => {
-                              setHoveredPoint({
-                                date: rec.date,
-                                ward: rec.ward,
-                                serial: rec.serialNumber,
-                                operator: rec.operator,
-                                level: d.level,
-                                val,
-                                target: Math.round(d.stats.mean),
-                                sd: d.stats.sd,
-                                status: isOut ? 'Out of control (หลุดเกณฑ์)' : 'In control (ปกติ)',
-                                x,
-                                y
-                              });
-                            }}
-                            onMouseLeave={() => setHoveredPoint(null)}
+                          {/* Connecting Path */}
+                          <path
+                            d={pathD}
+                            fill="transparent"
+                            stroke={cfg.color}
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           />
-                        );
-                      });
-                    })}
 
-                    {/* X-Axis Date Labels */}
-                    {filteredChartRecords.map((rec, idx) => {
-                      if (filteredChartRecords.length > 15 && idx % Math.ceil(filteredChartRecords.length / 10) !== 0) {
-                        return null;
-                      }
-                      const x = getX(idx);
-                      const shortDate = rec.date.substring(5);
-                      return (
-                        <text
-                          key={`xlabel-${idx}`}
-                          x={x}
-                          y={height - paddingBottom + 16}
-                          textAnchor="middle"
-                          fill="#64748b"
-                          className="font-mono text-[9px] font-semibold"
-                        >
-                          {shortDate}
-                        </text>
-                      );
-                    })}
-                  </svg>
-                </div>
+                          {/* Data Points */}
+                          {machineChartRecords.map((rec, idx) => {
+                            const val = rec[cfg.dataKey];
+                            const x = getX(idx);
+                            const y = getY(val);
+                            const diff = val - target;
+                            const zScore = sd > 0 ? (diff / sd).toFixed(1) : "0.0";
+                            const isOut = Math.abs(diff) > 3 * sd || rec[cfg.statusKey] === "out_of_control";
+                            const isWarn = !isOut && Math.abs(diff) > 2 * sd;
 
-                {/* Floating Interactive Tooltip */}
-                {hoveredPoint && (
-                  <div className="absolute bottom-4 right-4 bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1 z-30 border border-slate-700 animate-fade-in">
-                    <div className="font-extrabold flex items-center justify-between gap-4 border-b border-slate-700 pb-1">
-                      <span>Level {hoveredPoint.level} ({hoveredPoint.val} mg/dL)</span>
-                      <span className={hoveredPoint.status.includes('หลุด') ? 'text-rose-400' : 'text-emerald-400'}>
-                        {hoveredPoint.status}
-                      </span>
+                            const pointFill = isOut ? "#ef4444" : isWarn ? "#f59e0b" : cfg.color;
+                            const pointRadius = isOut ? 6 : isWarn ? 5 : 4;
+                            const isCurrentHovered = hoveredPoint && hoveredPoint.level === cfg.level && hoveredPoint.date === rec.date && hoveredPoint.val === val;
+
+                            return (
+                              <g
+                                key={`pt-${idx}`}
+                                className="cursor-pointer"
+                                onMouseEnter={() => {
+                                  setHoveredPoint({
+                                    date: rec.date,
+                                    ward: rec.ward,
+                                    serial: rec.serialNumber,
+                                    operator: rec.operator,
+                                    level: cfg.level,
+                                    val,
+                                    target: Math.round(target),
+                                    sd,
+                                    status: isOut
+                                      ? `Out of Control (หลุด 3SD | ${zScore} SD)`
+                                      : isWarn
+                                      ? `Warning (เตือน 2SD | ${zScore} SD)`
+                                      : `In Control (ปกติ | ${zScore} SD)`,
+                                    x,
+                                    y,
+                                    lot: rec.lotNumber
+                                  });
+                                }}
+                                onMouseLeave={() => setHoveredPoint(null)}
+                              >
+                                {/* Invisible wide hit target (14px radius = 28px hit zone) to completely eliminate mouse jitter & flickering */}
+                                <circle
+                                  cx={x}
+                                  cy={y}
+                                  r={14}
+                                  fill="transparent"
+                                />
+                                {/* Visible Data Point Circle without CSS scale transformation jitter */}
+                                <circle
+                                  cx={x}
+                                  cy={y}
+                                  r={isCurrentHovered ? pointRadius + 2.5 : pointRadius}
+                                  fill={pointFill}
+                                  stroke="#ffffff"
+                                  strokeWidth={isCurrentHovered ? 2.5 : 1.5}
+                                />
+                                {/* Smooth outer highlight ring when hovered */}
+                                {isCurrentHovered && (
+                                  <circle
+                                    cx={x}
+                                    cy={y}
+                                    r={pointRadius + 6}
+                                    fill="none"
+                                    stroke={pointFill}
+                                    strokeWidth={1.5}
+                                    strokeOpacity={0.6}
+                                  />
+                                )}
+                              </g>
+                            );
+                          })}
+
+                          {/* X-Axis Date Labels */}
+                          {machineChartRecords.map((rec, idx) => {
+                            if (machineChartRecords.length > 15 && idx % Math.ceil(machineChartRecords.length / 10) !== 0) {
+                              return null;
+                            }
+                            const x = getX(idx);
+                            const shortDate = rec.date.length >= 10 ? rec.date.substring(5, 10) : rec.date;
+                            return (
+                              <text
+                                key={`xlabel-${idx}`}
+                                x={x}
+                                y={height - paddingBottom + 16}
+                                textAnchor="middle"
+                                fill="#64748b"
+                                className="font-mono text-[9px] font-semibold"
+                              >
+                                {shortDate}
+                              </text>
+                            );
+                          })}
+                        </svg>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-300 space-y-0.5 pt-0.5">
-                      <div>เครื่อง: <strong>{hoveredPoint.serial}</strong> ({hoveredPoint.ward})</div>
-                      <div>วันที่: <strong>{hoveredPoint.date}</strong> | ผู้ตรวจ: <strong>{hoveredPoint.operator}</strong></div>
-                      <div>ค่าเป้าหมาย: <strong>{hoveredPoint.target}</strong> (Diff: {hoveredPoint.val - hoveredPoint.target > 0 ? `+${hoveredPoint.val - hoveredPoint.target}` : hoveredPoint.val - hoveredPoint.target})</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+                  );
+                };
 
-            </div>
-          )}
+                return (
+                  <div className="space-y-4">
+                    {levelsToRender.map(renderSingleLevelChart)}
 
-          {/* Table Filters & Actions */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex flex-wrap items-center gap-3">
-              
-              {/* Filter Ward */}
-              <div className="flex items-center space-x-1.5">
-                <span className="text-slate-500 font-medium">หน่วยงาน:</span>
-                <CustomSelect
-                  value={filterWard}
-                  onChange={(e) => {
-                    setFilterWard(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[150px]"
-                >
-                  <option value="">-- ทุกหน่วยงาน --</option>
-                  {wards.map((w, idx) => (
-                    <option key={idx} value={w.thai_name}>{w.thai_name}</option>
-                  ))}
-                </CustomSelect>
-              </div>
-
-              {/* Filter Lot */}
-              <div className="flex items-center space-x-1.5">
-                <span className="text-slate-500 font-medium">LOT:</span>
-                <CustomSelect
-                  value={filterLot}
-                  onChange={(e) => {
-                    setFilterLot(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
-                >
-                  <option value="">-- ทุก LOT --</option>
-                  {lotConfigs.map((c, idx) => (
-                    <option key={idx} value={c.lotNumber}>{c.lotNumber}</option>
-                  ))}
-                </CustomSelect>
-              </div>
-
-              {/* Filter Month */}
-              <div className="flex items-center space-x-1.5">
-                <span className="text-slate-500 font-medium">เดือน:</span>
-                <CustomSelect
-                  value={filterMonth}
-                  onChange={(e) => {
-                    setFilterMonth(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
-                >
-                  <option value="">-- ทุกเดือน --</option>
-                  {availableMonths.map((m, idx) => (
-                    <option key={idx} value={m}>{m}</option>
-                  ))}
-                </CustomSelect>
-              </div>
-
-              {/* Filter Status */}
-              <div className="flex items-center space-x-1.5">
-                <span className="text-slate-500 font-medium">สถานะ:</span>
-                <CustomSelect
-                  value={filterStatus}
-                  onChange={(e) => {
-                    setFilterStatus(e.target.value as any);
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[130px]"
-                >
-                  <option value="all">ทั้งหมด</option>
-                  <option value="normal">เฉพาะ In Control</option>
-                  <option value="out_of_control">เฉพาะ Out of Control</option>
-                </CustomSelect>
-              </div>
-
-            </div>
-
-            {/* Export CSV Button */}
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
-            >
-              <Download size={14} />
-              <span>ส่งออก CSV ({tableRecords.length} แถว)</span>
-            </button>
-          </div>
-
-          {/* Records Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50/90 text-slate-500 border-b border-slate-200 font-bold">
-                  <tr>
-                    <th className="py-2.5 px-2 font-bold whitespace-nowrap text-left w-28">วันที่ตรวจ</th>
-                    <th className="py-2.5 px-2 font-bold whitespace-nowrap text-left w-28">หน่วยงาน (Ward)</th>
-                    <th className="py-2 px-2 font-bold whitespace-nowrap text-left w-32">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-bold text-slate-700 truncate">รหัสเครื่อง DTX</span>
-                        <div className="flex items-center gap-0.5 font-sans text-[8px] bg-slate-200/90 p-0.5 rounded-lg shrink-0 w-fit">
-                          <button
-                            type="button"
-                            onClick={() => setMachineDisplayMode('code')}
-                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
-                              machineDisplayMode === 'code' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="แสดงรหัสเครื่อง (CODE)"
+                    {/* Floating Interactive Tooltip */}
+                    {hoveredPoint && (
+                      <div className="fixed bottom-6 right-6 bg-slate-900/95 backdrop-blur-xs text-white p-4 rounded-2xl shadow-2xl text-xs space-y-1.5 z-50 border border-slate-700 animate-fade-in max-w-sm pointer-events-none select-none">
+                        <div className="font-extrabold flex items-center justify-between gap-4 border-b border-slate-700 pb-1.5">
+                          <span className="text-emerald-300 font-bold">
+                            Level {hoveredPoint.level} ({hoveredPoint.val} mg/dL)
+                          </span>
+                          <span
+                            className={
+                              hoveredPoint.status.includes("หลุด")
+                                ? "text-rose-400 font-bold"
+                                : hoveredPoint.status.includes("เตือน")
+                                ? "text-amber-400 font-bold"
+                                : "text-emerald-400 font-bold"
+                            }
                           >
-                            CODE
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMachineDisplayMode('sn')}
-                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
-                              machineDisplayMode === 'sn' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="แสดงหมายเลขซีเรียล (S/N)"
-                          >
-                            S/N
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMachineDisplayMode('both')}
-                            className={`px-1 py-0.2 rounded font-extrabold cursor-pointer transition-all ${
-                              machineDisplayMode === 'both' ? 'bg-sky-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                            title="แสดงทั้งรหัส CODE และ S/N"
-                          >
-                            ทั้งคู่
-                          </button>
+                            {hoveredPoint.status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-300 space-y-1 pt-0.5 font-mono">
+                          <div>เครื่อง: <strong className="text-white font-sans">{hoveredPoint.serial}</strong> ({hoveredPoint.ward})</div>
+                          <div>วันที่: <strong className="text-white">{hoveredPoint.date}</strong></div>
+                          {hoveredPoint.lot && <div>LOT: <strong className="text-amber-300">{hoveredPoint.lot}</strong></div>}
+                          <div>ผู้ตรวจ: <strong className="text-white font-sans">{hoveredPoint.operator || "-"}</strong></div>
+                          <div className="pt-1 border-t border-slate-800 text-[10px]">
+                            เป้าหมาย Mean: <strong className="text-white">{hoveredPoint.target}</strong> | SD: <strong className="text-white">{hoveredPoint.sd.toFixed(1)}</strong>
+                          </div>
                         </div>
                       </div>
-                    </th>
-                    <th className="py-3 px-3.5">LOT น้ำยา</th>
-                    <th className="py-3 px-3.5 text-center">Level 1 (Low)</th>
-                    <th className="py-3 px-3.5 text-center">Level 2 (Normal)</th>
-                    <th className="py-3 px-3.5 text-center">Level 3 (High)</th>
-                    <th className="py-3 px-3.5 text-center">สถานะรวม</th>
-                    <th className="py-3 px-3.5">ผู้ลงบันทึก</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium">
-                  {paginatedQC.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="text-center py-12 text-slate-400">
-                        ไม่พบข้อมูลบันทึกผล QC ตามเงื่อนไขที่เลือก
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedQC.map((rec) => {
-                      const isOut = rec.level1Status === 'out_of_control' || rec.level2Status === 'out_of_control' || rec.level3Status === 'out_of_control';
-                      return (
-                        <tr key={rec.id} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="py-3 px-3.5 font-bold text-slate-700 whitespace-nowrap">{rec.date}</td>
-                          <td className="py-3 px-3.5 text-slate-900 font-bold">{rec.ward}</td>
-                          <td className="py-3 px-3.5 text-sky-800 font-bold font-mono" title={`CODE: ${rec.serialNumber}`}>{formatMachineLabel(rec.serialNumber)}</td>
-                          <td className="py-3 px-3.5 text-slate-600 font-mono text-[11px]">
-                            <span className="font-bold">{rec.lotNumber}</span>
-                            {(() => {
-                              const lotCfg = lotConfigs.find(c => c.lotNumber === rec.lotNumber);
-                              const exp = calculateLotExpInfo(lotCfg);
-                              if (exp.status === 'expired') {
-                                return (
-                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-extrabold text-rose-700 bg-rose-50 border border-rose-200 px-1 py-0.2 rounded mt-0.5">
-                                    ⛔ หมดอายุ
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </td>
-                          
-                          {/* Level 1 */}
-                          <td className="py-3 px-3.5 text-center">
-                            <span className={`inline-block font-extrabold px-2 py-0.5 rounded ${
-                              rec.level1Status === 'out_of_control' ? 'bg-rose-100 text-rose-700' : 'text-emerald-700'
-                            }`}>
-                              {rec.level1}
-                            </span>
-                          </td>
-
-                          {/* Level 2 */}
-                          <td className="py-3 px-3.5 text-center">
-                            <span className={`inline-block font-extrabold px-2 py-0.5 rounded ${
-                              rec.level2Status === 'out_of_control' ? 'bg-rose-100 text-rose-700' : 'text-sky-700'
-                            }`}>
-                              {rec.level2}
-                            </span>
-                          </td>
-
-                          {/* Level 3 */}
-                          <td className="py-3 px-3.5 text-center">
-                            <span className={`inline-block font-extrabold px-2 py-0.5 rounded ${
-                              rec.level3Status === 'out_of_control' ? 'bg-rose-100 text-rose-700' : 'text-purple-700'
-                            }`}>
-                              {rec.level3}
-                            </span>
-                          </td>
-
-                          {/* Total Status */}
-                          <td className="py-3 px-3.5 text-center">
-                            {isOut ? (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenCaModal(rec)}
-                                className="inline-flex items-center text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full hover:bg-rose-100 cursor-pointer transition-colors"
-                                title="คลิกเพื่อดูหรือบันทึกการทวนสอบ Out of Control (CA)"
-                              >
-                                ✕ Out of control {rec.correctiveAction ? '(ดู CA)' : '(บันทึก CA)'}
-                              </button>
-                            ) : (
-                              <span className="inline-flex items-center text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                                ✓ In control
-                              </span>
-                            )}
-                          </td>
-
-                          <td className="py-3 px-3.5 text-slate-600 text-[11px] whitespace-nowrap">{rec.operator}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination Controls */}
-            <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-3">
-                <span className="text-slate-500">
-                  {tableRecords.length > 0 ? (
-                    <>
-                      แสดง <strong className="font-mono text-slate-800 font-bold">{((currentPage - 1) * itemsPerPage) + 1}</strong> - <strong className="font-mono text-slate-800 font-bold">{Math.min(currentPage * itemsPerPage, tableRecords.length)}</strong> จากทั้งหมด <strong className="font-mono text-sky-700 font-bold">{tableRecords.length}</strong> แถว
-                    </>
-                  ) : (
-                    "ยังไม่มีข้อมูล"
-                  )}
-                </span>
-
-                <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-200">
-                  <span className="text-[11px] text-slate-400">แสดงหน้าละ:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="text-xs py-1 px-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-700 cursor-pointer"
-                  >
-                    <option value={10}>10 แถว</option>
-                    <option value={20}>20 แถว</option>
-                    <option value={50}>50 แถว</option>
-                    <option value={100}>100 แถว</option>
-                  </select>
-                </div>
-              </div>
-
-              {totalPages > 1 && (
-                <div className="flex items-center space-x-1">
-                  <button
-                    type="button"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    className="p-1.5 rounded-lg border border-slate-200 bg-white disabled:opacity-40 cursor-pointer hover:bg-slate-50 transition-colors"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="px-3 font-bold text-slate-700">{currentPage} / {totalPages}</span>
-                  <button
-                    type="button"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    className="p-1.5 rounded-lg border border-slate-200 bg-white disabled:opacity-40 cursor-pointer hover:bg-slate-50 transition-colors"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
+                    )}
+                  </div>
+                );
+              })()}
         </div>
       )}
 
+      {/* VIEW 3: PEER GROUP COMPARISON VIEW */}
+      {activeTab === 'comparison' && (
+        <QCComparisonChart
+          machines={machines}
+          qcRecords={qcRecords}
+          lotConfigs={lotConfigs}
+          wards={wards}
+          machineDisplayMode={machineDisplayMode}
+          onSelectMachineForLJ={(serialNumber) => {
+            setChartMachineSerial(serialNumber);
+            setActiveTab('chart');
+          }}
+        />
+      )}
+
+      {/* VIEW 4: QC RECORDS HISTORY TABLE VIEW */}
+      {activeTab === 'table' && (
+        <div className="space-y-4 animate-fade-in" id="qc-history-table-section">
+              {/* Table Filters & Actions */}
+              <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-4 text-xs">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center space-x-1 font-bold text-slate-700">
+                    <Filter size={14} className="text-sky-600" />
+                    <span>ตัวกรองตาราง:</span>
+                  </div>
+
+                  {/* Filter Ward */}
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-slate-500 font-medium">หน่วยงาน:</span>
+                    <CustomSelect
+                      value={filterWard}
+                      onChange={(e) => {
+                        setFilterWard(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[150px]"
+                    >
+                      <option value="">-- ทุกหน่วยงาน --</option>
+                      {wards.map((w, idx) => (
+                        <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                      ))}
+                    </CustomSelect>
+                  </div>
+
+                  {/* Filter Lot */}
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-slate-500 font-medium">LOT:</span>
+                    <CustomSelect
+                      value={filterLot}
+                      onChange={(e) => {
+                        setFilterLot(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
+                    >
+                      <option value="">-- ทุก LOT --</option>
+                      {lotConfigs.map((c, idx) => (
+                        <option key={idx} value={c.lotNumber}>{c.lotNumber}</option>
+                      ))}
+                    </CustomSelect>
+                  </div>
+
+                  {/* Filter Month */}
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-slate-500 font-medium">เดือน:</span>
+                    <CustomSelect
+                      value={filterMonth}
+                      onChange={(e) => {
+                        setFilterMonth(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
+                    >
+                      <option value="">-- ทุกเดือน --</option>
+                      {availableMonths.map((m, idx) => (
+                        <option key={idx} value={m}>{m}</option>
+                      ))}
+                    </CustomSelect>
+                  </div>
+
+                  {/* Filter Status */}
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-slate-500 font-medium">สถานะ:</span>
+                    <CustomSelect
+                      value={filterStatus}
+                      onChange={(e) => {
+                        setFilterStatus(e.target.value as any);
+                        setCurrentPage(1);
+                      }}
+                      className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
+                    >
+                      <option value="all">ทั้งหมด</option>
+                      <option value="normal">ปกติ (In Control)</option>
+                      <option value="out_of_control">หลุดเกณฑ์ (Out of Control)</option>
+                    </CustomSelect>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs font-bold text-slate-500 font-mono">
+                    พบทั้งหมด <strong className="text-sky-700">{tableRecords.length}</strong> รายการ
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleExportCSV}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Download size={14} />
+                    <span>ส่งออก CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Data Table */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                      <tr>
+                        <th className="py-3 px-3.5 whitespace-nowrap">วันที่ตรวจ</th>
+                        <th className="py-3 px-3.5">หน่วยงาน / วอร์ด</th>
+                        <th className="py-3 px-3.5">เครื่องตรวจ (CODE)</th>
+                        <th className="py-3 px-3.5">LOT แถบตรวจ</th>
+                        <th className="py-3 px-3.5">ผู้ตรวจ</th>
+                        <th className="py-3 px-3 text-center bg-emerald-50/50">Level 1 (Low)</th>
+                        <th className="py-3 px-3 text-center bg-sky-50/50">Level 2 (Normal)</th>
+                        <th className="py-3 px-3 text-center bg-purple-50/50">Level 3 (High)</th>
+                        <th className="py-3 px-3.5 text-center">ผลภาพรวม</th>
+                        <th className="py-3 px-3.5 text-center whitespace-nowrap">การจัดการ / CA</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {paginatedQC.length === 0 ? (
+                        <tr>
+                          <td colSpan={10} className="py-12 text-center text-slate-400">
+                            <BarChart3 size={32} className="mx-auto text-slate-300 mb-2" />
+                            <p className="font-bold text-slate-600">ไม่พบประวัติผลตรวจ IQC ตามเงื่อนไขที่เลือก</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedQC.map((rec) => {
+                          const isOut = rec.level1Status === "out_of_control" || rec.level2Status === "out_of_control" || rec.level3Status === "out_of_control";
+                          const hasCa = !!rec.correctiveAction;
+
+                          return (
+                            <tr key={rec.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-3.5 font-bold text-slate-700 whitespace-nowrap font-mono">{rec.date}</td>
+                              <td className="py-3 px-3.5 text-slate-900 font-bold">{rec.ward}</td>
+                              <td className="py-3 px-3.5 text-sky-800 font-mono font-bold" title={`CODE: ${rec.serialNumber}`}>
+                                {formatMachineLabel(rec.serialNumber)}
+                              </td>
+                              <td className="py-3 px-3.5 text-slate-700 font-mono text-[11px] font-bold">
+                                LOT {rec.lotNumber}
+                              </td>
+                              <td className="py-3 px-3.5 text-slate-700">{rec.operator}</td>
+
+                              {/* Level 1 */}
+                              <td className="py-2.5 px-3 text-center bg-emerald-50/20">
+                                <span className={`font-mono font-bold ${rec.level1Status === "out_of_control" ? "text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200" : "text-emerald-700"}`}>
+                                  {rec.level1}
+                                </span>
+                              </td>
+
+                              {/* Level 2 */}
+                              <td className="py-2.5 px-3 text-center bg-sky-50/20">
+                                <span className={`font-mono font-bold ${rec.level2Status === "out_of_control" ? "text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200" : "text-sky-700"}`}>
+                                  {rec.level2}
+                                </span>
+                              </td>
+
+                              {/* Level 3 */}
+                              <td className="py-2.5 px-3 text-center bg-purple-50/20">
+                                <span className={`font-mono font-bold ${rec.level3Status === "out_of_control" ? "text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200" : "text-purple-700"}`}>
+                                  {rec.level3}
+                                </span>
+                              </td>
+
+                              {/* Overall Status */}
+                              <td className="py-2.5 px-3.5 text-center">
+                                {isOut ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                                    Out Control
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    In Control
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Action / CA */}
+                              <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                                {isOut ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenCaModal(rec)}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
+                                      hasCa
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                                        : "bg-rose-600 hover:bg-rose-700 text-white"
+                                    }`}
+                                  >
+                                    {hasCa ? " ดูรายงาน CA" : "! บันทึกทวนสอบ (CA)"}
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300 text-[11px]">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Footer */}
+                <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                  <div className="flex items-center space-x-2">
+                    <span>
+                      {tableRecords.length > 0 ? (
+                        <>
+                          แสดง <strong className="font-mono text-slate-800 font-bold">{((currentPage - 1) * itemsPerPage) + 1}</strong> - <strong className="font-mono text-slate-800 font-bold">{Math.min(currentPage * itemsPerPage, tableRecords.length)}</strong> จากทั้งหมด <strong className="font-mono text-sky-700 font-bold">{tableRecords.length}</strong> รายการ
+                        </>
+                      ) : (
+                        "ยังไม่มีข้อมูลบันทึก"
+                      )}
+                    </span>
+                    <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-300">
+                      <span className="text-[11px] text-slate-400">แสดงหน้าละ:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        className="text-xs py-1 px-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-700 cursor-pointer"
+                      >
+                        <option value={5}>5 รายการ</option>
+                        <option value={10}>10 รายการ</option>
+                        <option value={20}>20 รายการ</option>
+                        <option value={50}>50 รายการ</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {totalPages > 1 && (
+                    <div className="flex items-center space-x-1">
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all"
+                        title="หน้าแรก"
+                      >
+                        <ChevronsLeft size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all"
+                        title="หน้าก่อนหน้า"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+                      <span className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 shadow-2xs font-mono">
+                        {currentPage} / {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                        disabled={currentPage === totalPages}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all"
+                        title="หน้าถัดไป"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-all"
+                        title="หน้าสุดท้าย"
+                      >
+                        <ChevronsRight size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+          </div>
+        </div>
+      )}
+
+      
       {/* VIEW 4: LOT & TARGET RANGE CONFIGURATION (DERIVED FROM REAGENT STRIP STOCK) */}
       {activeTab === 'config' && (
         <div className="space-y-5" id="qc-config-view">
@@ -3159,7 +4177,7 @@ export default function QCManagement({
                   }}
                   className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3.5 py-1.5 rounded-xl shrink-0 cursor-pointer shadow-2xs"
                 >
-                  ⚙️ ตั้งค่า LOT แรกที่รอดำเนินการ
+                  ️ ตั้งค่า LOT แรกที่รอดำเนินการ
                 </button>
               )}
             </div>
@@ -3213,11 +4231,11 @@ export default function QCManagement({
                           </span>
                           {item.isConfigured ? (
                             <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
-                              ✓ ตั้งค่าแล้ว
+                               ตั้งค่าแล้ว
                             </span>
                           ) : (
                             <span className="text-[9px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded animate-pulse">
-                              ⏳ รอตั้งค่า Target
+                               รอตั้งค่า Target
                             </span>
                           )}
                         </div>
@@ -3786,7 +4804,7 @@ export default function QCManagement({
                 }}
                 className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs cursor-pointer transition-all"
               >
-                🛑 ยกเลิก (เพื่อเปลี่ยนขวดน้ำยาใหม่)
+                 ยกเลิก (เพื่อเปลี่ยนขวดน้ำยาใหม่)
               </button>
 
               <button
@@ -3808,419 +4826,7 @@ export default function QCManagement({
         </div>
       )}
 
-      
-{/* CORRECTIVE ACTION (CA) INVESTIGATION & REPORT MODAL */}
-      {isCaModalOpen && selectedQcForCa && (() => {
-        const caTargetLot = lotConfigs.find(l => l.lotNumber === selectedQcForCa.lotNumber) || activeLotConfig;
-        const evaluateVal = (valStr: string, min: number, max: number, target: number, sd: number) => {
-          if (!valStr.trim()) return "empty";
-          const val = Number(valStr);
-          if (isNaN(val)) return "empty";
-          if (min !== undefined && max !== undefined && (min !== 0 || max !== 0)) {
-            return (val < min || val > max) ? "out_of_control" : "normal";
-          }
-          return (val < target - 3 * sd || val > target + 3 * sd) ? "out_of_control" : "normal";
-        };
-        const repL1Status = evaluateVal(caForm.repeatLevel1, caTargetLot?.level1Min || 0, caTargetLot?.level1Max || 0, caTargetLot?.level1Target || 0, caTargetLot?.level1SD || 1);
-        const repL2Status = evaluateVal(caForm.repeatLevel2, caTargetLot?.level2Min || 0, caTargetLot?.level2Max || 0, caTargetLot?.level2Target || 0, caTargetLot?.level2SD || 1);
-        const repL3Status = evaluateVal(caForm.repeatLevel3, caTargetLot?.level3Min || 0, caTargetLot?.level3Max || 0, caTargetLot?.level3Target || 0, caTargetLot?.level3SD || 1);
-        const isRepeatComplete = Boolean(caForm.repeatLevel1.trim() && caForm.repeatLevel2.trim() && caForm.repeatLevel3.trim());
-        const isRepeatAllIn = isRepeatComplete && repL1Status === "normal" && repL2Status === "normal" && repL3Status === "normal";
-        const isRepeatAnyOut = repL1Status === "out_of_control" || repL2Status === "out_of_control" || repL3Status === "out_of_control";
-
-        const existingCa = selectedQcForCa.correctiveAction;
-
-        return (
-          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl border border-slate-200 dark:border-slate-800 text-xs overflow-y-auto max-h-[92vh]">
-              {/* Modal Header */}
-              <div className="flex items-start justify-between border-b border-slate-150 dark:border-slate-800 pb-4">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
-                    caViewMode === "report" ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-400" : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
-                  }`}>
-                    {caViewMode === "report" ? <CheckCircle2 size={24} /> : <ShieldAlert size={24} />}
-                  </div>
-                  <div>
-                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                      {caViewMode === "report" ? "ใบบันทึกรายงานการทวนสอบและแก้ไขปัญหา (QC CA Report)" : "บันทึกทวนสอบและแก้ไข Out of Control (QC CA)"}
-                    </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      เครื่อง: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatMachineLabel(selectedQcForCa.serialNumber)}</strong> | วอร์ด: <strong>{selectedQcForCa.ward}</strong> | LOT: <span className="font-mono">{selectedQcForCa.lotNumber}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsCaModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  title="ปิดหน้าต่าง"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              {/* REPORT VIEW */}
-              {caViewMode === "report" && existingCa ? (
-                <div className="space-y-4">
-                  {/* Summary Header Box */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-bold">วันที่ตรวจพบปัญหา</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{selectedQcForCa.date}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-bold">ผู้ตรวจรอบแรก</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-200">{selectedQcForCa.operator}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-bold">ผู้บันทึกการทวนสอบ</span>
-                      <span className="font-bold text-amber-700 dark:text-amber-400">{existingCa.operator || operator || "-"}</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-bold">สถานะการแก้ไข</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 mt-0.5">
-                        ✓ ดำเนินการแก้ไขแล้ว
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Original vs Repeat Comparison */}
-                  <div className="space-y-2">
-                    <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center space-x-1.5">
-                      <Activity size={14} className="text-sky-600" />
-                      <span>ผลการตรวจเปรียบเทียบ (Original Out vs Repeat Test):</span>
-                    </h4>
-
-                    <div className="grid grid-cols-3 gap-2.5 text-center">
-                      {/* Level 1 */}
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
-                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 1 (Low)</span>
-                        <div className="text-[11px] text-slate-500">
-                          เดิม: <strong className={selectedQcForCa.level1Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level1}</strong>
-                        </div>
-                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
-                          <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
-                          <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
-                            {existingCa.repeatLevel1 || "-"}
-                          </span>
-                          {existingCa.repeatLevel1 && (
-                            <span className={`block text-[10px] font-extrabold mt-0.5 ${
-                              repL1Status === "normal" ? "text-emerald-600" : "text-rose-600"
-                            }`}>
-                              {repL1Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Level 2 */}
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
-                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 2 (Normal)</span>
-                        <div className="text-[11px] text-slate-500">
-                          เดิม: <strong className={selectedQcForCa.level2Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level2}</strong>
-                        </div>
-                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
-                          <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
-                          <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
-                            {existingCa.repeatLevel2 || "-"}
-                          </span>
-                          {existingCa.repeatLevel2 && (
-                            <span className={`block text-[10px] font-extrabold mt-0.5 ${
-                              repL2Status === "normal" ? "text-emerald-600" : "text-rose-600"
-                            }`}>
-                              {repL2Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Level 3 */}
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-1">
-                        <span className="text-[10px] font-extrabold text-slate-400 uppercase block">Level 3 (High)</span>
-                        <div className="text-[11px] text-slate-500">
-                          เดิม: <strong className={selectedQcForCa.level3Status === "out_of_control" ? "text-rose-600 font-mono text-sm" : "font-mono"}>{selectedQcForCa.level3}</strong>
-                        </div>
-                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700">
-                          <span className="text-[10px] text-slate-400 block">ผลตรวจซ้ำ:</span>
-                          <span className="text-base font-extrabold font-mono text-slate-800 dark:text-white">
-                            {existingCa.repeatLevel3 || "-"}
-                          </span>
-                          {existingCa.repeatLevel3 && (
-                            <span className={`block text-[10px] font-extrabold mt-0.5 ${
-                              repL3Status === "normal" ? "text-emerald-600" : "text-rose-600"
-                            }`}>
-                              {repL3Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4 Checklists Summary Grid */}
-                  <div className="space-y-2">
-                    <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center space-x-1.5">
-                      <CheckCircle2 size={14} className="text-emerald-600" />
-                      <span>ผลการทวนสอบเช็คลิสต์ 4 ด้าน:</span>
-                    </h4>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                        <span className="font-medium text-slate-700 dark:text-slate-300">1. แผ่นตรวจ (Test Strip):</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          ✓ ปกติ ไม่หมดอายุ
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                        <span className="font-medium text-slate-700 dark:text-slate-300">2. น้ำยาควบคุม (Control):</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          ✓ ปกติ ไม่หมดอายุ
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                        <span className="font-medium text-slate-700 dark:text-slate-300">3. ระยะเวลาเปิดใช้ขวดน้ำยา:</span>
-                        <span className="font-mono font-extrabold text-slate-800 dark:text-slate-200">
-                          {existingCa.openDays !== undefined ? existingCa.openDays : (existingCa.controlOpenDays || 0)} วัน (เกณฑ์ ≤ 90 วัน)
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                        <span className="font-medium text-slate-700 dark:text-slate-300">4. สภาพตัวเครื่อง / ช่องเสียบ:</span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          ✓ สะอาด ทำงานปกติ
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Root Cause & Corrective Action Display */}
-                  <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 space-y-2.5">
-                    <div>
-                      <span className="text-[10px] font-extrabold uppercase text-amber-800 dark:text-amber-400 block">สาเหตุของปัญหา (Root Cause):</span>
-                      <p className="font-bold text-slate-900 dark:text-white text-xs mt-0.5">
-                        {existingCa.probableCause || "ไม่ได้ระบุสาเหตุ"}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-extrabold uppercase text-amber-800 dark:text-amber-400 block">การดำเนินการแก้ไขและการป้องกัน (Corrective / Preventive Action):</span>
-                      <p className="text-slate-700 dark:text-slate-200 text-xs whitespace-pre-wrap mt-0.5 font-medium">
-                        {existingCa.correctiveActionNote || "ไม่มีหมายเหตุเพิ่มเติม"}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setCaViewMode("edit")}
-                      className="px-4 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-extrabold text-xs cursor-pointer transition-all flex items-center space-x-1.5"
-                    >
-                      <span>✏️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsCaModalOpen(false)}
-                      className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs cursor-pointer transition-all"
-                    >
-                      ปิดหน้าต่างรายงาน
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* EDIT / INPUT FORM VIEW */
-                <form onSubmit={handleSaveCa} className="space-y-4">
-                  <div className="space-y-3 bg-slate-50 dark:bg-slate-800/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
-                    <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs mb-1">1. การทวนสอบเช็คลิสต์ 4 ด้าน:</h4>
-                    <div className="space-y-2.5">
-                      <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
-                        <input
-                          type="checkbox"
-                          checked={caForm.stripExpNormal}
-                          onChange={(e) => setCaForm({ ...caForm, stripExpNormal: e.target.checked })}
-                          className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                        />
-                        <span className="font-bold text-slate-700 dark:text-slate-300">แผ่นตรวจ (Test Strip) ปกติ (ไม่หมดอายุ / เก็บรักษาถูกต้อง)</span>
-                      </label>
-
-                      <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
-                        <input
-                          type="checkbox"
-                          checked={caForm.controlExpNormal}
-                          onChange={(e) => setCaForm({ ...caForm, controlExpNormal: e.target.checked })}
-                          className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                        />
-                        <span className="font-bold text-slate-700 dark:text-slate-300">น้ำยาควบคุม (Control Solution) ปกติ (ไม่หมดอายุ)</span>
-                      </label>
-
-                      <div className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-1">
-                        <label className="block font-bold text-slate-700 dark:text-slate-300 text-[11px]">ระยะเวลาน้ำยาตั้งแต่เปิดใช้ (วัน):</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="365"
-                          value={caForm.controlOpenDays ?? 0}
-                          onChange={(e) => setCaForm({ ...caForm, controlOpenDays: Number(e.target.value) })}
-                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 font-bold text-xs"
-                          placeholder="เช่น 15 วัน (กำหนดเปิดใช้ไม่เกิน 90 วัน)"
-                        />
-                      </div>
-
-                      <label className="flex items-center space-x-2.5 cursor-pointer p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80">
-                        <input
-                          type="checkbox"
-                          checked={caForm.machineConditionClean}
-                          onChange={(e) => setCaForm({ ...caForm, machineConditionClean: e.target.checked })}
-                          className="w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
-                        />
-                        <span className="font-bold text-slate-700 dark:text-slate-300">สภาพตัวเครื่องและช่องใส่แถบตรวจสะอาด / ทำงานปกติ</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Repeat Test with Real-time In/Out Detection */}
-                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <label className="block font-bold text-slate-800 dark:text-slate-200">2. ผลการทดสอบซ้ำ (Repeat Test หลังแก้ไข):</label>
-                      {isRepeatComplete && (
-                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                          isRepeatAllIn 
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300" 
-                            : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 animate-pulse"
-                        }`}>
-                          {isRepeatAllIn ? "✓ ผ่านเกณฑ์ In Control" : "✕ ยังคง Out of Control"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className={`p-2.5 rounded-xl border transition-all ${
-                        repL1Status === "normal"
-                          ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
-                          : repL1Status === "out_of_control"
-                            ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
-                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
-                      }`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-bold text-slate-500">Level 1 (Low)</span>
-                          {repL1Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
-                          {repL1Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
-                        </div>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={caForm.repeatLevel1 || ""}
-                          onChange={(e) => setCaForm({ ...caForm, repeatLevel1: e.target.value })}
-                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
-                          placeholder="ค่าซ้ำ L1"
-                        />
-                        {caTargetLot && (
-                          <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level1Min} - {caTargetLot.level1Max}</span>
-                        )}
-                      </div>
-
-                      <div className={`p-2.5 rounded-xl border transition-all ${
-                        repL2Status === "normal"
-                          ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
-                          : repL2Status === "out_of_control"
-                            ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
-                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
-                      }`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-bold text-slate-500">Level 2 (Normal)</span>
-                          {repL2Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
-                          {repL2Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
-                        </div>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={caForm.repeatLevel2 || ""}
-                          onChange={(e) => setCaForm({ ...caForm, repeatLevel2: e.target.value })}
-                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
-                          placeholder="ค่าซ้ำ L2"
-                        />
-                        {caTargetLot && (
-                          <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level2Min} - {caTargetLot.level2Max}</span>
-                        )}
-                      </div>
-
-                      <div className={`p-2.5 rounded-xl border transition-all ${
-                        repL3Status === "normal"
-                          ? "bg-emerald-50/60 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-700"
-                          : repL3Status === "out_of_control"
-                            ? "bg-rose-50/60 border-rose-300 dark:bg-rose-950/30 dark:border-rose-700"
-                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
-                      }`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-bold text-slate-500">Level 3 (High)</span>
-                          {repL3Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
-                          {repL3Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
-                        </div>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={caForm.repeatLevel3 || ""}
-                          onChange={(e) => setCaForm({ ...caForm, repeatLevel3: e.target.value })}
-                          className="w-full p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-bold text-xs"
-                          placeholder="ค่าซ้ำ L3"
-                        />
-                        {caTargetLot && (
-                          <span className="text-[9px] text-slate-400 block mt-1">เกณฑ์: {caTargetLot.level3Min} - {caTargetLot.level3Max}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">3. สรุปสาเหตุที่น่าจะเป็นของความผิดปกติ (Probable Cause):</label>
-                    <select
-                      value={caForm.probableCause || ""}
-                      onChange={(e) => setCaForm({ ...caForm, probableCause: e.target.value })}
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-white"
-                    >
-                      <option value="น้ำยาควบคุมเสื่อมสภาพ/หมดอายุ">น้ำยาควบคุมเสื่อมสภาพ / หมดอายุ / เปิดใช้นานเกินกำหนด</option>
-                      <option value="แถบตรวจชื้นหรือเสื่อมสภาพ">แถบตรวจ (Test Strip) ชื้นหรือเสื่อมสภาพ</option>
-                      <option value="ช่องใส่แถบตรวจสกปรก">ช่องใส่แถบตรวจ (Strip Holder) มีคราบสกปรก</option>
-                      <option value="เทคนิคการปิเปตหรือหยดน้ำยาไม่ถูกต้อง">เทคนิคการหยดน้ำยาหรือการผสมไม่ถูกต้อง</option>
-                      <option value="เครื่องวัดน้ำตาลผิดปกติ">ตัวเครื่องวัดน้ำตาลผิดปกติ / แบตเตอรี่อ่อน</option>
-                      <option value="ปัจจัยอุณหภูมิสิ่งแวดล้อม">ปัจจัยอุณหภูมิ / ความชื้นในห้องตรวจ</option>
-                      <option value="อื่นๆ">อื่นๆ (ระบุในหมายเหตุ)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">4. หมายเหตุ / การดำเนินการแก้ไข (Corrective Action Note):</label>
-                    <textarea
-                      rows={3}
-                      value={caForm.correctiveActionNote || ""}
-                      onChange={(e) => setCaForm({ ...caForm, correctiveActionNote: e.target.value })}
-                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-white"
-                      placeholder="ระบุรายละเอียดการแก้ไข เช่น เปลี่ยนขวดน้ำยาใหม่, ทำความสะอาดเครื่อง, ทดสอบซ้ำผ่านแล้ว..."
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => existingCa ? setCaViewMode("report") : setIsCaModalOpen(false)}
-                      className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs cursor-pointer transition-all"
-                    >
-                      ยกเลิก
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center space-x-1.5"
-                    >
-                      <span>บันทึกผลการทวนสอบ (CA)</span>
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {renderCaModal()}
     </div>
   );
 }

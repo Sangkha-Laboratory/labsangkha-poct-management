@@ -42,19 +42,49 @@ export default function StockManagement({
   onDeleteMachine,
   onBulkAddMachines 
 }: StockManagementProps) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterWard, setFilterWard] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => localStorage.getItem("dtx_stock_search") || "");
+  const [filterWard, setFilterWard] = useState(() => localStorage.getItem("dtx_stock_filter_ward") || "");
+  const [filterStatus, setFilterStatus] = useState(() => localStorage.getItem("dtx_stock_filter_status") || "");
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
 
-  // Pagination State
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(15);
+  // Pagination State (Persisted on refresh)
+  const [currentPage, setCurrentPage] = useState(() => {
+    const p = localStorage.getItem("dtx_stock_current_page");
+    return p ? Number(p) : 1;
+  });
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    const s = localStorage.getItem("dtx_stock_items_per_page");
+    return s ? Number(s) : 15;
+  });
 
-  // Reset page when filter/search changes
+  const isMountedRef = useRef(false);
   useEffect(() => {
-    setCurrentPage(1);
+    if (isMountedRef.current) {
+      setCurrentPage(1);
+    } else {
+      isMountedRef.current = true;
+    }
   }, [searchTerm, filterWard, filterStatus]);
+
+  useEffect(() => {
+    localStorage.setItem("dtx_stock_search", searchTerm);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    localStorage.setItem("dtx_stock_filter_ward", filterWard);
+  }, [filterWard]);
+
+  useEffect(() => {
+    localStorage.setItem("dtx_stock_filter_status", filterStatus);
+  }, [filterStatus]);
+
+  useEffect(() => {
+    localStorage.setItem("dtx_stock_current_page", String(currentPage));
+  }, [currentPage]);
+
+  useEffect(() => {
+    localStorage.setItem("dtx_stock_items_per_page", String(itemsPerPage));
+  }, [itemsPerPage]);
 
   useEffect(() => {
     dbService.getWards()
@@ -827,6 +857,24 @@ export default function StockManagement({
   // Sorting states - Default sorting to serialNumber (CODE) asc
   const [sortField, setSortField] = useState<keyof DtxMachine>('serialNumber');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefreshStock = async () => {
+    setIsRefreshing(true);
+    try {
+      // Reload wards and trigger a gentle state update
+      const fetchedWards = await dbService.getWards();
+      if (Array.isArray(fetchedWards)) {
+        setWards(fetchedWards);
+      }
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500);
+    } catch (err) {
+      console.error(err);
+      setIsRefreshing(false);
+    }
+  };
 
   // Filtered machines - always based on deduplicated data
   const filteredMachines = deduplicatedMachines.filter(m => {
@@ -920,6 +968,16 @@ export default function StockManagement({
         </div>
         
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Refresh Button */}
+          <button
+            onClick={handleRefreshStock}
+            disabled={isRefreshing}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer disabled:opacity-50"
+            title="รีเฟรชข้อมูลคลังเครื่อง"
+          >
+            <RefreshCw size={14} className={`text-slate-500 ${isRefreshing ? "animate-spin" : ""}`} />
+            <span>รีเฟรช</span>
+          </button>
           {/* CSV Export Button */}
           <button
             onClick={handleExportCSV}
@@ -972,7 +1030,7 @@ export default function StockManagement({
             onClick={() => setImportResultToast(null)} 
             className="text-slate-400 hover:text-slate-600 cursor-pointer font-bold px-2 py-0.5"
           >
-            ✕
+            
           </button>
         </div>
       )}
@@ -1507,7 +1565,7 @@ export default function StockManagement({
                         onClick={() => setImportStrategy('overwrite_existing')}
                         className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition-colors shrink-0 shadow-2xs cursor-pointer flex items-center justify-center space-x-1"
                       >
-                        <span>สลับเป็น: อัปเดตทับเดิม ⚡</span>
+                        <span>สลับเป็น: อัปเดตทับเดิม </span>
                       </button>
                     </div>
                   )}
@@ -1564,7 +1622,7 @@ export default function StockManagement({
                               <td className="p-2.5">
                                 {!r.isValid ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
-                                    ✗ {r.validationError}
+                                     {r.validationError}
                                   </span>
                                 ) : r.isExisting && r.existingMachine ? (
                                   <div className="space-y-1.5 w-full max-w-[320px]">
@@ -1574,7 +1632,7 @@ export default function StockManagement({
                                           ? 'bg-amber-100 text-amber-800 border-amber-300' 
                                           : 'bg-slate-100 text-slate-700 border-slate-300'
                                       }`}>
-                                        {importStrategy === 'overwrite_existing' ? '⚡ จะอัปเดตทับข้อมูลเดิม' : '⚠ จะข้าม (รหัสซ้ำ)'}
+                                        {importStrategy === 'overwrite_existing' ? ' จะอัปเดตทับข้อมูลเดิม' : ' จะข้าม (รหัสซ้ำ)'}
                                       </span>
                                       {r.duplicateMatchReason && (
                                         <span className="text-[9px] text-amber-800 font-medium bg-amber-100/60 px-1.5 py-0.5 rounded border border-amber-200 whitespace-nowrap">
@@ -1631,7 +1689,7 @@ export default function StockManagement({
                                   </div>
                                 ) : (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 whitespace-nowrap">
-                                    ✓ เครื่องใหม่ พร้อมนำเข้า
+                                     เครื่องใหม่ พร้อมนำเข้า
                                   </span>
                                 )}
                               </td>
@@ -2016,21 +2074,21 @@ export default function StockManagement({
                       className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-emerald-300/60"
                       title="สำหรับกรณี Home Ward หรือหน่วยงานส่งเครื่องกลับมาไว้แลปเพื่อเวียนใช้"
                     >
-                      🏢 ส่งคืนแลป (สำรอง/เวียน)
+                       ส่งคืนแลป (สำรอง/เวียน)
                     </button>
                     <button
                       type="button"
                       onClick={applyBackupLoanPreset}
                       className="bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-purple-300/60"
                     >
-                      🔁 ยืมสำรองแทนเครื่องซ่อม
+                       ยืมสำรองแทนเครื่องซ่อม
                     </button>
                     <button
                       type="button"
                       onClick={applyWardTransferPreset}
                       className="bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-sky-300/60"
                     >
-                      ➡️ ย้าย Ward ประจำการ
+                      ️ ย้าย Ward ประจำการ
                     </button>
                   </div>
                 </div>
@@ -2063,10 +2121,10 @@ export default function StockManagement({
                         className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
                         required
                       >
-                        <option value="return_to_lab">🏢 ส่งคืนห้องแลป (สำรองหมุนเวียน)</option>
-                        <option value="backup_loan">🔁 จ่ายยืมสำรองทดแทนซ่อม</option>
-                        <option value="transfer">➡️ โอนย้ายเปลี่ยน Ward ประจำการ</option>
-                        <option value="edit">✏️ แก้ไขข้อมูลสถานที่</option>
+                        <option value="return_to_lab"> ส่งคืนห้องแลป (สำรองหมุนเวียน)</option>
+                        <option value="backup_loan"> จ่ายยืมสำรองทดแทนซ่อม</option>
+                        <option value="transfer">️ โอนย้ายเปลี่ยน Ward ประจำการ</option>
+                        <option value="edit">️ แก้ไขข้อมูลสถานที่</option>
                       </CustomSelect>
                     </div>
 
@@ -2189,7 +2247,7 @@ export default function StockManagement({
                             isEdit ? 'bg-amber-500 ring-4 ring-amber-100' :
                             'bg-sky-500 ring-4 ring-sky-100'
                           }`}>
-                            {idx === 0 ? '★' : idx + 1}
+                            {idx === 0 ? '' : idx + 1}
                           </div>
 
                           <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-2xs space-y-1.5 hover:border-slate-300 transition-colors">
@@ -2203,11 +2261,11 @@ export default function StockManagement({
                                   isEdit ? 'bg-amber-50 text-amber-700 border-amber-200' :
                                   'bg-sky-50 text-sky-700 border-sky-200'
                                 }`}>
-                                  {isReturnLab ? '🏢 ส่งคืนห้องปฏิบัติการ (LAB)' :
-                                   isBackup ? '🔁 จ่ายยืมสำรองทดแทนซ่อม' :
-                                   isInitial ? '📦 บันทึกแรกเริ่มประจำการ' :
-                                   isEdit ? '✏️ แก้ไขข้อมูลสถานที่' :
-                                   '➡️ โอนย้ายเปลี่ยน Ward'}
+                                  {isReturnLab ? ' ส่งคืนห้องปฏิบัติการ (LAB)' :
+                                   isBackup ? ' จ่ายยืมสำรองทดแทนซ่อม' :
+                                   isInitial ? ' บันทึกแรกเริ่มประจำการ' :
+                                   isEdit ? '️ แก้ไขข้อมูลสถานที่' :
+                                   '️ โอนย้ายเปลี่ยน Ward'}
                                 </span>
 
                                 {idx === 0 && (

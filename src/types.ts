@@ -19,6 +19,29 @@ export interface MachineLocationLog {
   operator?: string;
 }
 
+export interface UserPermissions {
+  can_manage_stock?: boolean;
+  can_manage_qc?: boolean;
+  can_manage_repairs?: boolean;
+  can_manage_supplies?: boolean;
+  can_manage_users?: boolean;
+  can_export_reports?: boolean;
+  can_manage_configs?: boolean;
+}
+
+export interface SystemUser {
+  id: string;
+  full_name: string;
+  role: 'admin' | 'staff' | 'user' | 'manager' | 'viewer';
+  position?: string;
+  email?: string;
+  sender_pass?: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+  permissions?: UserPermissions;
+}
+
 export interface DtxMachine {
   id: string;
   serialNumber: string; // This acts as the CODE (e.g. BGM-000)

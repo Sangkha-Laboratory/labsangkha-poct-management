@@ -1745,7 +1745,7 @@ export default function LandingPage({
                         <p><span className="text-slate-400">รหัสเครื่อง:</span> <span className="text-sky-400 font-bold">{latestSubmittedRepair.serialNumber}</span></p>
                         <p><span className="text-slate-400">หน่วยงาน:</span> {latestSubmittedRepair.ward}</p>
                         <p><span className="text-slate-400">อาการเสีย:</span> <span className="text-amber-400">{latestSubmittedRepair.reportedProblem}</span></p>
-                        <p><span className="text-slate-400">เครื่องสำรอง:</span> <span className={latestSubmittedRepair.needsBackup ? "text-amber-400 font-bold" : "text-slate-450"}>{latestSubmittedRepair.needsBackup ? "✓ ต้องการ" : "✗ ไม่ต้องการ"}</span></p>
+                        <p><span className="text-slate-400">เครื่องสำรอง:</span> <span className={latestSubmittedRepair.needsBackup ? "text-amber-400 font-bold" : "text-slate-450"}>{latestSubmittedRepair.needsBackup ? " ต้องการ" : " ไม่ต้องการ"}</span></p>
                         <p><span className="text-slate-400">ผู้แจ้งซ่อม:</span> {latestSubmittedRepair.reporterName}</p>
                         <p><span className="text-slate-400">สถานะ:</span> <span className="text-amber-500 font-bold">● รอดำเนินการ (Pending)</span></p>
                       </div>
@@ -1778,7 +1778,7 @@ export default function LandingPage({
 
                 <p className="text-[10px] text-slate-400 leading-relaxed text-center">
                   {lineNotifyToken ? (
-                    <span className="text-emerald-400">✓ มีการเชื่อมต่อกับ Token จริงในฝั่งแอดมินแล้ว</span>
+                    <span className="text-emerald-400"> มีการเชื่อมต่อกับ Token จริงในฝั่งแอดมินแล้ว</span>
                   ) : (
                     <span>* สามารถนำ LINE Notify Token ใส่ในฝั่งแอดมิน เพื่อส่งแจ้งเตือนเข้าแชทกลุ่มไลน์จริงได้ทันที</span>
                   )}

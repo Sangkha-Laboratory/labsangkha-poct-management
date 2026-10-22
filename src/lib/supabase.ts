@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog } from '../types';
+import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog, SystemUser } from '../types';
 import { getThaiTodayDateOnly } from './dateUtils';
 
 // Helper to validate standard UUID format
@@ -1986,6 +1986,25 @@ export const dbService = {
         console.warn('Supabase getStripReagentItems notice:', error.message || error);
       }
     }
+    const apiData = await safeApiFetch('/api/strip-reagent-items');
+    if (Array.isArray(apiData)) {
+      return (apiData as any[]).map((row) => ({
+        id: row.id,
+        itemCode: row.item_code,
+        lotNumber: row.lot_number,
+        manufacturer: row.manufacturer,
+        itemType: row.item_type,
+        receivedDate: row.received_date,
+        expDate: row.exp_date,
+        openDate: row.open_date,
+        openExpDate: row.open_exp_date,
+        status: row.status,
+        openedBy: row.opened_by,
+        notes: row.notes,
+        boxIndex: row.box_index,
+        totalBoxes: row.total_boxes
+      })).sort((a, b) => new Date(b.receivedDate || 0).getTime() - new Date(a.receivedDate || 0).getTime());
+    }
     return [];
   },
 
@@ -2033,6 +2052,29 @@ export const dbService = {
       if (error && !isMissingTable) {
         console.warn('Supabase insertStripReagentItems notice:', error.message || error);
       }
+    }
+    const apiData = await safeApiFetch('/api/strip-reagent-items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dbPayloads)
+    });
+    if (Array.isArray(apiData)) {
+      return (apiData as any[]).map(row => ({
+        id: row.id,
+        itemCode: row.item_code,
+        lotNumber: row.lot_number,
+        manufacturer: row.manufacturer,
+        itemType: row.item_type,
+        receivedDate: row.received_date,
+        expDate: row.exp_date,
+        openDate: row.open_date,
+        openExpDate: row.open_exp_date,
+        status: row.status,
+        openedBy: row.opened_by,
+        notes: row.notes,
+        boxIndex: row.box_index,
+        totalBoxes: row.total_boxes
+      }));
     }
     return items;
   },
@@ -2269,5 +2311,102 @@ export const dbService = {
       );
     }
     await safeApiFetch(`/api/battery-disbursements/${id}`, { method: "DELETE" });
+  },
+
+  // --- User & Permissions Management (dtx_system_users) ---
+  async getSystemUsers(): Promise<SystemUser[]> {
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('full_name', { ascending: true }),
+        'dtx_system_users',
+        ['users']
+      );
+      if (!error && Array.isArray(data)) {
+        return data.map((u: any) => ({
+          id: u.id,
+          full_name: u.full_name || u.name || '',
+          role: u.role || 'user',
+          position: u.position || '',
+          email: u.email || '',
+          is_active: u.is_active !== false,
+          created_at: u.created_at,
+          updated_at: u.updated_at,
+          permissions: u.permissions || {}
+        }));
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase getSystemUsers notice:', error.message || error);
+      }
+    }
+    const data = await safeApiFetch('/api/users');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async insertSystemUser(user: Partial<SystemUser>): Promise<SystemUser> {
+    const targetId = user.id && isUuid(user.id) ? user.id : generateUUID();
+    const payload = {
+      id: targetId,
+      full_name: user.full_name,
+      role: user.role || 'user',
+      position: user.position || '',
+      email: user.email || '',
+      is_active: user.is_active !== false,
+      permissions: user.permissions || {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([payload]).select().maybeSingle(),
+        'dtx_system_users',
+        ['users']
+      );
+      if (!error && data) return data as unknown as SystemUser;
+      if (error && !isMissingTable) {
+        console.warn('Supabase insertSystemUser notice:', error.message || error);
+      }
+    }
+    const data = await safeApiFetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return data || (payload as any);
+  },
+
+  async updateSystemUser(id: string, updates: Partial<SystemUser>): Promise<SystemUser> {
+    const payload: any = {
+      ...updates,
+      updated_at: new Date().toISOString()
+    };
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(payload).eq('id', id).select().maybeSingle(),
+        'dtx_system_users',
+        ['users']
+      );
+      if (!error && data) return data as unknown as SystemUser;
+      if (error && !isMissingTable) {
+        console.warn('Supabase updateSystemUser notice:', error.message || error);
+      }
+    }
+    const data = await safeApiFetch(`/api/users/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return data || ({ id, ...payload } as any);
+  },
+
+  async deleteSystemUser(id: string): Promise<void> {
+    if (getSupabaseClient()) {
+      await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'dtx_system_users',
+        ['users']
+      );
+    }
+    await safeApiFetch(`/api/users/${id}`, { method: 'DELETE' });
   }
 };

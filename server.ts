@@ -548,6 +548,54 @@ app.delete("/api/repairs/:id", checkDbConfig, async (req, res) => {
   }
 });
 
+// --- dtx_system_users (User & Permissions Management) ---
+app.get(["/api/users", "/api/dtx-system-users"], checkDbConfig, async (req, res) => {
+  try {
+    const data = await executeSupabaseQuery(client =>
+      client.from("dtx_system_users").select("*").range(0, 99999)
+    );
+    res.json(data || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(["/api/users", "/api/dtx-system-users"], checkDbConfig, async (req, res) => {
+  try {
+    const payload = cleanUuidPayload(req.body);
+    const data = await executeSupabaseWrite(client =>
+      client.from("dtx_system_users").insert([payload]).select("*").maybeSingle()
+    );
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put(["/api/users/:id", "/api/dtx-system-users/:id"], checkDbConfig, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const data = await executeSupabaseWrite(client =>
+      client.from("dtx_system_users").update(req.body).eq("id", id).select("*").maybeSingle()
+    );
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete(["/api/users/:id", "/api/dtx-system-users/:id"], checkDbConfig, async (req, res) => {
+  try {
+    const id = req.params.id;
+    await executeSupabaseWrite(client =>
+      client.from("dtx_system_users").delete().eq("id", id)
+    );
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- supply_requests ---
 app.get("/api/supplies", checkDbConfig, async (req, res) => {
   try {

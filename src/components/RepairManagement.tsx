@@ -5,19 +5,27 @@
 
 import React, { useState, useEffect } from 'react';
 import CustomSelect from "./CustomSelect";
-import { RepairRequest } from '../types';
+import { RepairRequest, DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
 import PrintForm from './PrintForm';
-import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck, ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Phone, Info, CheckCircle2 } from 'lucide-react';
 import { formatToThaiDate, getThaiTodayDateOnly } from '../lib/dateUtils';
 
 interface RepairManagementProps {
   repairs: RepairRequest[];
   onUpdateRepair: (repair: RepairRequest) => void;
+  onAddRepair?: (repair: RepairRequest) => Promise<any> | void;
+  machines?: DtxMachine[];
   lineNotifyToken: string;
 }
 
-export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyToken }: RepairManagementProps) {
+export default function RepairManagement({
+  repairs,
+  onUpdateRepair,
+  onAddRepair,
+  machines = [],
+  lineNotifyToken
+}: RepairManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterWard, setFilterWard] = useState('');
@@ -64,8 +72,136 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
   const [intercomparison, setIntercomparison] = useState<'pass' | 'fail' | 'pending'>('pending');
   const [others, setOthers] = useState('');
 
-  // Simulation LINE message popups
+  // Admin Add / Retroactive Repair Form States
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newSelectedMachine, setNewSelectedMachine] = useState<string>('');
+  const [newCustomCode, setNewCustomCode] = useState<string>('');
+  const [newMachineSerial, setNewMachineSerial] = useState<string>('');
+  const [newWard, setNewWard] = useState<string>('');
+  const [newReporterName, setNewReporterName] = useState<string>('เจ้าหน้าที่ประจำหอผู้ป่วย');
+  const [newReporterPhone, setNewReporterPhone] = useState<string>('');
+  const [newReportedProblem, setNewReportedProblem] = useState<string>('');
+  const [newRequestDate, setNewRequestDate] = useState<string>(getThaiTodayDateOnly());
+  const [newNeedsBackup, setNewNeedsBackup] = useState<boolean>(false);
+  const [newStatus, setNewStatus] = useState<RepairRequest['status']>('pending');
+  const [newDiagnosedProblem, setNewDiagnosedProblem] = useState<string>('');
+  const [newInspectionResult, setNewInspectionResult] = useState<string>('');
+  const [newActionTaken, setNewActionTaken] = useState<RepairRequest['actionTaken']>('none');
+  const [newActionDetails, setNewActionDetails] = useState<string>('');
+  const [newOperatorName, setNewOperatorName] = useState<string>('ทนพ. สมชาย ดีเลิศ');
+  const [newReceiverName, setNewReceiverName] = useState<string>('');
+  const [newCompletionDate, setNewCompletionDate] = useState<string>(getThaiTodayDateOnly());
+  const [isSubmittingNewRepair, setIsSubmittingNewRepair] = useState<boolean>(false);
   const [simLineMsg, setSimLineMsg] = useState<string | null>(null);
+  const [machineSearchTerm, setMachineSearchTerm] = useState('');
+  const [isMachineSearchOpen, setIsMachineSearchOpen] = useState(false);
+
+  const filteredMachinesForSearch = React.useMemo(() => {
+    if (!machineSearchTerm.trim()) return machines;
+    const term = machineSearchTerm.toLowerCase().trim();
+    return machines.filter(m => 
+      (m.serialNumber && m.serialNumber.toLowerCase().includes(term)) ||
+      (m.machineSerial && m.machineSerial.toLowerCase().includes(term)) ||
+      (m.ward && m.ward.toLowerCase().includes(term)) ||
+      (m.brand && m.brand.toLowerCase().includes(term)) ||
+      (m.model && m.model.toLowerCase().includes(term))
+    );
+  }, [machines, machineSearchTerm]);
+
+  const handleSelectMachineForAdd = (val: string) => {
+    setNewSelectedMachine(val);
+    if (val === 'CUSTOM') {
+      setNewCustomCode('');
+      setNewMachineSerial('');
+      return;
+    }
+    const found = machines?.find(m => m.serialNumber === val || m.machineSerial === val);
+    if (found) {
+      setNewCustomCode(found.serialNumber);
+      setNewMachineSerial(found.machineSerial || found.serialNumber);
+      if (found.ward) setNewWard(found.ward);
+    }
+  };
+
+  const handleCreateNewRepair = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalCode = (newSelectedMachine === 'CUSTOM' ? newCustomCode : newSelectedMachine).trim();
+    if (!finalCode) {
+      alert('กรุณาระบุหรือเลือกรหัสเครื่อง DTX');
+      return;
+    }
+    if (!newWard.trim()) {
+      alert('กรุณาระบุหน่วยงาน / Ward ที่ส่งซ่อม');
+      return;
+    }
+    if (!newReportedProblem.trim()) {
+      alert('กรุณาระบุอาการเสียหรือปัญหาตามแจ้ง');
+      return;
+    }
+
+    setIsSubmittingNewRepair(true);
+    const newId = `REP-${Date.now().toString().slice(-4)}`;
+    const isCompleted = newStatus === 'completed';
+
+    const newRepair: RepairRequest = {
+      id: newId,
+      serialNumber: finalCode.toUpperCase(),
+      machineSerial: newMachineSerial.trim() || undefined,
+      ward: newWard.trim(),
+      reporterName: newReporterName.trim() || 'เจ้าหน้าที่ประจำหอผู้ป่วย',
+      reporterPhone: newReporterPhone.trim(),
+      reportedProblem: newReportedProblem.trim(),
+      requestDate: newRequestDate || getThaiTodayDateOnly(),
+      status: newStatus,
+      needsBackup: newNeedsBackup,
+      diagnosedProblem: newDiagnosedProblem.trim() || undefined,
+      inspectionResult: newInspectionResult.trim() || undefined,
+      actionTaken: newActionTaken,
+      actionDetails: newActionDetails.trim() || undefined,
+      operatorName: newOperatorName.trim() || undefined,
+      receiverName: newReceiverName.trim() || undefined,
+      completionDate: isCompleted ? (newCompletionDate || newRequestDate || getThaiTodayDateOnly()) : undefined,
+      checklist: {
+        cleanliness: isCompleted ? 'pass' : 'pending',
+        buttons: isCompleted ? 'pass' : 'pending',
+        stripSlot: isCompleted ? 'pass' : 'pending',
+        batterySlot: isCompleted ? 'pass' : 'pending',
+        battery: isCompleted ? 'pass' : 'pending',
+        screen: isCompleted ? 'pass' : 'pending',
+        measurement: isCompleted ? 'pass' : 'pending',
+        iqc: isCompleted ? 'pass' : 'pending',
+        intercomparison: isCompleted ? 'pass' : 'pending',
+        others: ''
+      }
+    };
+
+    try {
+      if (onAddRepair) {
+        await onAddRepair(newRepair);
+      } else {
+        await dbService.insertRepair(newRepair);
+      }
+      setIsAddModalOpen(false);
+      // Reset form
+      setNewSelectedMachine('');
+      setNewCustomCode('');
+      setNewMachineSerial('');
+      setNewWard('');
+      setNewReportedProblem('');
+      setNewNeedsBackup(false);
+      setNewStatus('pending');
+      setNewDiagnosedProblem('');
+      setNewInspectionResult('');
+      setNewActionTaken('none');
+      setNewActionDetails('');
+      setNewReceiverName('');
+    } catch (err: any) {
+      console.error('Failed to create repair:', err);
+      alert(`ไม่สามารถบันทึกข้อมูลได้: ${err?.message || err}`);
+    } finally {
+      setIsSubmittingNewRepair(false);
+    }
+  };
 
   const startEdit = (rep: RepairRequest) => {
     setEditingRepair(rep);
@@ -183,14 +319,24 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
       )}
 
       {/* Header */}
-      <div className="border-b border-slate-100 pb-5">
-        <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
-          <Wrench size={20} className="text-sky-600" />
-          <span>จัดการคำขอแจ้งซ่อมและบันทึกประวัติการบำรุงรักษา</span>
-        </h2>
-        <p className="text-xs text-slate-400">
-          ลงข้อมูลซ่อมบำรุง บันทึกปัญหาที่พบล่าสุด แปลงข้อมูลสลับเข้าฟอร์มมาตรฐานของกลุ่มงานเทคนิคการแพทย์ และปริ้นส่งรายงานได้ทันที
-        </p>
+      <div className="border-b border-slate-100 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 flex items-center space-x-2">
+            <Wrench size={20} className="text-sky-600" />
+            <span>จัดการคำขอแจ้งซ่อมและบันทึกประวัติการบำรุงรักษา</span>
+          </h2>
+          <p className="text-xs text-slate-400">
+            ลงข้อมูลซ่อมบำรุง บันทึกประวัติย้อนหลัง บันทึกผลวินิจฉัย และพิมพ์ส่งรายงานตามมาตรฐานกลุ่มงานเทคนิคการแพทย์
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsAddModalOpen(true)}
+          className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 cursor-pointer shadow-md shadow-sky-500/20 shrink-0 transition-all self-start sm:self-auto"
+        >
+          <Plus size={16} />
+          <span>+ บันทึกแจ้งซ่อม / ลงประวัติย้อนหลัง</span>
+        </button>
       </div>
 
       {/* Filters */}
@@ -644,6 +790,555 @@ export default function RepairManagement({ repairs, onUpdateRepair, lineNotifyTo
                 >
                   <Check size={14} />
                   <span>บันทึกและส่งรายงานซ่อม</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Add New / Retroactive Repair Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto" id="add-repair-modal">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-100 my-8 animate-scale-up">
+            <div className="bg-slate-950 text-white p-4.5 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <h3 className="font-bold text-sm flex items-center space-x-2">
+                  <Plus size={16} className="text-sky-400" />
+                  <span>บันทึกข้อมูลการแจ้งซ่อม (Admin / ลงประวัติย้อนหลัง)</span>
+                </h3>
+                <p className="text-[10px] text-slate-400">
+                  สามารถเลือกวันที่แจ้งย้อนหลัง และบันทึกผลการปิดงานซ่อมเสร็จสิ้นได้ทันที
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewRepair} className="p-6 space-y-5 max-h-[82vh] overflow-y-auto text-xs">
+              {/* Row 1: Date & Machine Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center space-x-1">
+                    <Calendar size={13} className="text-sky-600" />
+                    <span>วันที่แจ้งส่งซ่อม * (ลงย้อนหลังได้)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={newRequestDate}
+                    onChange={(e) => setNewRequestDate(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold focus:ring-1 focus:ring-sky-500"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1 relative">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                      <span>เลือกเครื่อง DTX *</span>
+                      <span className="text-[10px] text-sky-600 font-normal">(ค้นหาได้)</span>
+                    </label>
+                    {newSelectedMachine && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSelectedMachine('');
+                          setNewCustomCode('');
+                          setNewMachineSerial('');
+                          setIsMachineSearchOpen(true);
+                        }}
+                        className="text-[10px] text-rose-500 hover:text-rose-700 font-bold cursor-pointer"
+                      >
+                        ล้างเครื่องที่เลือก
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Selected Machine Card View or Search Trigger Button */}
+                  {newSelectedMachine && newSelectedMachine !== 'CUSTOM' ? (
+                    <div className="p-3 rounded-xl border border-sky-200 bg-sky-50/80 flex items-center justify-between gap-2 shadow-2xs">
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <span className="font-mono font-black text-sky-800 bg-white px-2.5 py-1 rounded-lg border border-sky-200 text-xs shadow-3xs shrink-0">
+                          {newCustomCode || newSelectedMachine}
+                        </span>
+                        <div className="truncate text-left">
+                          {newMachineSerial && (
+                            <div className="font-mono text-[11px] text-slate-600 truncate">
+                              S/N: {newMachineSerial}
+                            </div>
+                          )}
+                          {newWard && (
+                            <div className="text-[10px] text-sky-700 font-bold truncate">
+                              Ward: {newWard}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMachineSearchTerm('');
+                            setIsMachineSearchOpen(true);
+                          }}
+                          className="text-xs text-sky-700 hover:text-sky-900 font-bold px-2.5 py-1.5 bg-white hover:bg-sky-100/70 rounded-lg border border-sky-200 cursor-pointer transition-all flex items-center space-x-1 shadow-3xs"
+                        >
+                          <Search size={13} className="text-sky-600" />
+                          <span>เปลี่ยนเครื่อง</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : newSelectedMachine === 'CUSTOM' ? (
+                    <div className="p-3 rounded-xl border border-amber-200 bg-amber-50/80 flex items-center justify-between gap-2 shadow-2xs">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-bold text-amber-900">+ ระบุรหัสเครื่องเอง (เครื่องนอกระบบ)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMachineSearchTerm('');
+                          setIsMachineSearchOpen(true);
+                        }}
+                        className="text-xs text-amber-800 hover:text-amber-950 font-bold px-2.5 py-1.5 bg-white rounded-lg border border-amber-200 cursor-pointer shrink-0 flex items-center space-x-1 shadow-3xs"
+                      >
+                        <Search size={13} className="text-amber-600" />
+                        <span>ค้นหาเครื่องในระบบ</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMachineSearchTerm('');
+                        setIsMachineSearchOpen(true);
+                      }}
+                      className="w-full text-left text-xs p-3 rounded-xl border-2 border-dashed border-sky-300 bg-sky-50/50 hover:bg-sky-100/60 text-sky-800 font-bold flex items-center justify-between cursor-pointer transition-all shadow-3xs group"
+                    >
+                      <span className="flex items-center space-x-2">
+                        <div className="w-6 h-6 rounded-lg bg-sky-100 group-hover:bg-sky-200 flex items-center justify-center text-sky-700">
+                          <Search size={14} />
+                        </div>
+                        <span>กดค้นหาเครื่อง DTX ({machines.length} เครื่องในระบบ)...</span>
+                      </span>
+                      <span className="text-[11px] bg-sky-600 group-hover:bg-sky-700 text-white px-2.5 py-1 rounded-lg font-black shadow-xs">
+                        ค้นหาเครื่อง
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Dedicated Search DTX Machine Modal Dialog */}
+                  {isMachineSearchOpen && (
+                    <div 
+                      className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-fade-in"
+                      onClick={() => setIsMachineSearchOpen(false)}
+                    >
+                      <div 
+                        className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh] animate-scale-up text-left"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Modal Header */}
+                        <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <Search size={16} className="text-sky-400" />
+                            <div>
+                              <h4 className="font-bold text-xs">ค้นหาและเลือกเครื่อง DTX สำหรับแจ้งซ่อม</h4>
+                              <p className="text-[10px] text-slate-400">ค้นหาด้วย BGM Code, Serial Number, หรือ Ward</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsMachineSearchOpen(false)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+
+                        {/* Search Input Bar */}
+                        <div className="p-3 border-b border-slate-100 bg-slate-50 space-y-2">
+                          <div className="relative">
+                            <Search size={15} className="absolute left-3.5 top-3 text-slate-400" />
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder="พิมพ์ค้นหารหัสเครื่อง เช่น BGM-01, S/N, หรือ Ward..."
+                              value={machineSearchTerm}
+                              onChange={(e) => setMachineSearchTerm(e.target.value)}
+                              className="w-full text-xs p-2.5 pl-9 pr-8 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-sky-500 font-medium shadow-3xs"
+                            />
+                            {machineSearchTerm && (
+                              <button
+                                type="button"
+                                onClick={() => setMachineSearchTerm('')}
+                                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                              >
+                                <X size={14} />
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                            <span>ผลการค้นหา: <strong className="text-sky-700">{filteredMachinesForSearch.length}</strong> เครื่อง (ทั้งหมด {machines.length})</span>
+                            {machineSearchTerm && (
+                              <button
+                                type="button"
+                                onClick={() => setMachineSearchTerm('')}
+                                className="text-[10px] text-sky-600 font-bold hover:underline cursor-pointer"
+                              >
+                                ล้างคำค้นหา
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Machine List */}
+                        <div className="p-3 overflow-y-auto divide-y divide-slate-100 space-y-1 flex-1">
+                          {filteredMachinesForSearch.length === 0 ? (
+                            <div className="py-8 text-center space-y-2">
+                              <p className="text-slate-400 text-xs">ไม่พบเครื่องที่ตรงกับ "{machineSearchTerm}"</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleSelectMachineForAdd('CUSTOM');
+                                  setNewCustomCode(machineSearchTerm);
+                                  setIsMachineSearchOpen(false);
+                                  setMachineSearchTerm('');
+                                }}
+                                className="text-xs text-sky-600 hover:text-sky-800 font-bold underline cursor-pointer"
+                              >
+                                ใช้ "{machineSearchTerm}" เป็นรหัสเครื่องนอกระบบ
+                              </button>
+                            </div>
+                          ) : (
+                            filteredMachinesForSearch.map((m) => {
+                              const isSelected = (newCustomCode || newSelectedMachine) === m.serialNumber;
+                              return (
+                                <div
+                                  key={m.id || m.serialNumber}
+                                  onClick={() => {
+                                    handleSelectMachineForAdd(m.serialNumber);
+                                    setIsMachineSearchOpen(false);
+                                    setMachineSearchTerm('');
+                                  }}
+                                  className={`p-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                                    isSelected 
+                                      ? 'bg-sky-50 border border-sky-300' 
+                                      : 'hover:bg-slate-50 border border-transparent'
+                                  }`}
+                                >
+                                  <div className="space-y-1 min-w-0">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="font-mono font-black text-xs text-sky-900 bg-sky-100/80 px-2 py-0.5 rounded border border-sky-200">
+                                        {m.serialNumber}
+                                      </span>
+                                      {m.ward && (
+                                        <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-bold truncate">
+                                          {m.ward}
+                                        </span>
+                                      )}
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                                        m.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                      }`}>
+                                        {m.status || 'active'}
+                                      </span>
+                                    </div>
+                                    <div className="font-mono text-[11px] text-slate-500 truncate flex items-center space-x-2">
+                                      {m.machineSerial && <span>S/N: {m.machineSerial}</span>}
+                                      {m.brand && <span>• {m.brand} {m.model || ''}</span>}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className={`text-xs px-3 py-1.5 rounded-lg font-bold shrink-0 transition-all ${
+                                      isSelected
+                                        ? 'bg-sky-600 text-white'
+                                        : 'bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700'
+                                    }`}
+                                  >
+                                    {isSelected ? 'เลือกอยู่' : 'เลือกเครื่องนี้'}
+                                  </button>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleSelectMachineForAdd('CUSTOM');
+                              setIsMachineSearchOpen(false);
+                              setMachineSearchTerm('');
+                            }}
+                            className="text-xs font-bold text-amber-700 hover:text-amber-900 flex items-center space-x-1 cursor-pointer"
+                          >
+                            <Plus size={14} />
+                            <span>+ ระบุรหัสเครื่องเอง (เครื่องนอกระบบ)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsMachineSearchOpen(false)}
+                            className="text-xs font-bold text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer shadow-3xs"
+                          >
+                            ปิดหน้าต่าง
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Custom Machine inputs if selected CUSTOM */}
+              {newSelectedMachine === 'CUSTOM' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3 bg-sky-50/60 rounded-xl border border-sky-100 animate-fade-in">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700">รหัสเครื่อง (BGM Code) *</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น BGM-01"
+                      value={newCustomCode}
+                      onChange={(e) => setNewCustomCode(e.target.value)}
+                      className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-mono font-bold uppercase"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700">หมายเลขซีเรียล (Serial Number)</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น NC123456"
+                      value={newMachineSerial}
+                      onChange={(e) => setNewMachineSerial(e.target.value)}
+                      className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Row 2: Ward & Reporter Name */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">หน่วยงาน / Ward ที่ส่งซ่อม *</label>
+                  <CustomSelect
+                    value={newWard}
+                    onChange={(e) => setNewWard(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-bold"
+                    required
+                  >
+                    <option value="">-- เลือกหน่วยงาน / หอผู้ป่วย --</option>
+                    {wards.map((w, idx) => (
+                      <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                    ))}
+                  </CustomSelect>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">ชื่อผู้แจ้งซ่อม</label>
+                  <input
+                    type="text"
+                    value={newReporterName}
+                    onChange={(e) => setNewReporterName(e.target.value)}
+                    placeholder="เช่น เจ้าหน้าที่ประจำหอผู้ป่วย"
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Reporter Phone & Needs Backup */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">เบอร์โทรศัพท์ติดต่อ</label>
+                  <input
+                    type="tel"
+                    value={newReporterPhone}
+                    onChange={(e) => setNewReporterPhone(e.target.value)}
+                    placeholder="เช่น 1102 หรือ 081-xxx-xxxx"
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white"
+                  />
+                </div>
+
+                <div className="flex items-center pt-5">
+                  <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newNeedsBackup}
+                      onChange={(e) => setNewNeedsBackup(e.target.checked)}
+                      className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 w-4 h-4 cursor-pointer"
+                    />
+                    <span>ขอเบิกเครื่องสำรองใช้งานชั่วคราว</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Row 4: Reported Problem */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-700">อาการเสีย / ปัญหาที่พบตามแจ้ง *</label>
+                <textarea
+                  rows={2}
+                  value={newReportedProblem}
+                  onChange={(e) => setNewReportedProblem(e.target.value)}
+                  placeholder="ระบุอาการเสีย เช่น เครื่องเปิดไม่ติด, Error E-1, ช่องอ่านแผ่นตรวจขัดข้อง..."
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:ring-1 focus:ring-sky-500"
+                  required
+                />
+                {/* Quick tags */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="text-[10px] text-slate-400 font-bold">อาการที่พบบ่อย:</span>
+                  {[
+                    "เครื่องเปิดไม่ติด",
+                    "Error E-1 / E-2",
+                    "อ่านค่าไม่ได้/ค้าง",
+                    "ช่องใส่แผ่นตรวจขัดข้อง",
+                    "ฝาปิดถ่านชำรุด",
+                    "หน้าจอดับ/จอจาง",
+                    "ผลตรวจคลาดเคลื่อน",
+                    "ส่งสอบเทียบ/ตรวจเช็คประจำปี"
+                  ].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        setNewReportedProblem(prev => prev ? `${prev}, ${tag}` : tag);
+                      }}
+                      className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-medium transition-all cursor-pointer"
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 5: Initial Status */}
+              <div className="space-y-1 pt-2 border-t border-slate-100">
+                <label className="text-[11px] font-bold text-slate-700">สถานะของงานซ่อม *</label>
+                <CustomSelect
+                  value={newStatus}
+                  onChange={(e) => setNewStatus(e.target.value as any)}
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-bold"
+                  required
+                >
+                  <option value="pending">รอดำเนินการ (ยังไม่เริ่มซ่อม)</option>
+                  <option value="repairing">กำลังดำเนินการตรวจบำรุง (Repairing)</option>
+                  <option value="waiting_claim">รอส่งเคลมบริษัท / รออะไหล่</option>
+                  <option value="claimed">ส่งเคลมบริษัทเรียบร้อย</option>
+                  <option value="completed">เสร็จสิ้น / ส่งคืน Ward แล้ว (สมบูรณ์)</option>
+                </CustomSelect>
+              </div>
+
+              {/* Completed / Retroactive Details Section */}
+              {newStatus === 'completed' && (
+                <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200/80 space-y-4 animate-fade-in">
+                  <div className="flex items-center space-x-2 text-emerald-900 border-b border-emerald-200/60 pb-2">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                    <span className="font-extrabold text-xs">ข้อมูลการปิดงานซ่อม / บันทึกผลการตรวจซ่อมย้อนหลัง</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">วันที่ซ่อมเสร็จ / ส่งคืน *</label>
+                      <input
+                        type="date"
+                        value={newCompletionDate}
+                        onChange={(e) => setNewCompletionDate(e.target.value)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">การดำเนินการตรวจซ่อม *</label>
+                      <CustomSelect
+                        value={newActionTaken}
+                        onChange={(e) => setNewActionTaken(e.target.value as any)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold"
+                      >
+                        <option value="return_original">ส่งคืนเครื่องเดิม (ซ่อมบำรุงเรียบร้อย)</option>
+                        <option value="change_battery">เปลี่ยนแบตเตอรี่ใหม่</option>
+                        <option value="provide_new">เปลี่ยนเครื่องใหม่ทดแทน</option>
+                        <option value="none">อื่นๆ / ตรวจเช็คสอบเทียบผ่าน</option>
+                      </CustomSelect>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700">ปัญหาที่พบหลังการตรวจสอบ (Diagnosis)</label>
+                    <input
+                      type="text"
+                      value={newDiagnosedProblem}
+                      onChange={(e) => setNewDiagnosedProblem(e.target.value)}
+                      placeholder="เช่น ขั้วแบตเตอรี่สัมผัสไม่ดี, ทำความสะอาดหัวอ่าน Sensor, แบตเตอรี่เสื่อม"
+                      className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700">รายละเอียดการดำเนินการ / อะไหล่ที่เปลี่ยน</label>
+                    <textarea
+                      rows={2}
+                      value={newActionDetails}
+                      onChange={(e) => setNewActionDetails(e.target.value)}
+                      placeholder="เช่น ทำความสะอาดขั้วต่อ, ทดสอบตรวจ QC ผ่านทั้ง 3 ระดับ พร้อมใช้งาน"
+                      className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">ชื่อนักเทคนิคการแพทย์ผู้ซ่อม *</label>
+                      <input
+                        type="text"
+                        value={newOperatorName}
+                        onChange={(e) => setNewOperatorName(e.target.value)}
+                        placeholder="เช่น ทนพ. สมชาย ดีเลิศ"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-medium"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700">ชื่อผู้รับมอบเครื่องคืน</label>
+                      <input
+                        type="text"
+                        value={newReceiverName}
+                        onChange={(e) => setNewReceiverName(e.target.value)}
+                        placeholder="เช่น พยาบาลประจำหอผู้ป่วย"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-medium"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Form Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingNewRepair}
+                  className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold px-6 py-2.5 rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-md shadow-sky-500/20 disabled:opacity-50 transition-all"
+                >
+                  {isSubmittingNewRepair ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>กำลังบันทึกข้อมูล...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      <span>บันทึกข้อมูลแจ้งซ่อม</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

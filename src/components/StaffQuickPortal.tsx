@@ -369,7 +369,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       // 3. Set newly added LOT as active in QuickWin batch QC
       setBatchLot(cleanLot);
       setIsAddLotModalOpen(false);
-      setBatchToast(`✓ เพิ่มและเปิดใช้งาน LOT ${cleanLot} เรียบร้อยแล้ว`);
+      setBatchToast(` เพิ่มและเปิดใช้งาน LOT ${cleanLot} เรียบร้อยแล้ว`);
       setTimeout(() => setBatchToast(''), 4000);
     } catch (err: any) {
       console.error(err);
@@ -458,7 +458,6 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       level2: String(l2),
       level3: String(l3)
     } : r));
-    setBatchToast('✓ เติมค่า Target อัตโนมัติสำหรับเครื่องที่เลือกแล้ว');
     setTimeout(() => setBatchToast(''), 3000);
   };
 
@@ -555,7 +554,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
         count++;
       }
 
-      setBatchToast(`✓ บันทึกผล QC สำเร็จจำนวน ${count} เครื่องเรียบร้อยแล้ว`);
+      setBatchToast(` บันทึกผล QC สำเร็จจำนวน ${count} เครื่องเรียบร้อยแล้ว`);
       setTimeout(() => setBatchToast(''), 4000);
       handleBatchClearValues();
 
@@ -667,13 +666,13 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       const updatedList = internalStockItems.map(i => i.id === item.id ? updatedItem : i);
       setInternalStockItems(updatedList);
       localStorage.setItem('dtx_strip_items', JSON.stringify(updatedList));
-      alert(`✓ เปิดใช้งาน ${item.itemCode} เรียบร้อยแล้ว\n📅 วันที่เปิด: ${today}\n⏳ วันหมดอายุหลังเปิด (อยู่ได้ ${postOpenDays} วัน): ${openExpDate}`);
+      alert(` เปิดใช้งาน ${item.itemCode} เรียบร้อยแล้ว\n วันที่เปิด: ${today}\n วันหมดอายุหลังเปิด (อยู่ได้ ${postOpenDays} วัน): ${openExpDate}`);
     } catch (err: any) {
       console.warn('DB update failed, saving locally:', err);
       const updatedList = internalStockItems.map(i => i.id === item.id ? updatedItem : i);
       setInternalStockItems(updatedList);
       localStorage.setItem('dtx_strip_items', JSON.stringify(updatedList));
-      alert(`✓ บันทึกการเปิดใช้งาน ${item.itemCode} เรียบร้อยแล้ว (บันทึกในเครื่อง)`);
+      alert(` บันทึกการเปิดใช้งาน ${item.itemCode} เรียบร้อยแล้ว (บันทึกในเครื่อง)`);
     }
   };
 
@@ -692,13 +691,13 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       const updatedList = internalStockItems.map(i => i.id === item.id ? updatedItem : i);
       setInternalStockItems(updatedList);
       localStorage.setItem('dtx_strip_items', JSON.stringify(updatedList));
-      alert(`✓ บันทึกตัดสต็อก ${item.itemCode} เป็นใช้งานหมดแล้วเรียบร้อย`);
+      alert(` บันทึกตัดสต็อก ${item.itemCode} เป็นใช้งานหมดแล้วเรียบร้อย`);
     } catch (err: any) {
       console.warn('DB update failed, saving locally:', err);
       const updatedList = internalStockItems.map(i => i.id === item.id ? updatedItem : i);
       setInternalStockItems(updatedList);
       localStorage.setItem('dtx_strip_items', JSON.stringify(updatedList));
-      alert(`✓ บันทึกตัดสต็อก ${item.itemCode} เรียบร้อย`);
+      alert(` บันทึกตัดสต็อก ${item.itemCode} เรียบร้อย`);
     }
   };
 
@@ -734,11 +733,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       const updated = [savedLog || newLog, ...maintenanceLogs];
       setMaintenanceLogs(updated);
       setMaintDesc('');
-      setMaintToast('✓ บันทึกการซ่อมบำรุง / เปลี่ยนถ่านสำเร็จเรียบร้อยแล้ว!');
+      setMaintToast(' บันทึกการซ่อมบำรุง / เปลี่ยนถ่านสำเร็จเรียบร้อยแล้ว!');
       setTimeout(() => setMaintToast(''), 6000);
     } catch (err: any) {
       console.error(err);
-      alert(`❌ ไม่สามารถบันทึกข้อมูลการซ่อมบำรุงลงฐานข้อมูลได้: ${err?.message || err}`);
+      alert(` ไม่สามารถบันทึกข้อมูลการซ่อมบำรุงลงฐานข้อมูลได้: ${err?.message || err}`);
     } finally {
       setIsSavingMaint(false);
     }
@@ -824,11 +823,11 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       setChkPage(1);
       setChkNote('');
       setChkDate(getThaiTodayDateOnly());
-      setChecklistToast(`✓ บันทึก Checklist ประจำวันสำหรับเครื่อง ${chkSerial} สำเร็จแล้ว!`);
+      setChecklistToast(` บันทึก Checklist ประจำวันสำหรับเครื่อง ${chkSerial} สำเร็จแล้ว!`);
       setTimeout(() => setChecklistToast(''), 6000);
     } catch (err: any) {
       console.error(err);
-      alert(`❌ ไม่สามารถบันทึกข้อมูล Checklist ลงฐานข้อมูลได้: ${err?.message || err}`);
+      alert(` ไม่สามารถบันทึกข้อมูล Checklist ลงฐานข้อมูลได้: ${err?.message || err}`);
     } finally {
       setIsSavingChecklist(false);
     }
@@ -973,10 +972,10 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       }
       setSelectedQcForCa(prev => prev ? { ...prev, correctiveAction: caData } : null);
       setCaViewMode("report");
-      setBatchToast("✓ บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control (CA) สำเร็จ!");
+      setBatchToast(" บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control (CA) สำเร็จ!");
       setTimeout(() => setBatchToast(""), 4000);
     } catch (err: any) {
-      alert(`❌ ไม่สามารถบันทึกข้อมูล CA ได้: ${err?.message || err}`);
+      alert(` ไม่สามารถบันทึกข้อมูล CA ได้: ${err?.message || err}`);
     }
   };
 
@@ -1266,7 +1265,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       }
 
       setSupplyRequests(prev => [savedSupply || newSupply, ...prev]);
-      setSupplyToast(`✓ ทำการเบิก ${supItemType === 'strip' ? 'Test Strip (แผ่นตรวจ)' : 'Control Solution (น้ำยาควบคุม)'} จำนวน ${supQuantity} ${supItemType === 'strip' ? 'กล่อง' : 'ขวด'} สำเร็จเรียบร้อยแล้ว!\n🏷️ LOT: ${supLotNumber || '-'}`);
+      setSupplyToast(` ทำการเบิก ${supItemType === 'strip' ? 'Test Strip (แผ่นตรวจ)' : 'Control Solution (น้ำยาควบคุม)'} จำนวน ${supQuantity} ${supItemType === 'strip' ? 'กล่อง' : 'ขวด'} สำเร็จเรียบร้อยแล้ว!\n️ LOT: ${supLotNumber || '-'}`);
       setTimeout(() => setSupplyToast(''), 6000);
 
       // Reset form
@@ -1567,8 +1566,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     <th className="py-3 px-3.5 w-12 text-center">#</th>
                     <th className="py-3 px-3.5">หน่วยงาน</th>
                     <th className="py-3 px-3.5 font-mono">
-                      <div className="flex items-center justify-between gap-2 flex-wrap min-w-[170px]">
-                        <span>รหัสเครื่อง DTX</span>
+                      <div className="flex flex-col items-start gap-1 min-w-[150px]">
+                        <span className="font-sans font-bold text-slate-800 dark:text-slate-100">รหัสเครื่อง DTX</span>
                         <div className="flex items-center gap-1 font-sans text-[10px] bg-slate-200 dark:bg-slate-700 p-0.5 rounded-lg shrink-0">
                           <button
                             type="button"
@@ -2220,7 +2219,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               {failures.length === 0 ? (
                                 <div className="flex items-center gap-2 whitespace-nowrap">
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                    ✓ ผ่านทุกข้อ (8/8)
+                                     ผ่านทุกข้อ (8/8)
                                   </span>
                                   <button
                                     type="button"
@@ -2233,7 +2232,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                               ) : (
                                 <div className="flex items-center gap-2 whitespace-nowrap">
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" title={failures.join(', ')}>
-                                    ✗ ข้อสังเกต ({failures.length})
+                                     ข้อสังเกต ({failures.length})
                                   </span>
                                   <button
                                     type="button"
@@ -2373,7 +2372,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     onClick={() => setSelectedChecklistDetail(null)}
                     className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm font-bold p-1 rounded-lg cursor-pointer"
                   >
-                    ✕
+                    
                   </button>
                 </div>
 
@@ -2388,35 +2387,35 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     <div className="grid grid-cols-1 gap-1 text-[11px]">
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>1. วัสดุตัวเครื่องและความสะอาด</span>
-                        <span className={selectedChecklistDetail.chkBodyClean ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkBodyClean ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkBodyClean ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkBodyClean ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>2. ปุ่มเปิด/ปิด</span>
-                        <span className={selectedChecklistDetail.chkPowerButton ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkPowerButton ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkPowerButton ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkPowerButton ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>3. ช่องเสียบ Strip</span>
-                        <span className={selectedChecklistDetail.chkStripSlot ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkStripSlot ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkStripSlot ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkStripSlot ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>4. ช่องใส่ถ่าน</span>
-                        <span className={selectedChecklistDetail.chkBatterySlot ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkBatterySlot ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkBatterySlot ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkBatterySlot ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>5. พลังงานแบตเตอรี่และความเรียบร้อย</span>
-                        <span className={selectedChecklistDetail.chkBattery ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkBattery ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkBattery ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkBattery ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>6. ความคมชัดและไฟหน้าจอแสดงผล</span>
-                        <span className={selectedChecklistDetail.chkScreenDisplay ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkScreenDisplay ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkScreenDisplay ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkScreenDisplay ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>7. ตัวเครื่องอ่านค่าและประมวลผลถูกต้อง</span>
-                        <span className={selectedChecklistDetail.chkMeasurement ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkMeasurement ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkMeasurement ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkMeasurement ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-slate-800/40">
                         <span>8. ผลทดสอบ IQC ประจำวันอยู่ในย่านควบคุม</span>
-                        <span className={selectedChecklistDetail.chkIqcPassed ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkIqcPassed ? '✓ ผ่าน' : '✗ ไม่ผ่าน'}</span>
+                        <span className={selectedChecklistDetail.chkIqcPassed ? 'text-emerald-600 font-bold' : 'text-rose-500 font-bold'}>{selectedChecklistDetail.chkIqcPassed ? ' ผ่าน' : ' ไม่ผ่าน'}</span>
                       </div>
                     </div>
                   </div>
@@ -2620,7 +2619,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="🔍 ค้นหารายการ (พิมพ์ LOT, รหัสกล่อง/บาร์โค้ด, ชนิดแผ่นตรวจ/น้ำยา, หรือผู้ผลิต)..."
+                      placeholder=" ค้นหารายการ (พิมพ์ LOT, รหัสกล่อง/บาร์โค้ด, ชนิดแผ่นตรวจ/น้ำยา, หรือผู้ผลิต)..."
                       value={stockSearchQuery}
                       onChange={(e) => setStockSearchQuery(e.target.value)}
                       className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-emerald-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium focus:ring-2 focus:ring-emerald-500 outline-none shadow-xs"
@@ -2631,7 +2630,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                         onClick={() => setStockSearchQuery('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
                       >
-                        ✕
+                        
                       </button>
                     )}
                   </div>
@@ -2727,7 +2726,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                                     : 'bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800'
                                 }`}
                               >
-                                {isSelected ? '✓ เลือกแล้ว' : 'เลือกชิ้นนี้'}
+                                {isSelected ? ' เลือกแล้ว' : 'เลือกชิ้นนี้'}
                               </button>
                             </div>
                           );
@@ -3284,7 +3283,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     <div>
                       <span className="text-[10px] text-slate-400 block font-bold">สถานะการแก้ไข</span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 mt-0.5">
-                        ✓ ดำเนินการแก้ไขแล้ว
+                         ดำเนินการแก้ไขแล้ว
                       </span>
                     </div>
                   </div>
@@ -3312,7 +3311,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                             <span className={`block text-[10px] font-extrabold mt-0.5 ${
                               repL1Status === "normal" ? "text-emerald-600" : "text-rose-600"
                             }`}>
-                              {repL1Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
+                              {repL1Status === "normal" ? " In Control" : " Out of Control"}
                             </span>
                           )}
                         </div>
@@ -3333,7 +3332,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                             <span className={`block text-[10px] font-extrabold mt-0.5 ${
                               repL2Status === "normal" ? "text-emerald-600" : "text-rose-600"
                             }`}>
-                              {repL2Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
+                              {repL2Status === "normal" ? " In Control" : " Out of Control"}
                             </span>
                           )}
                         </div>
@@ -3354,7 +3353,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                             <span className={`block text-[10px] font-extrabold mt-0.5 ${
                               repL3Status === "normal" ? "text-emerald-600" : "text-rose-600"
                             }`}>
-                              {repL3Status === "normal" ? "✓ In Control" : "✕ Out of Control"}
+                              {repL3Status === "normal" ? " In Control" : " Out of Control"}
                             </span>
                           )}
                         </div>
@@ -3373,13 +3372,13 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
                         <span className="font-medium text-slate-700 dark:text-slate-300">1. แผ่นตรวจ (Test Strip):</span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          ✓ ปกติ ไม่หมดอายุ
+                           ปกติ ไม่หมดอายุ
                         </span>
                       </div>
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
                         <span className="font-medium text-slate-700 dark:text-slate-300">2. น้ำยาควบคุม (Control):</span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          ✓ ปกติ ไม่หมดอายุ
+                           ปกติ ไม่หมดอายุ
                         </span>
                       </div>
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
@@ -3391,7 +3390,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
                         <span className="font-medium text-slate-700 dark:text-slate-300">4. สภาพตัวเครื่อง / ช่องเสียบ:</span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                          ✓ สะอาด ทำงานปกติ
+                           สะอาด ทำงานปกติ
                         </span>
                       </div>
                     </div>
@@ -3420,7 +3419,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       onClick={() => setCaViewMode("edit")}
                       className="px-4 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-extrabold text-xs cursor-pointer transition-all flex items-center space-x-1.5"
                     >
-                      <span>✏️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
+                      <span>️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
                     </button>
                     <button
                       type="button"
@@ -3492,7 +3491,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                             ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300" 
                             : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 animate-pulse"
                         }`}>
-                          {isRepeatAllIn ? "✓ ผ่านเกณฑ์ In Control" : "✕ ยังคง Out of Control"}
+                          {isRepeatAllIn ? " ผ่านเกณฑ์ In Control" : " ยังคง Out of Control"}
                         </span>
                       )}
                     </div>
@@ -3507,8 +3506,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       }`}>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[10px] font-bold text-slate-500">Level 1 (Low)</span>
-                          {repL1Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
-                          {repL1Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
+                          {repL1Status === "normal" && <span className="text-[9px] font-black text-emerald-600"> In</span>}
+                          {repL1Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600"> Out</span>}
                         </div>
                         <input
                           type="number"
@@ -3532,8 +3531,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       }`}>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[10px] font-bold text-slate-500">Level 2 (Normal)</span>
-                          {repL2Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
-                          {repL2Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
+                          {repL2Status === "normal" && <span className="text-[9px] font-black text-emerald-600"> In</span>}
+                          {repL2Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600"> Out</span>}
                         </div>
                         <input
                           type="number"
@@ -3557,8 +3556,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       }`}>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[10px] font-bold text-slate-500">Level 3 (High)</span>
-                          {repL3Status === "normal" && <span className="text-[9px] font-black text-emerald-600">✓ In</span>}
-                          {repL3Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600">✕ Out</span>}
+                          {repL3Status === "normal" && <span className="text-[9px] font-black text-emerald-600"> In</span>}
+                          {repL3Status === "out_of_control" && <span className="text-[9px] font-black text-rose-600"> Out</span>}
                         </div>
                         <input
                           type="number"

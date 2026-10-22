@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import CustomSelect from "./components/CustomSelect";
 import { dbService } from './lib/supabase';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from './types';
-import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, ArrowRight, Building2, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin } from 'lucide-react';
+import { Activity, ShieldCheck, User, ShieldAlert, Wrench, Package, BarChart2, Layers, Smartphone, Database, Lock, Unlock, Menu, X, ChevronDown, ChevronLeft, ChevronRight, Home, LogIn, LogOut, Search, BookOpen, ArrowLeft, ArrowRight, Building2, Microscope, Lightbulb, FileText, Megaphone, Sun, Moon, Image as ImageIcon, Upload, RotateCcw, Bell, LayoutGrid, Settings, Phone, Mail, MapPin, Users } from 'lucide-react';
 
 import { DEFAULT_HOSPITAL_LOGO_BASE64 } from './assets/hospitalLogoBase64';
 import { getThaiTodayDateOnly } from './lib/dateUtils';
@@ -24,6 +24,7 @@ import QualityManagement from './components/QualityManagement';
 import LineNotifyConfig from './components/LineNotifyConfig';
 import SupabaseConfig from './components/SupabaseConfig';
 import DocumentsAndAnnouncementsManager from './components/DocumentsAndAnnouncementsManager';
+import UserManagement from './components/UserManagement';
 import { RoleSelector } from './components/RoleSelector';
 import { StaffQuickPortal } from './components/StaffQuickPortal';
 
@@ -111,35 +112,21 @@ export default function App() {
   });
 
   const [isSelectingRole, setIsSelectingRole] = useState<boolean>(() => {
-    // ใช้ sessionStorage เป็นตัวตรวจจับว่าเป็นการ "เปิดแท็บใหม่ / เปิดโปรแกรมใหม่" หรือ "รีเฟรชหน้าเดิม"
-    // - หากเปิดแท็บใหม่ หรือเปิดโปรแกรมใหม่ sessionStorage จะว่างเปล่า -> บังคับเริ่มต้นที่หน้า select role เสมอ
-    // - หากเป็นการกด Refresh หน้าเดิมในแท็บเดิม sessionStorage จะยังคงอยู่ -> ล็อกหน้าที่กำลังใช้งานอยู่เดิมไว้ ไม่เด้งกลับ
     try {
-      const tabInitialized = sessionStorage.getItem('dtx_tab_initialized');
-      if (!tabInitialized) {
-        // เปิดแท็บใหม่ / เปิดโปรแกรมใหม่ -> เริ่มต้นที่หน้าเลือกประเภทผู้ใช้งาน (Select Role)
-        sessionStorage.setItem('dtx_tab_initialized', 'true');
-        sessionStorage.setItem('dtx_session_role_selected', 'false');
-        return true;
-      }
-
-      // รีเฟรชในแท็บเดิม: ถ้าเคยเลือกบทบาทในแท็บนี้แล้ว ให้ล็อกหน้าเดิมไว้
-      const sessionRoleSelected = sessionStorage.getItem('dtx_session_role_selected');
-      if (sessionRoleSelected === 'true') {
-        return false;
-      }
-      return true;
+      const saved = sessionStorage.getItem('dtx_session_role_selected');
+      if (saved === 'selecting') return true;
+      return false;
     } catch {
-      return true;
+      return false;
     }
   });
 
   useEffect(() => {
     try {
       if (isSelectingRole) {
-        sessionStorage.setItem('dtx_session_role_selected', 'false');
+        sessionStorage.setItem('dtx_session_role_selected', 'selecting');
       } else {
-        sessionStorage.setItem('dtx_session_role_selected', 'true');
+        sessionStorage.setItem('dtx_session_role_selected', 'ready');
       }
     } catch {}
   }, [isSelectingRole]);
@@ -151,9 +138,16 @@ export default function App() {
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAdminProfileOpen, setIsAdminProfileOpen] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'stock' | 'strip_reagent' | 'iqc' | 'eqa' | 'quality' | 'repair' | 'line' | 'supabase' | 'documents'>(() => {
+  const [activeAdminTab, setActiveAdminTab] = useState<'dashboard' | 'stock' | 'strip_reagent' | 'iqc' | 'eqa' | 'quality' | 'repair' | 'line' | 'supabase' | 'documents' | 'users'>(() => {
+    const validTabs = ['dashboard', 'stock', 'strip_reagent', 'iqc', 'eqa', 'quality', 'repair', 'line', 'supabase', 'documents', 'users'];
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && validTabs.includes(hash)) {
+        return hash as any;
+      }
+    }
     const saved = localStorage.getItem('dtx_active_admin_tab');
-    return (saved as any) || 'dashboard';
+    return (saved && validTabs.includes(saved)) ? (saved as any) : 'dashboard';
   });
 
   useEffect(() => {
@@ -162,6 +156,11 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('dtx_active_admin_tab', activeAdminTab);
+    try {
+      if (window.location.hash !== `#${activeAdminTab}`) {
+        window.history.replaceState(null, '', `#${activeAdminTab}`);
+      }
+    } catch {}
   }, [activeAdminTab]);
 
   useEffect(() => {
@@ -505,7 +504,7 @@ export default function App() {
       if (updated && updated.id) {
         setQcRecords(prev => prev.map(r => (r.id === id || r.id === updated.id) ? updated : r));
       }
-      setShowToast('✓ บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control ลงฐานข้อมูลเรียบร้อยแล้ว');
+      setShowToast(' บันทึกข้อมูลการทวนสอบและแก้ไข Out of Control ลงฐานข้อมูลเรียบร้อยแล้ว');
     } catch (err: any) {
       console.error('Failed to sync QC record update:', err);
       setShowToast('บันทึกในระบบเครื่องแล้ว แต่ซิงก์คลาวด์ไม่สำเร็จ: ' + err.message);
@@ -596,7 +595,15 @@ export default function App() {
         <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-sky-100 dark:border-slate-800 sticky top-0 z-40 shadow-md shadow-slate-200/50 dark:shadow-none no-print relative" id="app-header">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center space-x-3 sm:space-x-4">
-              <div onClick={() => setIsSelectingRole(true)} className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" title="กลับสู่หน้าเลือกประเภทผู้ใช้งาน (Select Role)">
+              <div 
+                onClick={() => {
+                  setRole('user');
+                  setActiveUserTab('repair');
+                  setIsSelectingRole(false);
+                }} 
+                className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" 
+                title="กลับสู่หน้าหลัก (Home)"
+              >
                 {/* ไอคอนกล้องจุลทรรศน์สีฟ้า */}
                 <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
                   <Microscope className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
@@ -611,8 +618,6 @@ export default function App() {
                   </p>
                 </div>
               </div>
-
-
             </div>
 
             {/* PC Navigation: Elegant service tabs directly in header */}
@@ -620,6 +625,20 @@ export default function App() {
               
               {role === 'user' && !isSelectingRole ? (
                 <div className="flex items-center space-x-2 lg:space-x-4 mr-1 lg:mr-2 h-16">
+                  <button
+                    onClick={() => {
+                      setActiveUserTab('repair');
+                      setRole('user');
+                      setIsSelectingRole(false);
+                    }}
+                    className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+                      activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+                    }`}
+                    id="header-tab-home"
+                  >
+                    <Home size={14} className="shrink-0" />
+                    <span>Home</span>
+                  </button>
                   <button
                     onClick={() => setActiveUserTab('repair')}
                     className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
@@ -655,7 +674,7 @@ export default function App() {
                 </div>
               ) : null}
 
-              {/* Header Right Tools & Profile Menu */}
+              {/* Header Right Tools & Portal Shortcuts */}
               <div className="flex items-center space-x-2 border-l border-slate-200 dark:border-slate-700 pl-4 h-8 relative">
                 <button 
                   type="button"
@@ -670,32 +689,51 @@ export default function App() {
                   {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRole('staff');
+                    setIsSelectingRole(false);
+                    setActiveAdminTab('quality');
+                    localStorage.setItem('dtx_quick_win_active_tab', 'batch_qc');
+                  }}
+                  className={`text-xs font-bold px-2.5 py-1.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1 ${
+                    role === 'staff' && !isSelectingRole
+                      ? 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="เข้าสู่ระบบงานชันสูตรห้องปฏิบัติการ (Staff Quick Win)"
+                >
+                  <Activity size={14} className="text-sky-600 shrink-0" />
+                  <span>เจ้าหน้าที่แล็บ</span>
+                </button>
+
                 <button 
                   type="button"
                   onClick={() => {
-                    if (role === 'admin') {
-                      setRole('user');
-                      localStorage.setItem('dtx_role', 'user');
-                    } else {
-                      setRole('admin');
-                      localStorage.setItem('dtx_role', 'admin');
-                      if (!isAdminLoggedIn) {
-                        setShowToast('กรุณาเข้าสู่ระบบสำหรับเจ้าหน้าที่และผู้ดูแล');
-                      }
+                    setRole('admin');
+                    setIsSelectingRole(false);
+                    setActiveAdminTab('dashboard');
+                    if (!isAdminLoggedIn) {
+                      setShowToast('กรุณาเข้าสู่ระบบสำหรับผู้ดูแลระบบ (Admin)');
                     }
                   }}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-colors animate-fade-in ${role === 'admin' ? 'bg-sky-600 text-white shadow-md shadow-sky-500/15' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                  title={role === 'admin' ? "กลับสู่หน้าหลักแจ้งซ่อม/เบิก" : "เข้าสู่ระบบผู้ดูแลระบบ (Admin Login)"}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 shadow-3xs ${
+                    role === 'admin' && isAdminLoggedIn
+                      ? 'bg-sky-600 text-white shadow-sky-500/20'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                  title={isAdminLoggedIn ? "เข้าสู่แผงควบคุมผู้ดูแลระบบ (Dashboard)" : "เข้าสู่ระบบผู้ดูแลระบบ (Admin Login)"}
                   id="admin-login-icon-btn"
                 >
-                  <User size={14} />
+                  <ShieldCheck size={14} className={isAdminLoggedIn ? "text-white" : "text-sky-600"} />
+                  <span>{isAdminLoggedIn ? 'Admin Portal' : 'เข้าสู่ระบบ Admin'}</span>
                 </button>
               </div>
             </div>
 
             {/* Mobile Navigation Icons */}
             <div className="flex md:hidden items-center space-x-2">
-              
               <button 
                 type="button"
                 onClick={toggleDarkMode}
@@ -710,13 +748,14 @@ export default function App() {
               </button>
               <button 
                 onClick={() => {
-                  setIsSelectingRole(true);
-                  setIsMobileMenuOpen(false);
+                  setRole('user');
+                  setActiveUserTab('repair');
+                  setIsSelectingRole(false);
                 }}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer ${role === 'admin' ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600'}`}
-                title="เลือกประเภทผู้ใช้งาน"
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer bg-slate-100 text-slate-600 hover:bg-slate-200"
+                title="หน้าหลัก (Home)"
               >
-                <User size={14} />
+                <Home size={14} />
               </button>
               <button
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -734,21 +773,16 @@ export default function App() {
               <div className="bg-white border border-slate-200/80 rounded-2xl shadow-md p-1.5 space-y-1">
                 <button
                   onClick={() => {
-                    setIsSelectingRole(true);
+                    setRole('user');
+                    setActiveUserTab('repair');
+                    setIsSelectingRole(false);
                     setIsMobileMenuOpen(false);
-                    if (role === 'staff') {
-                      localStorage.removeItem('dtx_current_staff');
-                      localStorage.removeItem('dtx_qc_operator');
-                      localStorage.removeItem('dtx_quick_win_last_active');
-                      setRoleSelectorAuthMode('staff_quick_login');
-                      setShowToast('ออกจากเซสชัน Quick Win เรียบร้อยแล้ว');
-                    }
                   }}
                   className="w-full flex items-center justify-between p-3.5 text-left text-xs font-bold rounded-xl transition-all bg-sky-50 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-800"
                 >
                   <div className="flex items-center space-x-3">
-                    <ArrowLeft size={16} className="text-sky-600 dark:text-sky-400 shrink-0" />
-                    <span>ย้อนกลับ</span>
+                    <Home size={16} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                    <span>Home (หน้าหลัก)</span>
                   </div>
                 </button>
 
@@ -812,6 +846,39 @@ export default function App() {
                   </div>
                   {role === 'user' && activeUserTab === 'guide' && <div className="w-1.5 h-1.5 rounded-full bg-sky-500"></div>}
                 </button>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1">
+                  <button
+                    onClick={() => {
+                      setRole('staff');
+                      setIsSelectingRole(false);
+                      setActiveAdminTab('quality');
+                      localStorage.setItem('dtx_quick_win_active_tab', 'batch_qc');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between p-3 text-left text-xs font-bold rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Activity size={14} className="text-sky-600" />
+                      <span>บันทึก QC ประจำวัน (เจ้าหน้าที่แล็บ)</span>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setRole('admin');
+                      setIsSelectingRole(false);
+                      setActiveAdminTab('dashboard');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between p-3 text-left text-xs font-bold rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <ShieldCheck size={14} className="text-sky-600" />
+                      <span>{isAdminLoggedIn ? 'Admin Portal' : 'เข้าสู่ระบบผู้ดูแลระบบ (Admin)'}</span>
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -836,15 +903,19 @@ export default function App() {
             </span>
           </div>
 
-          {/* Switch Role Button inside Admin Header */}
+          {/* Home Button inside Admin Header */}
           <button
             type="button"
-            onClick={() => setIsSelectingRole(true)}
-            className="pointer-events-auto px-3 py-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold shadow-xs flex items-center space-x-1.5 cursor-pointer transition-all"
-            title="สลับประเภทผู้ใช้งาน (Role Switcher)"
+            onClick={() => {
+              setRole('user');
+              setActiveUserTab('repair');
+              setIsSelectingRole(false);
+            }}
+            className="pointer-events-auto px-3.5 py-1.5 rounded-full bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold shadow-xs flex items-center space-x-1.5 cursor-pointer transition-all"
+            title="กลับสู่หน้าหลัก (Home / Ward Portal)"
           >
-            <RotateCcw size={12} className="text-sky-500" />
-            <span>สลับบทบาท</span>
+            <Home size={13} className="text-sky-500" />
+            <span>Home</span>
           </button>
 
           {/* Dark Mode Toggle Button */}
@@ -874,40 +945,120 @@ export default function App() {
             {isAdminProfileOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsAdminProfileOpen(false)} />
-                <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-2 z-50 animate-in fade-in duration-150">
-                  <div className="p-3 bg-slate-900 text-white rounded-xl mb-1 space-y-0.5">
-                    <div className="text-xs font-bold">Admin Profile</div>
-                    <div className="text-[10px] text-slate-400">POCT Management</div>
+                <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50 animate-in fade-in duration-150 space-y-2 text-left">
+                  {/* Admin User Header Info */}
+                  <div className="p-3.5 bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-xl space-y-1.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black tracking-wide text-sky-300">ผู้ดูแลระบบสูงสุด (Administrator)</span>
+                      <span className="bg-sky-500/30 border border-sky-400/40 text-sky-300 font-mono text-[9px] px-2 py-0.5 rounded-md font-bold">
+                        ACTIVE
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-white flex items-center space-x-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span>กลุ่มงานเทคนิคการแพทย์ โรงพยาบาลสังขะ</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 pt-0.5 border-t border-slate-800 flex items-center justify-between">
+                      <span>โมดูล POCT DTX System</span>
+                      <span className="font-mono">v2.5.0</span>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRole('user');
-                      localStorage.setItem('dtx_role', 'user');
-                      setIsAdminProfileOpen(false);
-                    }}
-                    className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-left cursor-pointer"
-                  >
-                    <ArrowLeft size={14} className="text-sky-500 shrink-0" />
-                    <span>กลับสู่หน้าผู้ใช้งาน (Staff View)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAdminLoggedIn(false);
-                      setAdminPassword('');
-                      localStorage.removeItem('dtx_admin_session');
-                      localStorage.removeItem('dtx_admin_last_active');
-                      localStorage.setItem('dtx_role', 'user');
-                      setRole('user');
-                      setIsAdminProfileOpen(false);
-                      setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
-                    }}
-                    className="w-full flex items-center space-x-2 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all text-left cursor-pointer"
-                  >
-                    <LogOut size={14} className="shrink-0" />
-                    <span>ออกจากระบบ (Logout)</span>
-                  </button>
+
+                  {/* Quick Shortcuts List */}
+                  <div className="space-y-1 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('dashboard');
+                        setIsAdminProfileOpen(false);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 hover:bg-sky-50 dark:bg-slate-800/80 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-left transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <LayoutGrid size={14} className="text-sky-600 shrink-0" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-sky-600">แดชบอร์ดภาพรวมระบบ</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium">Dashboard</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('stock');
+                        setIsAdminProfileOpen(false);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 hover:bg-sky-50 dark:bg-slate-800/80 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-left transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <Layers size={14} className="text-sky-600 shrink-0" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-sky-600">คลังเครื่องมือ DTX</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-bold">{machines.length} เครื่อง</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('repair');
+                        setIsAdminProfileOpen(false);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 hover:bg-sky-50 dark:bg-slate-800/80 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-left transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <Wrench size={14} className="text-sky-600 shrink-0" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-sky-600">งานซ่อมบำรุงเครื่อง</span>
+                      </div>
+                      <span className="text-[10px] bg-rose-100 text-rose-700 font-bold px-2 py-0.5 rounded-full">
+                        {repairs.filter(r => r.status !== 'completed').length} เคส
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAdminTab('users');
+                        setIsAdminProfileOpen(false);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 hover:bg-sky-50 dark:bg-slate-800/80 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between text-left transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <Users size={14} className="text-sky-600 shrink-0" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-sky-600">จัดการผู้ใช้งาน & สิทธิ์</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-medium">Roles</span>
+                    </button>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-1.5 space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRole('user');
+                        setActiveUserTab('repair');
+                        setIsSelectingRole(false);
+                        setIsAdminProfileOpen(false);
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-left cursor-pointer"
+                    >
+                      <Home size={15} className="text-sky-500 shrink-0" />
+                      <span>กลับสู่หน้าหลัก (Ward Portal Home)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAdminLoggedIn(false);
+                        setAdminPassword('');
+                        localStorage.removeItem('dtx_admin_session');
+                        localStorage.removeItem('dtx_admin_last_active');
+                        localStorage.setItem('dtx_role', 'user');
+                        setRole('user');
+                        setIsAdminProfileOpen(false);
+                        setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
+                      }}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all text-left cursor-pointer"
+                    >
+                      <LogOut size={15} className="shrink-0 text-rose-500" />
+                      <span>ออกจากระบบผู้ดูแล (Logout)</span>
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -926,33 +1077,29 @@ export default function App() {
         id="app-workspace"
       >
         <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-          {!isSelectingRole && !(role === 'admin' && isAdminLoggedIn) && (
+          {!isSelectingRole && !(role === 'admin' && isAdminLoggedIn) && (role === 'staff' || (role === 'admin' && !isAdminLoggedIn)) && (
             <div className="flex justify-start no-print" id="global-sub-header-back-button">
               <button
                 type="button"
                 onClick={() => {
-                  setIsSelectingRole(true);
+                  setRole('user');
+                  setActiveUserTab('repair');
+                  setIsSelectingRole(false);
                   if (role === 'staff') {
-                    // Back button in Quick Win acts as ending the session
                     localStorage.removeItem('dtx_current_staff');
                     localStorage.removeItem('dtx_qc_operator');
                     localStorage.removeItem('dtx_quick_win_last_active');
-                    setRoleSelectorAuthMode('staff_quick_login');
-                    setShowToast('ออกจากเซสชัน Quick Win เรียบร้อยแล้ว');
-                  } else {
-                    setRoleSelectorAuthMode('selector');
                   }
-                  if (role === 'admin' && isAdminLoggedIn) {
+                  if (role === 'admin') {
                     setIsAdminLoggedIn(false);
                     localStorage.removeItem('dtx_admin_session');
-                    setShowToast('กลับสู่หน้าหลักและออกจากระบบเรียบร้อยแล้ว');
                   }
                 }}
                 className="inline-flex items-center space-x-2 px-3.5 py-2 bg-white hover:bg-sky-50 dark:bg-slate-900 dark:hover:bg-sky-950/40 border border-slate-200 dark:border-slate-800 hover:border-sky-300 text-slate-700 dark:text-slate-200 text-xs font-black rounded-xl transition-all cursor-pointer shadow-3xs"
-                title="ย้อนกลับ"
+                title="กลับสู่หน้าหลัก (Home)"
               >
-                <ArrowLeft size={14} className="text-sky-600 dark:text-sky-400 shrink-0" />
-                <span>ย้อนกลับ</span>
+                <Home size={14} className="text-sky-600 dark:text-sky-400 shrink-0" />
+                <span>กลับสู่หน้าหลัก (Home)</span>
               </button>
             </div>
           )}
@@ -977,7 +1124,13 @@ export default function App() {
                 }
                 setShowToast(`ยินดีต้อนรับเจ้าหน้าที่ ${staffInfo?.full_name || 'งานชันสูตร'}`);
               } else if (selectedRole === 'admin') {
-                setActiveAdminTab('dashboard');
+                const savedTab = localStorage.getItem('dtx_active_admin_tab');
+                const validTabs = ['dashboard', 'stock', 'strip_reagent', 'iqc', 'eqa', 'quality', 'repair', 'line', 'supabase', 'documents'];
+                if (savedTab && validTabs.includes(savedTab)) {
+                  setActiveAdminTab(savedTab as any);
+                } else {
+                  setActiveAdminTab('stock');
+                }
                 if (!isAdminLoggedIn) {
                   setShowToast('กรุณากรอกรหัสผ่านเพื่อเข้าสู่ระบบผู้ดูแล');
                 } else {
@@ -1027,7 +1180,7 @@ export default function App() {
                   rel="noopener noreferrer"
                   className="bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 px-6 rounded-xl text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-md"
                 >
-                  <span>🌐 ไปยังระบบเดิม (Canva Site)</span>
+                  <span> ไปยังระบบเดิม (Canva Site)</span>
                   <ArrowRight size={14} />
                 </a>
                 <button
@@ -1231,8 +1384,8 @@ export default function App() {
                     {
                       groupLabel: 'MAIN',
                       items: [
-                        { id: 'dashboard', label: 'Overview', icon: LayoutGrid },
-                        { id: 'stock', label: 'DTX Machines Stock', icon: Layers, badge: machines.length },
+                        { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+                        { id: 'stock', label: 'DTX Machines Stock', icon: Layers },
                         { id: 'strip_reagent', label: 'Strip & Reagent Stock', icon: Package },
                         { id: 'repair', label: 'Repairs', icon: Wrench, badge: repairs.filter(r => r.status !== 'completed').length },
                       ]
@@ -1245,8 +1398,9 @@ export default function App() {
                       ]
                     },
                     {
-                      groupLabel: 'SYSTEM & GUIDES',
+                      groupLabel: 'SYSTEM & USERS',
                       items: [
+                        { id: 'users', label: 'User & Permissions', icon: Users },
                         { id: 'documents', label: 'Announcements', icon: Megaphone },
                         { id: 'line', label: 'LINE Settings', icon: Settings },
                         { id: 'supabase', label: 'System Logs', icon: Database },
@@ -1297,29 +1451,15 @@ export default function App() {
                     </div>
                   ))}
                 </nav>
-              </div>
-
-              {/* Sidebar Footer / Switch Role & Logout Action */}
+              </div>              {/* Sidebar Footer / Logout Action */}
               <div className="w-full pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1">
                 <button
                   type="button"
                   onClick={() => {
-                    setIsSelectingRole(true);
-                  }}
-                  className={`w-full flex items-center transition-all cursor-pointer text-xs font-bold text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-950/40 ${
-                    isSidebarCollapsed ? 'justify-center w-10 h-10 rounded-2xl mx-auto' : 'px-3.5 py-2.5 space-x-3 rounded-2xl'
-                  }`}
-                  title="ย้อนกลับไปหน้าเลือกประเภทผู้ใช้งาน (Select Role)"
-                >
-                  <ArrowLeft size={18} className="shrink-0 text-sky-600 dark:text-sky-400" />
-                  {!isSidebarCollapsed && <span>สลับบทบาทผู้ใช้</span>}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
                     setIsAdminLoggedIn(false);
-                    setIsSelectingRole(true);
+                    setRole('user');
+                    setActiveUserTab('repair');
+                    setIsSelectingRole(false);
                     localStorage.removeItem('dtx_admin_session');
                     setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
                   }}
@@ -1342,12 +1482,13 @@ export default function App() {
                 onChange={(e) => setActiveAdminTab(e.target.value as any)}
                 className="w-full bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-3 py-2.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-sky-500"
               >
-                <option value="dashboard">สรุปภาพรวม (Overview)</option>
+                <option value="dashboard">แดชบอร์ด (Dashboard)</option>
                 <option value="stock">คลังเครื่องมือ (DTX Stock)</option>
                 <option value="strip_reagent">คลังแผ่นตรวจ & Control Solution</option>
                 <option value="repair">งานซ่อมบำรุง (Repairs)</option>
                 <option value="iqc">งานคุณภาพ IQC (Internal QC)</option>
                 <option value="eqa">งานคุณภาพ EQA (External QC)</option>
+                <option value="users">จัดการผู้ใช้งาน & กำหนดสิทธิ์ (User & Permissions)</option>
                 <option value="documents">จัดการคู่มือ & ประชาสัมพันธ์</option>
                 <option value="line">ตั้งค่าแจ้งเตือน LINE</option>
                 <option value="supabase">เชื่อมต่อ Supabase</option>
@@ -1384,6 +1525,8 @@ export default function App() {
                 <RepairManagement
                   repairs={repairs}
                   onUpdateRepair={handleUpdateRepair}
+                  onAddRepair={handleAddRepair}
+                  machines={machines}
                   lineNotifyToken={lineNotifyToken}
                 />
               )}
@@ -1502,6 +1645,11 @@ export default function App() {
                     setAnnouncements={setAnnouncements}
                     showToast={setShowToast}
                   />
+                </div>
+              )}
+              {activeAdminTab === 'users' && (
+                <div className="space-y-4">
+                  <UserManagement />
                 </div>
               )}
             </div>
