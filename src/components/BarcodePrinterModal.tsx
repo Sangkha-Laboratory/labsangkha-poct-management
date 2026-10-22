@@ -123,32 +123,41 @@ function createBarcodeSvgString(text: string, height = 28, barWidth = 1.25, quie
   }
 }
 
-// Zebra Programming Language (ZPL II) Generator for 50x20 mm (203 DPI, 400x160 dots)
-function generateZpl50x20(labels: PrintableLabel[]): string {
+// Zebra Programming Language (ZPL II) Generator (50x20 mm or 76x51 mm, 203 DPI)
+function generateZpl50x20(labels: PrintableLabel[], mode: 'roll_50x20' | 'roll_76x51' | 'roll_50x25' | 'a4_grid' = 'roll_50x20'): string {
   let zpl = '';
+  const is76x51 = mode === 'roll_76x51';
+
   labels.forEach(l => {
     for (let c = 0; c < l.copies; c++) {
       zpl += '^XA\n';
-      zpl += '^PW400\n'; // Print Width: 400 dots (50mm at 8 dots/mm)
-      zpl += '^LL160\n'; // Label Length: 160 dots (20mm at 8 dots/mm)
-      zpl += '^LH0,0\n'; // Label Home: (0,0)
-      
-      // Header line
-      zpl += `^FO16,8^A0N,18,18^FD${l.header}^FS\n`;
-      zpl += `^FO240,8^A0N,16,16^FD${l.title.slice(0, 15)}^FS\n`;
-      zpl += '^FO16,28^GB368,1,1^FS\n';
-      
-      // Code 128 Barcode: ^BYw,r,h (w=2 dots module width = 10 mil standard, r=3 ratio, h=52 dots bar height)
-      // ^BCo,h,f,g,e,m (o=N, h=52, f=Y print interpretation, g=N, e=N, m=N)
-      zpl += '^FO36,34^BY2,3,52^BCN,52,Y,N,N^FD>;' + l.barcode + '^FS\n';
-      
-      // Footer line
-      zpl += '^FO16,120^GB368,1,1^FS\n';
-      zpl += `^FO16,126^A0N,15,15^FD${l.subInfo1}  ${l.subInfo2}^FS\n`;
-      if (l.showOpenDateBlank) {
-        zpl += '^FO275,126^A0N,15,15^FDOPEN: __/__^FS\n';
+      if (is76x51) {
+        zpl += '^PW610\n'; // Print Width: 610 dots (76.2mm at 8 dots/mm)
+        zpl += '^LL406\n'; // Label Length: 406 dots (50.8mm at 8 dots/mm)
+        zpl += '^LH0,0\n';
+        zpl += `^FO40,24^A0N,28,28^FD${l.header}^FS\n`;
+        zpl += `^FO380,24^A0N,24,24^FD${l.title.slice(0, 18)}^FS\n`;
+        zpl += '^FO40,58^GB530,2,2^FS\n';
+        zpl += `^FO60,78^BY3,3,150^BCN,150,Y,N,N^FD>;${l.barcode}^FS\n`;
+        zpl += '^FO40,285^GB530,2,2^FS\n';
+        zpl += `^FO40,300^A0N,24,24^FD${l.subInfo1}   ${l.subInfo2}^FS\n`;
+        if (l.showOpenDateBlank) {
+          zpl += '^FO410,300^A0N,24,24^FDOPEN: __/__^FS\n';
+        }
+      } else {
+        zpl += '^PW400\n'; // Print Width: 400 dots (50mm at 8 dots/mm)
+        zpl += '^LL160\n'; // Label Length: 160 dots (20mm at 8 dots/mm)
+        zpl += '^LH0,0\n';
+        zpl += `^FO16,8^A0N,18,18^FD${l.header}^FS\n`;
+        zpl += `^FO240,8^A0N,16,16^FD${l.title.slice(0, 15)}^FS\n`;
+        zpl += '^FO16,28^GB368,1,1^FS\n';
+        zpl += '^FO36,34^BY2,3,52^BCN,52,Y,N,N^FD>;' + l.barcode + '^FS\n';
+        zpl += '^FO16,120^GB368,1,1^FS\n';
+        zpl += `^FO16,126^A0N,15,15^FD${l.subInfo1}  ${l.subInfo2}^FS\n`;
+        if (l.showOpenDateBlank) {
+          zpl += '^FO275,126^A0N,15,15^FDOPEN: __/__^FS\n';
+        }
       }
-      
       zpl += '^XZ\n\n';
     }
   });
@@ -170,8 +179,8 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
   initialLotNumber
 }) => {
   const [sourceType, setSourceType] = useState<'stock' | 'lot' | 'machines' | 'custom'>(initialSource);
-  // Default to Zebra 50x20 mm as confirmed by user
-  const [printMode, setPrintMode] = useState<'roll_50x20' | 'roll_50x25' | 'a4_grid'>('roll_50x20');
+  // Default to Zebra 50x20 mm or 7.62x5.08 cm lab driver
+  const [printMode, setPrintMode] = useState<'roll_50x20' | 'roll_76x51' | 'roll_50x25' | 'a4_grid'>('roll_76x51');
   const [orgHeader, setOrgHeader] = useState<string>('รพ.สังขะ • งานชันสูตร');
   const [showOpenDateBlank, setShowOpenDateBlank] = useState<boolean>(true);
   const [globalCopies, setGlobalCopies] = useState<number>(1);
@@ -180,6 +189,8 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
   const [copiedZpl, setCopiedZpl] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
   const [barcodeDensity, setBarcodeDensity] = useState<'high_contrast' | 'standard'>('high_contrast');
+  const [rotate180, setRotate180] = useState<boolean>(false);
+  const [verticalOffset, setVerticalOffset] = useState<number>(0); // in mm (-2 to +2)
 
   // Stock selection state
   const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
@@ -331,12 +342,17 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
     if (labelsToPrint.length === 0) return;
     setIsPrinting(true);
 
+    const is76x51 = printMode === 'roll_76x51';
     const is50x20 = printMode === 'roll_50x20';
     const is50x25 = printMode === 'roll_50x25';
-    const labelHeight = is50x20 ? '20mm' : is50x25 ? '25mm' : '20mm';
-    const barcodeSvgHeight = is50x20 ? 28 : 34;
-    const barWidth = barcodeDensity === 'high_contrast' ? 1.25 : 1.15;
-    const quietZone = 8;
+    
+    const labelPageWidth = is76x51 ? '76.2mm' : '50mm';
+    const labelPageHeight = is76x51 ? '50.8mm' : is50x25 ? '25mm' : '20mm';
+    const sheetHeight = is76x51 ? '46mm' : is50x20 ? '18mm' : is50x25 ? '22.5mm' : '18mm';
+    const sheetWidth = is76x51 ? '72mm' : is50x20 ? '47.5mm' : is50x25 ? '47.5mm' : '48mm';
+    const barcodeSvgHeight = is76x51 ? 48 : is50x20 ? 24 : 30;
+    const barWidth = is76x51 ? 1.6 : (barcodeDensity === 'high_contrast' ? 1.25 : 1.15);
+    const quietZone = is76x51 ? 12 : 8;
 
     // Generate HTML for each label with pre-serialized vector SVG with crispEdges and quiet zone
     const labelsHtml = labelsToPrint.map(label => {
@@ -344,7 +360,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
       let output = '';
       for (let c = 0; c < label.copies; c++) {
         output += `
-          <div class="label-sheet">
+          <div class="label-sheet ${is76x51 ? 'is-76x51' : ''}">
             <div class="label-header">
               <span class="label-org">${label.header}</span>
               <span class="label-title">${label.title}</span>
@@ -383,7 +399,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
       }
       @media print {
         @page {
-          size: ${printMode === 'a4_grid' ? 'A4 portrait' : `50mm ${labelHeight}`};
+          size: ${printMode === 'a4_grid' ? 'A4 portrait' : `${labelPageWidth} ${labelPageHeight}`};
           margin: ${printMode === 'a4_grid' ? '8mm 6mm' : '0mm'} !important;
         }
         * {
@@ -417,7 +433,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
           position: absolute !important;
           top: 0 !important;
           left: 0 !important;
-          width: 50mm !important;
+          width: ${labelPageWidth} !important;
           margin: 0 !important;
           padding: 0 !important;
           background: #ffffff !important;
@@ -454,17 +470,21 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
           }
         ` : `
           .print-container {
-            width: 50mm !important;
+            width: ${labelPageWidth} !important;
             margin: 0 !important;
             padding: 0 !important;
           }
           .label-sheet {
-            width: 50mm !important;
-            height: ${labelHeight} !important;
-            min-width: 50mm !important;
-            max-width: 50mm !important;
-            min-height: ${labelHeight} !important;
-            max-height: ${labelHeight} !important;
+            width: ${sheetWidth} !important;
+            height: ${sheetHeight} !important;
+            min-width: ${sheetWidth} !important;
+            max-width: ${sheetWidth} !important;
+            min-height: ${sheetHeight} !important;
+            max-height: ${sheetHeight} !important;
+            margin-top: ${Math.max(0, (is76x51 ? 1.5 : 0.8) + verticalOffset)}mm !important;
+            margin-bottom: 0mm !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             page-break-after: always !important;
             break-after: page !important;
             page-break-inside: avoid !important;
@@ -472,31 +492,34 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
-            padding: 0.8mm 1.2mm 0.8mm 1.2mm !important;
+            padding: ${is76x51 ? '1.5mm 3mm' : '0.25mm 0.8mm'} !important;
             box-sizing: border-box !important;
             overflow: hidden !important;
             background: #ffffff !important;
             border: none !important;
+            ${rotate180 ? 'transform: rotate(180deg); transform-origin: center center;' : ''}
           }
         `}
         .label-header {
           display: flex !important;
           justify-content: space-between !important;
           align-items: center !important;
-          font-size: 7.5px !important;
+          font-size: ${is76x51 ? '11px' : '6.8px'} !important;
           font-weight: 900 !important;
-          border-bottom: 0.25mm solid #000000 !important;
-          padding-bottom: 0.25mm !important;
+          border-bottom: ${is76x51 ? '0.3mm solid #000000' : '0.2mm solid #000000'} !important;
+          padding-bottom: ${is76x51 ? '0.3mm' : '0.15mm'} !important;
           line-height: 1 !important;
+          height: ${is76x51 ? '4.5mm' : '2.2mm'} !important;
+          margin-bottom: ${is76x51 ? '0.3mm' : '0.15mm'} !important;
         }
         .label-org {
-          max-width: 27mm !important;
+          max-width: ${is76x51 ? '45mm' : '26mm'} !important;
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
         }
         .label-title {
-          max-width: 19mm !important;
+          max-width: ${is76x51 ? '26mm' : '19mm'} !important;
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
@@ -507,13 +530,14 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
           flex-direction: column !important;
           align-items: center !important;
           justify-content: center !important;
-          margin: auto 0 !important;
+          margin: 0 auto !important;
           padding: 0 !important;
+          height: ${is76x51 ? '27mm' : '10.5mm'} !important;
         }
         .barcode-wrapper svg {
           display: block !important;
-          max-width: 46mm !important;
-          height: ${is50x20 ? '10mm' : '13.5mm'} !important;
+          max-width: ${is76x51 ? '68mm' : '44mm'} !important;
+          height: ${is76x51 ? '21mm' : is50x20 ? '8.5mm' : '11.5mm'} !important;
           margin: 0 auto !important;
           shape-rendering: crispEdges !important;
           image-rendering: pixelated !important;
@@ -526,39 +550,41 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
         }
         .barcode-label {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-          font-size: 7.5px !important;
+          font-size: ${is76x51 ? '11px' : '6.8px'} !important;
           font-weight: 900 !important;
-          letter-spacing: 0.5px !important;
+          letter-spacing: ${is76x51 ? '0.6px' : '0.3px'} !important;
           line-height: 1 !important;
-          margin-top: 0.2mm !important;
+          margin-top: ${is76x51 ? '0.6mm' : '0.2mm'} !important;
           text-align: center !important;
         }
         .label-footer {
           display: flex !important;
           justify-content: space-between !important;
           align-items: center !important;
-          font-size: 7px !important;
+          font-size: ${is76x51 ? '10px' : '6.2px'} !important;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
           font-weight: 700 !important;
-          border-top: 0.25mm solid #000000 !important;
-          padding-top: 0.25mm !important;
+          border-top: ${is76x51 ? '0.3mm solid #000000' : '0.2mm solid #000000'} !important;
+          padding-top: ${is76x51 ? '0.3mm' : '0.15mm'} !important;
           line-height: 1 !important;
+          height: ${is76x51 ? '4.5mm' : '2.2mm'} !important;
+          margin-top: ${is76x51 ? '0.3mm' : '0.15mm'} !important;
         }
         .label-info {
           display: flex !important;
-          gap: 1.5mm !important;
+          gap: ${is76x51 ? '3mm' : '1.2mm'} !important;
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
-          max-width: 32mm !important;
+          max-width: ${is76x51 ? '50mm' : '30mm'} !important;
         }
         .label-open {
-          font-size: 6.5px !important;
+          font-size: ${is76x51 ? '9.5px' : '6px'} !important;
           font-family: sans-serif !important;
           font-weight: 900 !important;
           background: #f1f5f9 !important;
-          padding: 0.1mm 0.8mm !important;
-          border-radius: 0.3mm !important;
+          padding: ${is76x51 ? '0.3mm 1mm' : '0.1mm 0.6mm'} !important;
+          border-radius: ${is76x51 ? '0.5mm' : '0.3mm'} !important;
           white-space: nowrap !important;
         }
       }
@@ -968,19 +994,39 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
               {/* Print Format Mode */}
               <div className="space-y-1.5">
-                <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">ขนาดสติกเกอร์ / เครื่องพิมพ์:</label>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">ขนาดสติกเกอร์ / เครื่องพิมพ์:</label>
+                  {printMode === 'roll_76x51' && (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded">
+                      ตรงกับไดรเวอร์ปัจจุบัน
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPrintMode('roll_76x51')}
+                    className={`p-2.5 rounded-xl text-xs font-bold border transition-all flex flex-col items-center justify-center cursor-pointer ${
+                      printMode === 'roll_76x51'
+                        ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-500 text-emerald-800 dark:text-emerald-300 shadow-sm ring-1 ring-emerald-400'
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className="text-[11px] font-black">แล็บ 7.62x5.08 cm</span>
+                    <span className="text-[9.5px] font-medium text-emerald-600 dark:text-emerald-400">ขนาด 3x2" ตามไดรเวอร์ ZD230</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setPrintMode('roll_50x20')}
-                    className={`p-2 rounded-xl text-xs font-bold border transition-all flex flex-col items-center justify-center cursor-pointer ${
+                    className={`p-2.5 rounded-xl text-xs font-bold border transition-all flex flex-col items-center justify-center cursor-pointer ${
                       printMode === 'roll_50x20'
                         ? 'bg-sky-50 dark:bg-sky-950 border-sky-500 text-sky-700 dark:text-sky-300 shadow-xs'
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    <span className="text-[11px] font-bold">Zebra 50x20</span>
-                    <span className="text-[9px] font-normal text-slate-400">(แนะนำ)</span>
+                    <span className="text-[11px] font-bold">ม้วนเล็ก 50x20 mm</span>
+                    <span className="text-[9.5px] font-normal text-slate-400">สติกเกอร์ 5x2 ซม.</span>
                   </button>
 
                   <button
@@ -992,7 +1038,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    <span className="text-[11px]">ม้วน 50x25</span>
+                    <span className="text-[11px]">ม้วน 50x25 mm</span>
                     <span className="text-[9px] font-normal text-slate-400">Roll 25mm</span>
                   </button>
 
@@ -1005,9 +1051,27 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    <span className="text-[11px]">แผ่น A4</span>
-                    <span className="text-[9px] font-normal text-slate-400">Grid Sheet</span>
+                    <span className="text-[11px]">แผ่น A4 Grid</span>
+                    <span className="text-[9px] font-normal text-slate-400">A4 สำหรับลอกแปะ</span>
                   </button>
+                </div>
+              </div>
+
+              {/* Driver Configuration Notice */}
+              <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 rounded-xl space-y-1 text-[10.5px] leading-tight text-blue-950 dark:text-blue-200">
+                <div className="font-bold flex items-center space-x-1 text-blue-900 dark:text-blue-300">
+                  <span>💡 ข้อมูลการตั้งค่าไดรเวอร์ Zebra ZD230:</span>
+                </div>
+                <div className="text-[10px] space-y-1">
+                  <p>
+                    • ไดรเวอร์ของเครื่องตั้งค่าไว้ที่ <strong>กว้าง 7.62 cm, สูง 5.08 cm</strong> (เว้นซ้าย 0.70 cm)
+                  </p>
+                  <p>
+                    👉 <strong>ถ้าม้วนสติกเกอร์ที่ใช้อยู่คือ 3x2 นิ้ว (7.62x5.08 cm):</strong> เลือกปุ่ม <strong>"แล็บ 7.62x5.08 cm"</strong> จะพิมพ์ตรงกรอบสวยงาม ไม่ตกขอบ
+                  </p>
+                  <p>
+                    👉 <strong>ถ้าม้วนสติกเกอร์คือ 5x2 ซม. (50x20 mm):</strong> ต้องเข้าไปแก้ใน Printing Preferences ของไดรเวอร์ เปลี่ยน Width เป็น <strong>5.00</strong>, Height เป็น <strong>2.00</strong>, และ Left เป็น <strong>0.00</strong> จึงจะไม่ตกขอบ
+                  </p>
                 </div>
               </div>
 
@@ -1069,6 +1133,58 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                 />
                 <span>แสดงช่องวันที่เปิด (เปิด: ___/___)</span>
               </label>
+
+              {/* Orientation & Vertical Offset Calibration */}
+              <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold">
+                    การจัดวาง & หมุนทิศทาง:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setRotate180(!rotate180)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer border ${
+                      rotate180
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                    }`}
+                  >
+                    {rotate180 ? 'หมุนกลับหัว 180° (เปิด)' : 'หมุนกลับหัว 180°'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">ชดเชยตำแหน่งบน-ล่าง:</span>
+                  <div className="flex items-center space-x-1">
+                    {[-2, -1, 0, 1, 2].map((offset) => (
+                      <button
+                        key={offset}
+                        type="button"
+                        onClick={() => setVerticalOffset(offset)}
+                        className={`px-2 py-0.5 rounded-lg font-mono font-bold text-[10px] cursor-pointer transition-all border ${
+                          verticalOffset === offset
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {offset === 0 ? '0' : offset > 0 ? `+${offset}` : `${offset}`}mm
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Crucial Browser Print Notice Banner */}
+              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-1 text-[10.5px] leading-tight text-amber-900 dark:text-amber-200">
+                <div className="font-bold flex items-center space-x-1">
+                  <span>คำแนะนำสำคัญเพื่อไม่ให้ตกขอบ:</span>
+                </div>
+                <ul className="list-disc pl-4 space-y-0.5 text-[10px]">
+                  <li><strong>ระยะขอบ (Margins):</strong> เลือก <strong>"ไม่มี" (None)</strong> เท่านั้น</li>
+                  <li><strong>ส่วนหัวและส่วนท้าย:</strong> ติ๊กออก (Uncheck Headers & Footers)</li>
+                  <li><strong>การวางแนว (Layout):</strong> แนวนอน (Landscape)</li>
+                </ul>
+              </div>
             </div>
 
           </div>
@@ -1080,7 +1196,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                    ตัวอย่างสติกเกอร์ {printMode === 'roll_50x20' ? '50x20 mm' : printMode === 'roll_50x25' ? '50x25 mm' : 'A4 Grid'} ({totalStickers} ดวง)
+                    ตัวอย่างสติกเกอร์ {printMode === 'roll_76x51' ? 'แล็บ 7.62x5.08 cm' : printMode === 'roll_50x20' ? '50x20 mm' : printMode === 'roll_50x25' ? '50x25 mm' : 'A4 Grid'} ({totalStickers} ดวง)
                   </h3>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -1129,7 +1245,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                     </div>
                   </div>
                   <pre className="text-[10px] max-h-32 overflow-y-auto p-2 bg-black/50 rounded leading-relaxed text-slate-300">
-                    {generateZpl50x20(labelsToPrint)}
+                    {generateZpl50x20(labelsToPrint, printMode)}
                   </pre>
                   <p className="text-[10px] text-slate-400 font-sans">
                     💡 สามารถนำโค้ดนี้ส่งไปยัง Zebra Setup Utilities หรือส่งตรงไปยัง Raw Port 9100 ของเครื่องพิมพ์ Zebra ได้โดยตรง 100%
@@ -1148,52 +1264,71 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                     กรุณาเลือกรายการที่ต้องการพิมพ์สติกเกอร์
                   </div>
                 ) : (
-                  labelsToPrint.slice(0, 16).map((label, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        width: '50mm',
-                        height: printMode === 'roll_50x20' ? '20mm' : '25mm',
-                        minWidth: '50mm',
-                        maxWidth: '50mm',
-                        minHeight: printMode === 'roll_50x20' ? '20mm' : '25mm',
-                        maxHeight: printMode === 'roll_50x20' ? '20mm' : '25mm'
-                      }}
-                      className="bg-white text-black px-1.5 py-1 rounded shadow-sm border border-slate-300 flex flex-col justify-between select-none overflow-hidden"
-                    >
-                      {/* Line 1: Header Org & Title */}
-                      <div className="flex items-center justify-between leading-none text-[7.5px] font-black border-b border-black/25 pb-0.5">
-                        <span className="truncate max-w-[27mm]">{label.header}</span>
-                        <span className="truncate max-w-[19mm] text-slate-700 font-bold">{label.title}</span>
-                      </div>
+                  labelsToPrint.slice(0, 16).map((label, idx) => {
+                    const is76x51 = printMode === 'roll_76x51';
+                    const is50x20 = printMode === 'roll_50x20';
+                    const cardW = is76x51 ? '76.2mm' : '50mm';
+                    const cardH = is76x51 ? '50.8mm' : is50x20 ? '20mm' : '25mm';
 
-                      {/* Line 2: Barcode SVG & Display Code */}
-                      <div className="flex flex-col items-center justify-center my-auto py-0.2">
-                        <BarcodeSvg 
-                          text={label.barcode} 
-                          height={18} 
-                          barWidth={barcodeDensity === 'high_contrast' ? 1.25 : 1.15} 
-                          quietZone={8} 
-                        />
-                        <span className="font-mono text-[7.5px] font-black tracking-wider leading-none mt-0.5">
-                          {label.displayCode}
-                        </span>
-                      </div>
-
-                      {/* Line 3: LOT, EXP & Open Date Blank */}
-                      <div className="leading-none text-[7px] font-mono font-bold flex items-center justify-between border-t border-black/25 pt-0.5">
-                        <div className="flex space-x-1 truncate max-w-[27mm]">
-                          <span>{label.subInfo1}</span>
-                          <span>{label.subInfo2}</span>
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          width: cardW,
+                          height: cardH,
+                          minWidth: cardW,
+                          maxWidth: cardW,
+                          minHeight: cardH,
+                          maxHeight: cardH,
+                          transform: rotate180 ? 'rotate(180deg)' : 'none',
+                          transition: 'transform 0.2s ease'
+                        }}
+                        className={`bg-white text-black rounded shadow-sm border border-slate-300 flex flex-col justify-between select-none overflow-hidden ${
+                          is76x51 ? 'p-2.5' : 'px-1.5 py-1'
+                        }`}
+                      >
+                        {/* Line 1: Header Org & Title */}
+                        <div className={`flex items-center justify-between leading-none font-black border-b border-black/25 ${
+                          is76x51 ? 'text-[11px] pb-1' : 'text-[7.5px] pb-0.5'
+                        }`}>
+                          <span className={`truncate ${is76x51 ? 'max-w-[46mm]' : 'max-w-[27mm]'}`}>{label.header}</span>
+                          <span className={`truncate text-slate-700 font-bold ${is76x51 ? 'max-w-[24mm]' : 'max-w-[19mm]'}`}>{label.title}</span>
                         </div>
-                        {label.showOpenDateBlank && (
-                          <span className="text-[6.5px] font-sans font-black bg-slate-100 px-1 rounded shrink-0">
-                            เปิด: ___/___
+
+                        {/* Line 2: Barcode SVG & Display Code */}
+                        <div className="flex flex-col items-center justify-center my-auto py-0.2">
+                          <BarcodeSvg 
+                            text={label.barcode} 
+                            height={is76x51 ? 38 : 18} 
+                            barWidth={is76x51 ? 1.5 : (barcodeDensity === 'high_contrast' ? 1.25 : 1.15)} 
+                            quietZone={is76x51 ? 12 : 8} 
+                          />
+                          <span className={`font-mono font-black tracking-wider leading-none ${
+                            is76x51 ? 'text-[11px] mt-1' : 'text-[7.5px] mt-0.5'
+                          }`}>
+                            {label.displayCode}
                           </span>
-                        )}
+                        </div>
+
+                        {/* Line 3: LOT, EXP & Open Date Blank */}
+                        <div className={`leading-none font-mono font-bold flex items-center justify-between border-t border-black/25 ${
+                          is76x51 ? 'text-[10px] pt-1' : 'text-[7px] pt-0.5'
+                        }`}>
+                          <div className={`flex space-x-1.5 truncate ${is76x51 ? 'max-w-[48mm]' : 'max-w-[27mm]'}`}>
+                            <span>{label.subInfo1}</span>
+                            <span>{label.subInfo2}</span>
+                          </div>
+                          {label.showOpenDateBlank && (
+                            <span className={`font-sans font-black bg-slate-100 rounded shrink-0 ${
+                              is76x51 ? 'text-[9.5px] px-1.5 py-0.5' : 'text-[6.5px] px-1'
+                            }`}>
+                              เปิด: ___/___
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
@@ -1209,10 +1344,10 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
               <div className="text-xs space-y-0.5">
                 <div className="font-black text-slate-900 dark:text-white flex items-center space-x-1.5">
                   <Printer size={15} className="text-sky-600" />
-                  <span>พร้อมสั่งพิมพ์สติกเกอร์ {printMode === 'roll_50x20' ? '50x20 mm' : '50x25 mm'} ทั้งหมด {totalStickers} ดวง</span>
+                  <span>พร้อมสั่งพิมพ์สติกเกอร์ {printMode === 'roll_76x51' ? '7.62x5.08 cm (3x2 นิ้ว)' : printMode === 'roll_50x20' ? '50x20 mm' : printMode === 'roll_50x25' ? '50x25 mm' : 'A4 Grid'} ทั้งหมด {totalStickers} ดวง</span>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  โหมด: {printMode === 'roll_50x20' ? 'ม้วนความร้อน Zebra (50x20 mm Continuous Roll)' : printMode === 'roll_50x25' ? 'ม้วนความร้อน (50x25 mm)' : 'แผ่นสติกเกอร์ A4'}
+                  โหมด: {printMode === 'roll_76x51' ? 'สติกเกอร์แล็บ Zebra 7.62 x 5.08 cm (ตรงตามไดรเวอร์ ZD230 ปัจจุบัน)' : printMode === 'roll_50x20' ? 'ม้วนความร้อน Zebra (50x20 mm Continuous Roll)' : printMode === 'roll_50x25' ? 'ม้วนความร้อน (50x25 mm)' : 'แผ่นสติกเกอร์ A4'}
                 </p>
               </div>
 
