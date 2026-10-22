@@ -251,3 +251,10 @@ html.dark #app-footer {
 .animate-shake {
   animation: shake 0.5s ease-in-out;
 }
+
+/* Hide Zebra Print Area on screen display */
+@media screen {
+  #zebra-print-area {
+    display: none !important;
+  }
+}

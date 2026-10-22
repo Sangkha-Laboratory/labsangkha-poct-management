@@ -326,13 +326,14 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
     );
   };
 
-  // 100% Reliable Isolated Iframe Printing Method (Solves Blank Pages Completely)
+  // 100% Reliable In-DOM Printing Method (Guarantees Browser Print Preview Displays Clearly)
   const handlePrint = () => {
     if (labelsToPrint.length === 0) return;
     setIsPrinting(true);
 
     const is50x20 = printMode === 'roll_50x20';
-    const labelHeight = is50x20 ? '20mm' : '25mm';
+    const is50x25 = printMode === 'roll_50x25';
+    const labelHeight = is50x20 ? '20mm' : is50x25 ? '25mm' : '20mm';
     const barcodeSvgHeight = is50x20 ? 28 : 34;
     const barWidth = barcodeDensity === 'high_contrast' ? 1.25 : 1.15;
     const quietZone = 8;
@@ -365,212 +366,235 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
       return output;
     }).join('\n');
 
-    const printStyles = `
-      @page {
-        size: ${printMode === 'a4_grid' ? 'A4 portrait' : `50mm ${labelHeight}`};
-        margin: ${printMode === 'a4_grid' ? '8mm 6mm' : '0mm'};
-      }
-      * {
-        box-sizing: border-box;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-      }
-      html, body {
-        margin: 0 !important;
-        padding: 0 !important;
-        background: #ffffff !important;
-        color: #000000 !important;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Sarabun", Tahoma, Arial, sans-serif;
-      }
-      ${printMode === 'a4_grid' ? `
-        .print-container {
-          display: grid;
-          grid-template-columns: repeat(4, 48mm);
-          gap: 2mm 3mm;
-          justify-content: center;
-          width: 100%;
-          padding: 0;
+    // 1. Clean up any existing print area and dynamic print style tag
+    const oldArea = document.getElementById('zebra-print-area');
+    if (oldArea) oldArea.remove();
+    const oldStyle = document.getElementById('zebra-dynamic-print-style');
+    if (oldStyle) oldStyle.remove();
+
+    // 2. Inject Dynamic Print Stylesheet for exact label size, hiding the main app during print
+    const styleEl = document.createElement('style');
+    styleEl.id = 'zebra-dynamic-print-style';
+    styleEl.innerHTML = `
+      @media screen {
+        #zebra-print-area {
+          display: none !important;
         }
-        .label-sheet {
-          width: 48mm;
-          height: 20mm;
-          max-width: 48mm;
-          max-height: 20mm;
-          page-break-inside: avoid;
-          break-inside: avoid;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          padding: 1mm 1.5mm;
-          border: 0.25mm dashed #888888;
-          border-radius: 1mm;
-          overflow: hidden;
-          background: #ffffff;
+      }
+      @media print {
+        @page {
+          size: ${printMode === 'a4_grid' ? 'A4 portrait' : `50mm ${labelHeight}`};
+          margin: ${printMode === 'a4_grid' ? '8mm 6mm' : '0mm'} !important;
         }
-      ` : `
-        .print-container {
-          width: 50mm;
-          margin: 0;
-          padding: 0;
+        * {
+          box-sizing: border-box !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
         }
-        .label-sheet {
-          width: 50mm;
-          height: ${labelHeight};
-          min-width: 50mm;
-          max-width: 50mm;
-          min-height: ${labelHeight};
-          max-height: ${labelHeight};
-          page-break-after: always;
-          break-after: page;
-          page-break-inside: avoid;
-          break-inside: avoid;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          padding: 0.8mm 1.2mm 0.8mm 1.2mm;
-          box-sizing: border-box;
-          overflow: hidden;
-          background: #ffffff;
+        html, body {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          height: auto !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          overflow: visible !important;
         }
-      `}
-      .label-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 7.5px;
-        font-weight: 900;
-        border-bottom: 0.25mm solid #000000;
-        padding-bottom: 0.25mm;
-        line-height: 1;
-      }
-      .label-org {
-        max-width: 27mm;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .label-title {
-        max-width: 19mm;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        font-weight: bold;
-      }
-      .barcode-wrapper {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        margin: auto 0;
-        padding: 0;
-      }
-      .barcode-wrapper svg {
-        display: block;
-        max-width: 46mm;
-        height: ${is50x20 ? '10mm' : '13.5mm'};
-        margin: 0 auto;
-        shape-rendering: crispEdges !important;
-        image-rendering: pixelated !important;
-        image-rendering: -moz-crisp-edges !important;
-        image-rendering: crisp-edges !important;
-      }
-      .barcode-wrapper svg rect,
-      .barcode-wrapper svg path {
-        shape-rendering: crispEdges !important;
-      }
-      .barcode-label {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 7.5px;
-        font-weight: 900;
-        letter-spacing: 0.5px;
-        line-height: 1;
-        margin-top: 0.2mm;
-        text-align: center;
-      }
-      .label-footer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 7px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-weight: 700;
-        border-top: 0.25mm solid #000000;
-        padding-top: 0.25mm;
-        line-height: 1;
-      }
-      .label-info {
-        display: flex;
-        gap: 1.5mm;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 32mm;
-      }
-      .label-open {
-        font-size: 6.5px;
-        font-family: sans-serif;
-        font-weight: 900;
-        background: #f1f5f9;
-        padding: 0.1mm 0.8mm;
-        border-radius: 0.3mm;
-        white-space: nowrap;
+        /* Completely hide screen app, nav, background glows, and dialog modal */
+        #root > *:not(#zebra-print-area),
+        #app-root,
+        #app-header,
+        #app-footer,
+        #barcode-printer-modal,
+        .no-print {
+          display: none !important;
+          visibility: hidden !important;
+        }
+        /* Show ONLY the zebra print area with full visibility at (0,0) */
+        #zebra-print-area {
+          display: block !important;
+          visibility: visible !important;
+          position: absolute !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 50mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          z-index: 9999999 !important;
+        }
+        #zebra-print-area * {
+          visibility: visible !important;
+        }
+        ${printMode === 'a4_grid' ? `
+          .print-container {
+            display: grid !important;
+            grid-template-columns: repeat(4, 48mm) !important;
+            gap: 2mm 3mm !important;
+            justify-content: center !important;
+            width: 100% !important;
+            padding: 0 !important;
+          }
+          .label-sheet {
+            width: 48mm !important;
+            height: 20mm !important;
+            max-width: 48mm !important;
+            max-height: 20mm !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            padding: 1mm 1.5mm !important;
+            border: 0.25mm dashed #888888 !important;
+            border-radius: 1mm !important;
+            overflow: hidden !important;
+            background: #ffffff !important;
+          }
+        ` : `
+          .print-container {
+            width: 50mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .label-sheet {
+            width: 50mm !important;
+            height: ${labelHeight} !important;
+            min-width: 50mm !important;
+            max-width: 50mm !important;
+            min-height: ${labelHeight} !important;
+            max-height: ${labelHeight} !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            padding: 0.8mm 1.2mm 0.8mm 1.2mm !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            background: #ffffff !important;
+            border: none !important;
+          }
+        `}
+        .label-header {
+          display: flex !important;
+          justify-content: space-between !important;
+          align-items: center !important;
+          font-size: 7.5px !important;
+          font-weight: 900 !important;
+          border-bottom: 0.25mm solid #000000 !important;
+          padding-bottom: 0.25mm !important;
+          line-height: 1 !important;
+        }
+        .label-org {
+          max-width: 27mm !important;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
+        .label-title {
+          max-width: 19mm !important;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          font-weight: bold !important;
+        }
+        .barcode-wrapper {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: center !important;
+          margin: auto 0 !important;
+          padding: 0 !important;
+        }
+        .barcode-wrapper svg {
+          display: block !important;
+          max-width: 46mm !important;
+          height: ${is50x20 ? '10mm' : '13.5mm'} !important;
+          margin: 0 auto !important;
+          shape-rendering: crispEdges !important;
+          image-rendering: pixelated !important;
+          image-rendering: -moz-crisp-edges !important;
+          image-rendering: crisp-edges !important;
+        }
+        .barcode-wrapper svg rect,
+        .barcode-wrapper svg path {
+          shape-rendering: crispEdges !important;
+        }
+        .barcode-label {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+          font-size: 7.5px !important;
+          font-weight: 900 !important;
+          letter-spacing: 0.5px !important;
+          line-height: 1 !important;
+          margin-top: 0.2mm !important;
+          text-align: center !important;
+        }
+        .label-footer {
+          display: flex !important;
+          justify-content: space-between !important;
+          align-items: center !important;
+          font-size: 7px !important;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+          font-weight: 700 !important;
+          border-top: 0.25mm solid #000000 !important;
+          padding-top: 0.25mm !important;
+          line-height: 1 !important;
+        }
+        .label-info {
+          display: flex !important;
+          gap: 1.5mm !important;
+          white-space: nowrap !important;
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+          max-width: 32mm !important;
+        }
+        .label-open {
+          font-size: 6.5px !important;
+          font-family: sans-serif !important;
+          font-weight: 900 !important;
+          background: #f1f5f9 !important;
+          padding: 0.1mm 0.8mm !important;
+          border-radius: 0.3mm !important;
+          white-space: nowrap !important;
+        }
       }
     `;
+    document.head.appendChild(styleEl);
 
-    const fullHtml = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Zebra Label Print</title>
-          <style>${printStyles}</style>
-        </head>
-        <body>
-          <div class="print-container">
-            ${labelsHtml}
-          </div>
-        </body>
-      </html>
-    `;
+    // 3. Mount #zebra-print-area into document.body
+    const printArea = document.createElement('div');
+    printArea.id = 'zebra-print-area';
+    printArea.innerHTML = `<div class="print-container">${labelsHtml}</div>`;
+    document.body.appendChild(printArea);
 
-    // Remove any previously created print iframe
-    const oldIframe = document.getElementById('isolated-zebra-print-iframe');
-    if (oldIframe) oldIframe.remove();
-
-    // Create a new invisible iframe isolated from React and Tailwind DOM
-    const printIframe = document.createElement('iframe');
-    printIframe.id = 'isolated-zebra-print-iframe';
-    printIframe.style.position = 'fixed';
-    printIframe.style.top = '-9999px';
-    printIframe.style.left = '-9999px';
-    printIframe.style.width = '50mm';
-    printIframe.style.height = labelHeight;
-    printIframe.style.border = '0';
-    document.body.appendChild(printIframe);
-
-    const frameDoc = printIframe.contentWindow?.document;
-    if (!frameDoc) {
-      window.print();
+    // 4. Trigger window.print() after a brief tick to allow browser DOM repaint
+    const cleanup = () => {
       setIsPrinting(false);
-      return;
-    }
+      window.removeEventListener('afterprint', cleanup);
+      setTimeout(() => {
+        const area = document.getElementById('zebra-print-area');
+        if (area) area.remove();
+        const dynStyle = document.getElementById('zebra-dynamic-print-style');
+        if (dynStyle) dynStyle.remove();
+      }, 500);
+    };
 
-    frameDoc.open();
-    frameDoc.write(fullHtml);
-    frameDoc.close();
+    window.addEventListener('afterprint', cleanup);
 
-    // Allow browser 250ms to parse SVGs and styles, then invoke clean print dialog
     setTimeout(() => {
       try {
-        printIframe.contentWindow?.focus();
-        printIframe.contentWindow?.print();
-      } catch (err) {
-        console.warn('Iframe print error fallback to window.print:', err);
         window.print();
+      } catch (err) {
+        console.error('window.print error:', err);
       } finally {
-        setIsPrinting(false);
+        // Fallback cleanup if afterprint doesn't fire (e.g. print dialog cancelled quickly)
+        setTimeout(cleanup, 2500);
       }
-    }, 250);
+    }, 120);
   };
 
   const handleCopyZpl = async () => {
@@ -625,7 +649,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                   ศูนย์พิมพ์สติกเกอร์บาร์โค้ด Zebra (50x20 mm)
                 </h2>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
-                  Isolated Print Ready
+                  Direct Print Ready
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
