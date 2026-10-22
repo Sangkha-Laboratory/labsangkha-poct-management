@@ -111,15 +111,7 @@ export default function App() {
     return savedRole === 'admin' ? 'admin' : savedRole === 'staff' ? 'staff' : 'user';
   });
 
-  const [isSelectingRole, setIsSelectingRole] = useState<boolean>(() => {
-    try {
-      const saved = sessionStorage.getItem('dtx_session_role_selected');
-      if (saved === 'selecting') return true;
-      return false;
-    } catch {
-      return false;
-    }
-  });
+  const [isSelectingRole, setIsSelectingRole] = useState<boolean>(true);
 
   useEffect(() => {
     try {
@@ -597,12 +589,10 @@ export default function App() {
             <div className="flex items-center space-x-3 sm:space-x-4">
               <div 
                 onClick={() => {
-                  setRole('user');
-                  setActiveUserTab('repair');
-                  setIsSelectingRole(false);
+                  setIsSelectingRole(true);
                 }} 
                 className="flex items-center gap-2 sm:gap-2.5 cursor-pointer" 
-                title="กลับสู่หน้าหลัก (Home)"
+                title="กลับสู่หน้าหลัก (Home / Role Selection)"
               >
                 {/* ไอคอนกล้องจุลทรรศน์สีฟ้า */}
                 <div className="w-7 h-7 sm:w-9 sm:h-9 flex-shrink-0 bg-sky-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-sky-500/20">
@@ -627,14 +617,11 @@ export default function App() {
                 <div className="flex items-center space-x-2 lg:space-x-4 mr-1 lg:mr-2 h-16">
                   <button
                     onClick={() => {
-                      setActiveUserTab('repair');
-                      setRole('user');
-                      setIsSelectingRole(false);
+                      setIsSelectingRole(true);
                     }}
-                    className={`px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
-                      activeUserTab === 'repair' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
-                    }`}
+                    className="px-2 lg:px-2.5 h-16 text-xs lg:text-[13px] font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap"
                     id="header-tab-home"
+                    title="กลับหน้าเลือกบทบาท (Landing)"
                   >
                     <Home size={14} className="shrink-0" />
                     <span>Home</span>
@@ -748,12 +735,10 @@ export default function App() {
               </button>
               <button 
                 onClick={() => {
-                  setRole('user');
-                  setActiveUserTab('repair');
-                  setIsSelectingRole(false);
+                  setIsSelectingRole(true);
                 }}
                 className="w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer bg-slate-100 text-slate-600 hover:bg-slate-200"
-                title="หน้าหลัก (Home)"
+                title="หน้าหลัก (Home / Role Selection)"
               >
                 <Home size={14} />
               </button>
@@ -773,16 +758,14 @@ export default function App() {
               <div className="bg-white border border-slate-200/80 rounded-2xl shadow-md p-1.5 space-y-1">
                 <button
                   onClick={() => {
-                    setRole('user');
-                    setActiveUserTab('repair');
-                    setIsSelectingRole(false);
+                    setIsSelectingRole(true);
                     setIsMobileMenuOpen(false);
                   }}
                   className="w-full flex items-center justify-between p-3.5 text-left text-xs font-bold rounded-xl transition-all bg-sky-50 text-sky-700 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-200 dark:border-sky-800"
                 >
                   <div className="flex items-center space-x-3">
                     <Home size={16} className="text-sky-600 dark:text-sky-400 shrink-0" />
-                    <span>Home (หน้าหลัก)</span>
+                    <span>Home (เลือกบทบาท)</span>
                   </div>
                 </button>
 
@@ -1031,15 +1014,13 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        setRole('user');
-                        setActiveUserTab('repair');
-                        setIsSelectingRole(false);
+                        setIsSelectingRole(true);
                         setIsAdminProfileOpen(false);
                       }}
                       className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-left cursor-pointer"
                     >
                       <Home size={15} className="text-sky-500 shrink-0" />
-                      <span>กลับสู่หน้าหลัก (Ward Portal Home)</span>
+                      <span>กลับสู่หน้าหลัก (เลือกบทบาท / Landing)</span>
                     </button>
                     <button
                       type="button"
@@ -1048,8 +1029,7 @@ export default function App() {
                         setAdminPassword('');
                         localStorage.removeItem('dtx_admin_session');
                         localStorage.removeItem('dtx_admin_last_active');
-                        localStorage.setItem('dtx_role', 'user');
-                        setRole('user');
+                        setIsSelectingRole(true);
                         setIsAdminProfileOpen(false);
                         setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
                       }}
@@ -1084,7 +1064,7 @@ export default function App() {
                 onClick={() => {
                   setRole('user');
                   setActiveUserTab('repair');
-                  setIsSelectingRole(false);
+                  setIsSelectingRole(true);
                   if (role === 'staff') {
                     localStorage.removeItem('dtx_current_staff');
                     localStorage.removeItem('dtx_qc_operator');
@@ -1096,7 +1076,7 @@ export default function App() {
                   }
                 }}
                 className="inline-flex items-center space-x-2 px-3.5 py-2 bg-white hover:bg-sky-50 dark:bg-slate-900 dark:hover:bg-sky-950/40 border border-slate-200 dark:border-slate-800 hover:border-sky-300 text-slate-700 dark:text-slate-200 text-xs font-black rounded-xl transition-all cursor-pointer shadow-3xs"
-                title="กลับสู่หน้าหลัก (Home)"
+                title="กลับสู่หน้าหลัก (Home / Role Selection)"
               >
                 <Home size={14} className="text-sky-600 dark:text-sky-400 shrink-0" />
                 <span>กลับสู่หน้าหลัก (Home)</span>
@@ -1104,7 +1084,7 @@ export default function App() {
             </div>
           )}
           {isSelectingRole ? (
-          // DEDICATED ROLE SELECTION SCREEN
+          // DEDICATED ROLE SELECTION SCREEN AS LANDING PAGE
           <RoleSelector
             currentRole={role}
             isAdminLoggedIn={isAdminLoggedIn}
@@ -1138,7 +1118,6 @@ export default function App() {
                 }
               }
             }}
-            onClose={() => setIsSelectingRole(false)}
           />
         ) : role === 'user' ? (
           // USER STAFF LANDING PAGE (Visible to Admin logged in for testing/development, or fallback to Coming Soon)
@@ -1457,9 +1436,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     setIsAdminLoggedIn(false);
-                    setRole('user');
-                    setActiveUserTab('repair');
-                    setIsSelectingRole(false);
+                    setIsSelectingRole(true);
                     localStorage.removeItem('dtx_admin_session');
                     setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
                   }}

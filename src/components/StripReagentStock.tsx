@@ -35,7 +35,7 @@ interface StripReagentStockProps {
 function Code128Barcode({ 
   text, 
   height = 28, 
-  barWidth = 1.15,
+  barWidth = 1.25,
   showText = true,
   className = ''
 }: { 
@@ -53,12 +53,21 @@ function Code128Barcode({
         JsBarcode(svgRef.current, text, {
           format: "CODE128", // Full Code 128 with auto subset switching & modulo 103 checksum
           lineColor: "#000000",
+          background: "#ffffff",
           width: barWidth,
           height: height,
           displayValue: false,
-          margin: 6, // Standard quiet zone essential for scanner guns
-          background: "#ffffff"
+          margin: 0,
+          marginLeft: 8,
+          marginRight: 8,
+          marginTop: 1,
+          marginBottom: 1
         });
+        if (svgRef.current) {
+          svgRef.current.setAttribute("shape-rendering", "crispEdges");
+          const rects = svgRef.current.querySelectorAll("rect");
+          rects.forEach(r => r.setAttribute("shape-rendering", "crispEdges"));
+        }
       } catch (err) {
         console.error('JsBarcode render error:', err);
       }
@@ -67,7 +76,7 @@ function Code128Barcode({
 
   return (
     <div className={`inline-flex flex-col items-center bg-white p-1 rounded-lg border border-slate-200 select-none shadow-2xs ${className}`}>
-      <svg ref={svgRef} className="max-w-full block" />
+      <svg ref={svgRef} className="max-w-full block" style={{ shapeRendering: 'crispEdges' }} />
       {showText && (
         <span className="font-mono text-[9px] font-black text-slate-900 tracking-wider mt-0.5 leading-none">
           {text}

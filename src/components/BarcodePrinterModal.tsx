@@ -51,8 +51,18 @@ interface PrintableLabel {
   copies: number;
 }
 
-// Standard Highly Compliant Code128 Vector Barcode Generator
-function BarcodeSvg({ text, height = 20, barWidth = 1.05 }: { text: string; height?: number; barWidth?: number }) {
+// Standard Highly Compliant Code128 Vector Barcode Generator for UI Display
+function BarcodeSvg({ 
+  text, 
+  height = 24, 
+  barWidth = 1.25,
+  quietZone = 8 
+}: { 
+  text: string; 
+  height?: number; 
+  barWidth?: number; 
+  quietZone?: number;
+}) {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
@@ -61,18 +71,56 @@ function BarcodeSvg({ text, height = 20, barWidth = 1.05 }: { text: string; heig
         JsBarcode(svgRef.current, text, {
           format: "CODE128", // Standard Code128 (auto mode: dense and 100% compliant)
           lineColor: "#000000",
+          background: "#ffffff",
           width: barWidth,
           height: height,
           displayValue: false,
-          margin: 0
+          margin: 0,
+          marginLeft: quietZone,
+          marginRight: quietZone,
+          marginTop: 1,
+          marginBottom: 1
         });
+        if (svgRef.current) {
+          svgRef.current.setAttribute("shape-rendering", "crispEdges");
+          const rects = svgRef.current.querySelectorAll("rect");
+          rects.forEach(r => r.setAttribute("shape-rendering", "crispEdges"));
+        }
       } catch (err) {
         console.error('JsBarcode error:', err);
       }
     }
-  }, [text, height, barWidth]);
+  }, [text, height, barWidth, quietZone]);
 
-  return <svg ref={svgRef} className="block mx-auto max-w-full" />;
+  return <svg ref={svgRef} className="block mx-auto max-w-full" style={{ shapeRendering: 'crispEdges' }} />;
+}
+
+// Helper to serialize barcode into exact SVG string for isolated iframe printing with Crisp Edges & Quiet Zone
+function createBarcodeSvgString(text: string, height = 28, barWidth = 1.25, quietZone = 8): string {
+  try {
+    const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    JsBarcode(svgNode, text, {
+      format: "CODE128",
+      lineColor: "#000000",
+      background: "#ffffff",
+      width: barWidth,
+      height: height,
+      displayValue: false,
+      margin: 0,
+      marginLeft: quietZone,
+      marginRight: quietZone,
+      marginTop: 1,
+      marginBottom: 1
+    });
+    svgNode.setAttribute('shape-rendering', 'crispEdges');
+    svgNode.style.shapeRendering = 'crispEdges';
+    const rects = svgNode.querySelectorAll('rect');
+    rects.forEach(r => r.setAttribute('shape-rendering', 'crispEdges'));
+    return new XMLSerializer().serializeToString(svgNode);
+  } catch (e) {
+    console.error('createBarcodeSvgString error:', e);
+    return `<div style="font-family: monospace; font-size: 8px; font-weight: bold; text-align: center;">${text}</div>`;
+  }
 }
 
 // Zebra Programming Language (ZPL II) Generator for 50x20 mm (203 DPI, 400x160 dots)
@@ -86,18 +134,19 @@ function generateZpl50x20(labels: PrintableLabel[]): string {
       zpl += '^LH0,0\n'; // Label Home: (0,0)
       
       // Header line
-      zpl += `^FO16,10^A0N,18,18^FD${l.header}^FS\n`;
-      zpl += `^FO240,10^A0N,16,16^FD${l.title.slice(0, 15)}^FS\n`;
-      zpl += '^FO16,30^GB368,1,1^FS\n';
+      zpl += `^FO16,8^A0N,18,18^FD${l.header}^FS\n`;
+      zpl += `^FO240,8^A0N,16,16^FD${l.title.slice(0, 15)}^FS\n`;
+      zpl += '^FO16,28^GB368,1,1^FS\n';
       
-      // Code 128 Barcode: ^BCo,h,f,g,e,m (o=N, h=48, f=Y print interpretation, g=N, e=N, m=N)
-      zpl += `^FO45,36^BCN,48,Y,N,N^FD>;${l.barcode}^FS\n`;
+      // Code 128 Barcode: ^BYw,r,h (w=2 dots module width = 10 mil standard, r=3 ratio, h=52 dots bar height)
+      // ^BCo,h,f,g,e,m (o=N, h=52, f=Y print interpretation, g=N, e=N, m=N)
+      zpl += '^FO36,34^BY2,3,52^BCN,52,Y,N,N^FD>;' + l.barcode + '^FS\n';
       
       // Footer line
-      zpl += '^FO16,118^GB368,1,1^FS\n';
-      zpl += `^FO16,124^A0N,15,15^FD${l.subInfo1}  ${l.subInfo2}^FS\n`;
+      zpl += '^FO16,120^GB368,1,1^FS\n';
+      zpl += `^FO16,126^A0N,15,15^FD${l.subInfo1}  ${l.subInfo2}^FS\n`;
       if (l.showOpenDateBlank) {
-        zpl += '^FO275,124^A0N,15,15^FDOPEN: __/__^FS\n';
+        zpl += '^FO275,126^A0N,15,15^FDOPEN: __/__^FS\n';
       }
       
       zpl += '^XZ\n\n';
@@ -129,6 +178,8 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
   const [zoomPreview, setZoomPreview] = useState<boolean>(false);
   const [showZplPanel, setShowZplPanel] = useState<boolean>(false);
   const [copiedZpl, setCopiedZpl] = useState<boolean>(false);
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [barcodeDensity, setBarcodeDensity] = useState<'high_contrast' | 'standard'>('high_contrast');
 
   // Stock selection state
   const [selectedStockIds, setSelectedStockIds] = useState<string[]>([]);
@@ -275,8 +326,251 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
     );
   };
 
+  // 100% Reliable Isolated Iframe Printing Method (Solves Blank Pages Completely)
   const handlePrint = () => {
-    window.print();
+    if (labelsToPrint.length === 0) return;
+    setIsPrinting(true);
+
+    const is50x20 = printMode === 'roll_50x20';
+    const labelHeight = is50x20 ? '20mm' : '25mm';
+    const barcodeSvgHeight = is50x20 ? 28 : 34;
+    const barWidth = barcodeDensity === 'high_contrast' ? 1.25 : 1.15;
+    const quietZone = 8;
+
+    // Generate HTML for each label with pre-serialized vector SVG with crispEdges and quiet zone
+    const labelsHtml = labelsToPrint.map(label => {
+      const barcodeSvgStr = createBarcodeSvgString(label.barcode, barcodeSvgHeight, barWidth, quietZone);
+      let output = '';
+      for (let c = 0; c < label.copies; c++) {
+        output += `
+          <div class="label-sheet">
+            <div class="label-header">
+              <span class="label-org">${label.header}</span>
+              <span class="label-title">${label.title}</span>
+            </div>
+            <div class="barcode-wrapper">
+              ${barcodeSvgStr}
+              <div class="barcode-label">${label.displayCode}</div>
+            </div>
+            <div class="label-footer">
+              <div class="label-info">
+                <span>${label.subInfo1}</span>
+                <span>${label.subInfo2}</span>
+              </div>
+              ${label.showOpenDateBlank ? '<span class="label-open">เปิด: ___/___</span>' : ''}
+            </div>
+          </div>
+        `;
+      }
+      return output;
+    }).join('\n');
+
+    const printStyles = `
+      @page {
+        size: ${printMode === 'a4_grid' ? 'A4 portrait' : `50mm ${labelHeight}`};
+        margin: ${printMode === 'a4_grid' ? '8mm 6mm' : '0mm'};
+      }
+      * {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Sarabun", Tahoma, Arial, sans-serif;
+      }
+      ${printMode === 'a4_grid' ? `
+        .print-container {
+          display: grid;
+          grid-template-columns: repeat(4, 48mm);
+          gap: 2mm 3mm;
+          justify-content: center;
+          width: 100%;
+          padding: 0;
+        }
+        .label-sheet {
+          width: 48mm;
+          height: 20mm;
+          max-width: 48mm;
+          max-height: 20mm;
+          page-break-inside: avoid;
+          break-inside: avoid;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: 1mm 1.5mm;
+          border: 0.25mm dashed #888888;
+          border-radius: 1mm;
+          overflow: hidden;
+          background: #ffffff;
+        }
+      ` : `
+        .print-container {
+          width: 50mm;
+          margin: 0;
+          padding: 0;
+        }
+        .label-sheet {
+          width: 50mm;
+          height: ${labelHeight};
+          min-width: 50mm;
+          max-width: 50mm;
+          min-height: ${labelHeight};
+          max-height: ${labelHeight};
+          page-break-after: always;
+          break-after: page;
+          page-break-inside: avoid;
+          break-inside: avoid;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: 0.8mm 1.2mm 0.8mm 1.2mm;
+          box-sizing: border-box;
+          overflow: hidden;
+          background: #ffffff;
+        }
+      `}
+      .label-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 7.5px;
+        font-weight: 900;
+        border-bottom: 0.25mm solid #000000;
+        padding-bottom: 0.25mm;
+        line-height: 1;
+      }
+      .label-org {
+        max-width: 27mm;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .label-title {
+        max-width: 19mm;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: bold;
+      }
+      .barcode-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: auto 0;
+        padding: 0;
+      }
+      .barcode-wrapper svg {
+        display: block;
+        max-width: 46mm;
+        height: ${is50x20 ? '10mm' : '13.5mm'};
+        margin: 0 auto;
+        shape-rendering: crispEdges !important;
+        image-rendering: pixelated !important;
+        image-rendering: -moz-crisp-edges !important;
+        image-rendering: crisp-edges !important;
+      }
+      .barcode-wrapper svg rect,
+      .barcode-wrapper svg path {
+        shape-rendering: crispEdges !important;
+      }
+      .barcode-label {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 7.5px;
+        font-weight: 900;
+        letter-spacing: 0.5px;
+        line-height: 1;
+        margin-top: 0.2mm;
+        text-align: center;
+      }
+      .label-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 7px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-weight: 700;
+        border-top: 0.25mm solid #000000;
+        padding-top: 0.25mm;
+        line-height: 1;
+      }
+      .label-info {
+        display: flex;
+        gap: 1.5mm;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 32mm;
+      }
+      .label-open {
+        font-size: 6.5px;
+        font-family: sans-serif;
+        font-weight: 900;
+        background: #f1f5f9;
+        padding: 0.1mm 0.8mm;
+        border-radius: 0.3mm;
+        white-space: nowrap;
+      }
+    `;
+
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Zebra Label Print</title>
+          <style>${printStyles}</style>
+        </head>
+        <body>
+          <div class="print-container">
+            ${labelsHtml}
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Remove any previously created print iframe
+    const oldIframe = document.getElementById('isolated-zebra-print-iframe');
+    if (oldIframe) oldIframe.remove();
+
+    // Create a new invisible iframe isolated from React and Tailwind DOM
+    const printIframe = document.createElement('iframe');
+    printIframe.id = 'isolated-zebra-print-iframe';
+    printIframe.style.position = 'fixed';
+    printIframe.style.top = '-9999px';
+    printIframe.style.left = '-9999px';
+    printIframe.style.width = '50mm';
+    printIframe.style.height = labelHeight;
+    printIframe.style.border = '0';
+    document.body.appendChild(printIframe);
+
+    const frameDoc = printIframe.contentWindow?.document;
+    if (!frameDoc) {
+      window.print();
+      setIsPrinting(false);
+      return;
+    }
+
+    frameDoc.open();
+    frameDoc.write(fullHtml);
+    frameDoc.close();
+
+    // Allow browser 250ms to parse SVGs and styles, then invoke clean print dialog
+    setTimeout(() => {
+      try {
+        printIframe.contentWindow?.focus();
+        printIframe.contentWindow?.print();
+      } catch (err) {
+        console.warn('Iframe print error fallback to window.print:', err);
+        window.print();
+      } finally {
+        setIsPrinting(false);
+      }
+    }, 250);
   };
 
   const handleCopyZpl = async () => {
@@ -316,130 +610,6 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/80 backdrop-blur-xs overflow-y-auto animate-fade-in" id="barcode-printer-modal">
       
-      {/* Dynamic Print Styles for 50x20mm Zebra, 50x25mm, and A4 sheets */}
-      <style>{`
-        @media print {
-          /* Hide main app interface containers on print */
-          #app-root > *:not(#barcode-printer-modal) {
-            display: none !important;
-          }
-          #app-header, #app-footer, .no-print, header, footer, aside, nav {
-            display: none !important;
-          }
-
-          /* Reset modal container to act as a transparent wrapper */
-          #barcode-printer-modal {
-            background: transparent !important;
-            backdrop-filter: none !important;
-            padding: 0 !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-          #barcode-printer-modal > div:first-child {
-            display: none !important; /* Hide UI interface card */
-          }
-
-          /* Display the print area as a direct visible block */
-          #printable-barcode-area {
-            display: block !important;
-            visibility: visible !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            background: #ffffff !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          #printable-barcode-area * {
-            visibility: visible !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-
-          ${printMode === 'roll_50x20' ? `
-            @page {
-              size: 50mm 20mm;
-              margin: 0;
-            }
-            .label-item-print {
-              width: 50mm !important;
-              height: 20mm !important;
-              min-width: 50mm !important;
-              max-width: 50mm !important;
-              min-height: 20mm !important;
-              max-height: 20mm !important;
-              page-break-after: always;
-              page-break-inside: avoid;
-              break-after: page;
-              display: flex !important;
-              flex-direction: column !important;
-              justify-content: space-between !important;
-              padding: 0.8mm 1.5mm 0.8mm 1.5mm !important;
-              box-sizing: border-box !important;
-              background: #ffffff !important;
-              color: #000000 !important;
-              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-            }
-          ` : printMode === 'roll_50x25' ? `
-            @page {
-              size: 50mm 25mm;
-              margin: 0;
-            }
-            .label-item-print {
-              width: 50mm !important;
-              height: 25mm !important;
-              min-width: 50mm !important;
-              max-width: 50mm !important;
-              min-height: 25mm !important;
-              max-height: 25mm !important;
-              page-break-after: always;
-              page-break-inside: avoid;
-              break-after: page;
-              display: flex !important;
-              flex-direction: column !important;
-              justify-content: space-between !important;
-              padding: 1.2mm 2mm 1mm 2mm !important;
-              box-sizing: border-box !important;
-              background: #ffffff !important;
-              color: #000000 !important;
-              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-            }
-          ` : `
-            @page {
-              size: A4 portrait;
-              margin: 8mm 6mm;
-            }
-            .a4-grid-container {
-              display: grid !important;
-              grid-template-columns: repeat(4, 48mm) !important;
-              gap: 2mm 3mm !important;
-              justify-content: center !important;
-              width: 100% !important;
-            }
-            .label-item-print {
-              width: 48mm !important;
-              height: 20mm !important;
-              page-break-inside: avoid;
-              display: flex !important;
-              flex-direction: column !important;
-              justify-content: space-between !important;
-              padding: 1mm 1.5mm !important;
-              box-sizing: border-box !important;
-              border: 0.25mm dashed #888888 !important;
-              border-radius: 1mm !important;
-              background: #ffffff !important;
-              color: #000000 !important;
-            }
-          `}
-        }
-      `}</style>
-
       {/* Main Interactive Dialog Modal */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden text-slate-800 dark:text-slate-100">
         
@@ -454,12 +624,12 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                 <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
                   ศูนย์พิมพ์สติกเกอร์บาร์โค้ด Zebra (50x20 mm)
                 </h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200 dark:bg-sky-950 dark:text-sky-300 dark:border-sky-800">
-                  Code128 Standard
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800">
+                  Isolated Print Ready
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                ขนาดมาตรฐาน 50x20 มม. สำหรับเครื่องพิมพ์ความร้อน Zebra & บาร์โค้ดสแกนเนอร์แล็บยิงติด 100%
+                ขนาดมาตรฐาน 50x20 มม. สำหรับเครื่องพิมพ์ Zebra และสแกนเนอร์บาร์โค้ดแล็บยิงติด 100%
               </p>
             </div>
           </div>
@@ -785,7 +955,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                         : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                     }`}
                   >
-                    <span className="text-[11px]">️ Zebra 50x20</span>
+                    <span className="text-[11px] font-bold">Zebra 50x20</span>
                     <span className="text-[9px] font-normal text-slate-400">(แนะนำ)</span>
                   </button>
 
@@ -813,6 +983,43 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                   >
                     <span className="text-[11px]">แผ่น A4</span>
                     <span className="text-[9px] font-normal text-slate-400">Grid Sheet</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Barcode Density / Scanner Readability Setting */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                    ความคมชัดบาร์โค้ด (Scanner Readability):
+                  </label>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Code 128 + Quiet Zone</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setBarcodeDensity('high_contrast')}
+                    className={`p-2 rounded-xl text-xs font-bold border transition-all flex flex-col items-center justify-center cursor-pointer ${
+                      barcodeDensity === 'high_contrast'
+                        ? 'bg-sky-50 dark:bg-sky-950 border-sky-500 text-sky-700 dark:text-sky-300 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className="text-[11px] font-bold">หนาคมชัด (1.25px)</span>
+                    <span className="text-[9px] font-normal text-emerald-600 dark:text-emerald-400">ยิงติดง่าย แนะนำสำหรับปืนสแกน</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBarcodeDensity('standard')}
+                    className={`p-2 rounded-xl text-xs font-bold border transition-all flex flex-col items-center justify-center cursor-pointer ${
+                      barcodeDensity === 'standard'
+                        ? 'bg-sky-50 dark:bg-sky-950 border-sky-500 text-sky-700 dark:text-sky-300 shadow-xs'
+                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className="text-[11px]">มาตรฐาน (1.15px)</span>
+                    <span className="text-[9px] font-normal text-slate-400">สำหรับรหัสยาวพิเศษ</span>
                   </button>
                 </div>
               </div>
@@ -901,7 +1108,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                     {generateZpl50x20(labelsToPrint)}
                   </pre>
                   <p className="text-[10px] text-slate-400 font-sans">
-                     สามารถนำโค้ดนี้ส่งไปยัง Zebra Setup Utilities หรือส่งตรงไปยัง Raw Port 9100 ของเครื่องพิมพ์ Zebra ได้โดยตรง 100%
+                    💡 สามารถนำโค้ดนี้ส่งไปยัง Zebra Setup Utilities หรือส่งตรงไปยัง Raw Port 9100 ของเครื่องพิมพ์ Zebra ได้โดยตรง 100%
                   </p>
                 </div>
               )}
@@ -938,7 +1145,12 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
                       {/* Line 2: Barcode SVG & Display Code */}
                       <div className="flex flex-col items-center justify-center my-auto py-0.2">
-                        <BarcodeSvg text={label.barcode} height={16} barWidth={1.05} />
+                        <BarcodeSvg 
+                          text={label.barcode} 
+                          height={18} 
+                          barWidth={barcodeDensity === 'high_contrast' ? 1.25 : 1.15} 
+                          quietZone={8} 
+                        />
                         <span className="font-mono text-[7.5px] font-black tracking-wider leading-none mt-0.5">
                           {label.displayCode}
                         </span>
@@ -991,12 +1203,12 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                 <button
                   type="button"
                   onClick={handlePrint}
-                  disabled={totalStickers === 0}
+                  disabled={totalStickers === 0 || isPrinting}
                   className="px-6 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 active:scale-98 text-white text-xs font-black flex items-center space-x-2 cursor-pointer shadow-lg shadow-sky-600/30 transition-all disabled:opacity-50"
                   id="btn-print-barcode-50x20"
                 >
                   <Printer size={16} />
-                  <span>สั่งพิมพ์ทันที (Print Now)</span>
+                  <span>{isPrinting ? 'กำลังเตรียมพิมพ์...' : 'สั่งพิมพ์ทันที (Print Now)'}</span>
                 </button>
               </div>
             </div>
@@ -1005,83 +1217,6 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
         </div>
 
-      </div>
-
-      {/* HIDDEN PRINTABLE CONTAINER ACCESSED ONLY BY @media print */}
-      <div id="printable-barcode-area" className="hidden">
-        {printMode === 'a4_grid' ? (
-          <div className="a4-grid-container">
-            {labelsToPrint.map((label, idx) => (
-              <div 
-                key={idx} 
-                className="label-item-print"
-              >
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '7px', fontWeight: 'bold', borderBottom: '0.2mm solid #000', paddingBottom: '0.3mm' }}>
-                  <span>{label.header}</span>
-                  <span>{label.title}</span>
-                </div>
-
-                {/* Barcode & Alphanumeric Code */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: 'auto 0' }}>
-                  <BarcodeSvg text={label.barcode} height={16} barWidth={1.05} />
-                  <span style={{ fontFamily: 'monospace', fontSize: '7.5px', fontWeight: 'bold', letterSpacing: '0.5px' }}>
-                    {label.displayCode}
-                  </span>
-                </div>
-
-                {/* Footer */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '6.5px', fontFamily: 'monospace', fontWeight: 'bold', borderTop: '0.2mm solid #000', paddingTop: '0.3mm' }}>
-                  <div>
-                    <span>{label.subInfo1} </span>
-                    <span>{label.subInfo2}</span>
-                  </div>
-                  {label.showOpenDateBlank && (
-                    <span>
-                      เปิด: ___/___
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div>
-            {labelsToPrint.map((label, idx) => (
-              <div 
-                key={idx} 
-                className="label-item-print"
-              >
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '7.5px', fontWeight: 'bold', borderBottom: '0.2mm solid #000', paddingBottom: '0.3mm' }}>
-                  <span>{label.header}</span>
-                  <span>{label.title}</span>
-                </div>
-
-                {/* Visual Barcode & Alphanumeric Code */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: 'auto 0' }}>
-                  <BarcodeSvg text={label.barcode} height={17} barWidth={1.05} />
-                  <span style={{ fontFamily: 'monospace', fontSize: '7.5px', fontWeight: 'bold', letterSpacing: '0.5px', marginTop: '0.3mm' }}>
-                    {label.displayCode}
-                  </span>
-                </div>
-
-                {/* Footer LOT, EXP, Open Date blank */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '7px', fontFamily: 'monospace', fontWeight: 'bold', borderTop: '0.2mm solid #000', paddingTop: '0.3mm' }}>
-                  <div>
-                    <span>{label.subInfo1} </span>
-                    <span>{label.subInfo2}</span>
-                  </div>
-                  {label.showOpenDateBlank && (
-                    <span style={{ fontSize: '6.5px' }}>
-                      เปิด: ___/___
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
     </div>
