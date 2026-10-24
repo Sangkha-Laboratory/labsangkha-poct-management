@@ -23,10 +23,12 @@ import {
   Maximize2,
   FileCode,
   Download,
-  Check
+  Check,
+  FileText
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import { StripReagentItem, DtxMachine, QcLotConfig } from '../types';
+import { exportLabelsToWordDocx } from '../utils/exportWord';
 
 interface BarcodePrinterModalProps {
   isOpen: boolean;
@@ -152,6 +154,94 @@ function createBarcodeSvgString(text: string, height = 28, barWidth = 1.25, quie
   }
 }
 
+// Generates a high-resolution 300 DPI canvas blob for 55x22mm label to paste cleanly into Microsoft Word
+function renderLabelToCanvasBlob(label: PrintableLabel): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    try {
+      const canvas = document.createElement('canvas');
+      // 55mm x 22mm at 300 DPI (650 x 260 px)
+      canvas.width = 650;
+      canvas.height = 260;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
+
+      // Crisp White Background
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 650, 260);
+
+      // Line 1: Header (Hospital Org & Item Title)
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 22px "Sarabun", "TH Sarabun New", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label.header, 25, 18);
+
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 20px "Sarabun", "TH Sarabun New", sans-serif';
+      ctx.fillText(label.title.slice(0, 22), 625, 18);
+
+      // Divider Line 1
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(25, 48);
+      ctx.lineTo(625, 48);
+      ctx.stroke();
+
+      // Line 2: Barcode via JsBarcode on offscreen canvas
+      const bcCanvas = document.createElement('canvas');
+      JsBarcode(bcCanvas, label.barcode, {
+        format: "CODE128",
+        lineColor: "#000000",
+        background: "#ffffff",
+        width: 2.7,
+        height: 88,
+        displayValue: false,
+        margin: 0,
+        marginLeft: 10,
+        marginRight: 10,
+        marginTop: 0,
+        marginBottom: 0
+      });
+
+      // Draw barcode centered
+      const bcW = bcCanvas.width;
+      const bcX = Math.max(25, (650 - bcW) / 2);
+      ctx.drawImage(bcCanvas, bcX, 56, Math.min(bcW, 600), 90);
+
+      // Barcode Code Text Below
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(label.displayCode, 325, 154);
+
+      // Divider Line 2
+      ctx.beginPath();
+      ctx.moveTo(25, 182);
+      ctx.lineTo(625, 182);
+      ctx.stroke();
+
+      // Line 3: Footer (LOT, EXP, Open Date)
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 18px monospace';
+      ctx.fillText(`${label.subInfo1}   ${label.subInfo2}`, 25, 192);
+
+      if (label.showOpenDateBlank) {
+        ctx.textAlign = 'right';
+        ctx.font = 'bold 18px "Sarabun", "TH Sarabun New", sans-serif';
+        ctx.fillText('เปิด: ___/___', 625, 192);
+      }
+
+      canvas.toBlob((blob) => resolve(blob), 'image/png');
+    } catch (e) {
+      console.error('renderLabelToCanvasBlob error:', e);
+      resolve(null);
+    }
+  });
+}
+
 // Zebra Programming Language (ZPL II) Generator (55x22 mm, 50x20 mm or 76x51 mm, 203 DPI)
 function generateZpl50x20(labels: PrintableLabel[], mode: 'roll_55x22' | 'roll_50x20' | 'roll_76x51' | 'roll_50x25' | 'a4_grid' = 'roll_55x22'): string {
   let zpl = '';
@@ -231,7 +321,10 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
   const [zoomPreview, setZoomPreview] = useState<boolean>(false);
   const [showZplPanel, setShowZplPanel] = useState<boolean>(false);
   const [copiedZpl, setCopiedZpl] = useState<boolean>(false);
+  const [copiedImageIdx, setCopiedImageIdx] = useState<number | null>(null);
+  const [copyNotification, setCopyNotification] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [isExportingWord, setIsExportingWord] = useState<boolean>(false);
   const [barcodeDensity, setBarcodeDensity] = useState<'high_contrast' | 'standard'>('high_contrast');
   const [rotate180, setRotate180] = useState<boolean>(false);
   const [verticalOffset, setVerticalOffset] = useState<number>(0); // in mm (-2 to +2)
@@ -455,7 +548,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
       @media print {
         @page {
           size: ${printMode === 'a4_grid' ? 'A4 portrait' : `${labelPageWidth} ${labelPageHeight}`};
-          margin: ${printMode === 'a4_grid' ? '8mm 6mm' : '0mm'} !important;
+          margin: 0mm !important;
         }
         * {
           box-sizing: border-box !important;
@@ -530,16 +623,16 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
             padding: 0 !important;
           }
           .label-sheet {
-            width: ${sheetWidth} !important;
-            height: ${sheetHeight} !important;
-            min-width: ${sheetWidth} !important;
-            max-width: ${sheetWidth} !important;
-            min-height: ${sheetHeight} !important;
-            max-height: ${sheetHeight} !important;
-            margin-top: ${Math.max(0, (is55x22 ? 2 : is76x51 ? 1.5 : 0.4) + verticalOffset)}mm !important;
-            margin-bottom: ${is55x22 ? '2mm' : '0mm'} !important;
-            margin-left: ${is55x22 ? '2mm' : 'auto'} !important;
-            margin-right: ${is55x22 ? '2mm' : 'auto'} !important;
+            width: ${labelPageWidth} !important;
+            height: ${labelPageHeight} !important;
+            min-width: ${labelPageWidth} !important;
+            max-width: ${labelPageWidth} !important;
+            min-height: ${labelPageHeight} !important;
+            max-height: ${labelPageHeight} !important;
+            margin: 0 !important;
+            padding: ${is55x22 ? '1mm 2.2mm' : is76x51 ? '2mm 3mm' : '0.8mm 1.5mm'} !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
             page-break-after: always !important;
             break-after: page !important;
             page-break-inside: avoid !important;
@@ -547,28 +640,29 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
-            padding: ${is76x51 ? '1.5mm 3mm' : is55x22 ? '0.3mm 0.8mm' : '0.4mm 1mm'} !important;
-            box-sizing: border-box !important;
-            overflow: hidden !important;
             background: #ffffff !important;
             border: none !important;
             ${rotate180 ? 'transform: rotate(180deg); transform-origin: center center;' : ''}
+          }
+          .label-sheet:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
         `}
         .label-header {
           display: flex !important;
           justify-content: space-between !important;
           align-items: center !important;
-          font-size: ${is76x51 ? '11px' : is55x22 ? '7.5px' : '7.2px'} !important;
+          font-size: ${is76x51 ? '11px' : is55x22 ? '7px' : '7.2px'} !important;
           font-weight: 900 !important;
           border-bottom: ${is76x51 ? '0.3mm solid #000000' : '0.2mm solid #000000'} !important;
-          padding-bottom: ${is76x51 ? '0.3mm' : '0.15mm'} !important;
+          padding-bottom: ${is76x51 ? '0.3mm' : '0.12mm'} !important;
           line-height: 1 !important;
-          height: ${is76x51 ? '4.5mm' : is55x22 ? '2.4mm' : '2.3mm'} !important;
-          margin-bottom: ${is76x51 ? '0.3mm' : '0.2mm'} !important;
+          height: ${is76x51 ? '4.5mm' : is55x22 ? '2.1mm' : '2.3mm'} !important;
+          margin-bottom: ${is76x51 ? '0.3mm' : '0.12mm'} !important;
         }
         .label-org {
-          max-width: ${is76x51 ? '45mm' : is55x22 ? '29mm' : '26mm'} !important;
+          max-width: ${is76x51 ? '45mm' : is55x22 ? '28mm' : '26mm'} !important;
           white-space: nowrap !important;
           overflow: hidden !important;
           text-overflow: ellipsis !important;
@@ -587,12 +681,12 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
           justify-content: center !important;
           margin: 0 auto !important;
           padding: 0 !important;
-          height: ${is76x51 ? '27mm' : is55x22 ? '10.8mm' : isLarge ? '11.8mm' : '10.5mm'} !important;
+          height: ${is76x51 ? '27mm' : is55x22 ? '9.8mm' : isLarge ? '11.8mm' : '10.5mm'} !important;
         }
         .barcode-img {
           display: block !important;
-          max-width: ${is76x51 ? '68mm' : is55x22 ? '48mm' : '45mm'} !important;
-          height: ${is76x51 ? '21mm' : is55x22 ? '8.6mm' : isLarge ? '9.8mm' : '8.2mm'} !important;
+          max-width: ${is76x51 ? '68mm' : is55x22 ? '46mm' : '45mm'} !important;
+          height: ${is76x51 ? '21mm' : is55x22 ? '7.5mm' : isLarge ? '9.8mm' : '8.2mm'} !important;
           margin: 0 auto !important;
           image-rendering: pixelated !important;
           image-rendering: -moz-crisp-edges !important;
@@ -600,8 +694,8 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
         }
         .barcode-wrapper svg {
           display: block !important;
-          max-width: ${is76x51 ? '68mm' : is55x22 ? '48mm' : '45mm'} !important;
-          height: ${is76x51 ? '21mm' : is55x22 ? '8.6mm' : isLarge ? '9.8mm' : '8.2mm'} !important;
+          max-width: ${is76x51 ? '68mm' : is55x22 ? '46mm' : '45mm'} !important;
+          height: ${is76x51 ? '21mm' : is55x22 ? '7.5mm' : isLarge ? '9.8mm' : '8.2mm'} !important;
           margin: 0 auto !important;
           shape-rendering: crispEdges !important;
           image-rendering: pixelated !important;
@@ -614,25 +708,25 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
         }
         .barcode-label {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-          font-size: ${is76x51 ? '11px' : is55x22 ? '7.5px' : '7px'} !important;
+          font-size: ${is76x51 ? '11px' : is55x22 ? '6.8px' : '7px'} !important;
           font-weight: 900 !important;
           letter-spacing: ${is76x51 ? '0.6px' : '0.4px'} !important;
           line-height: 1 !important;
-          margin-top: ${is76x51 ? '0.6mm' : '0.25mm'} !important;
+          margin-top: ${is76x51 ? '0.6mm' : '0.15mm'} !important;
           text-align: center !important;
         }
         .label-footer {
           display: flex !important;
           justify-content: space-between !important;
           align-items: center !important;
-          font-size: ${is76x51 ? '10px' : is55x22 ? '6.8px' : '6.4px'} !important;
+          font-size: ${is76x51 ? '10px' : is55x22 ? '6.2px' : '6.4px'} !important;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
           font-weight: 700 !important;
           border-top: ${is76x51 ? '0.3mm solid #000000' : '0.2mm solid #000000'} !important;
-          padding-top: ${is76x51 ? '0.3mm' : '0.15mm'} !important;
+          padding-top: ${is76x51 ? '0.3mm' : '0.12mm'} !important;
           line-height: 1 !important;
-          height: ${is76x51 ? '4.5mm' : is55x22 ? '2.4mm' : '2.2mm'} !important;
-          margin-top: ${is76x51 ? '0.3mm' : '0.2mm'} !important;
+          height: ${is76x51 ? '4.5mm' : is55x22 ? '2.1mm' : '2.2mm'} !important;
+          margin-top: ${is76x51 ? '0.3mm' : '0.12mm'} !important;
         }
         .label-info {
           display: flex !important;
@@ -643,11 +737,11 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
           max-width: ${is76x51 ? '50mm' : is55x22 ? '33mm' : '30mm'} !important;
         }
         .label-open {
-          font-size: ${is76x51 ? '9.5px' : '6px'} !important;
+          font-size: ${is76x51 ? '9.5px' : '5.8px'} !important;
           font-family: sans-serif !important;
           font-weight: 900 !important;
           background: #f1f5f9 !important;
-          padding: ${is76x51 ? '0.3mm 1mm' : '0.1mm 0.6mm'} !important;
+          padding: ${is76x51 ? '0.3mm 1mm' : '0.1mm 0.5mm'} !important;
           border-radius: ${is76x51 ? '0.5mm' : '0.3mm'} !important;
           white-space: nowrap !important;
         }
@@ -717,6 +811,79 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleCopyStickerImage = async (label: PrintableLabel, idx = 0) => {
+    try {
+      const blob = await renderLabelToCanvasBlob(label);
+      if (!blob) return;
+
+      if (navigator.clipboard && navigator.clipboard.write) {
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+          setCopiedImageIdx(idx);
+          setCopyNotification(`คัดลอกรูปสติกเกอร์ ${label.displayCode} แล้ว! สามารถกด Ctrl + V วางใน Word ได้ทันที`);
+          setTimeout(() => {
+            setCopiedImageIdx(null);
+            setCopyNotification(null);
+          }, 4000);
+          return;
+        } catch (e) {
+          console.warn('Clipboard writeImage failed, falling back to file download:', e);
+        }
+      }
+
+      // Fallback: download PNG file
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sticker-${label.displayCode}-55x22mm.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setCopyNotification(`ดาวน์โหลดภาพสติกเกอร์ ${label.displayCode} แล้ว นำไปวางใน Word ได้ทันที`);
+      setTimeout(() => setCopyNotification(null), 4000);
+    } catch (err) {
+      console.error('Copy sticker error:', err);
+    }
+  };
+
+  const handleDownloadStickerImage = async (label: PrintableLabel) => {
+    const blob = await renderLabelToCanvasBlob(label);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sticker-${label.displayCode}-55x22mm.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setCopyNotification(`ดาวน์โหลดรูป ${label.displayCode} เรียบร้อยแล้ว`);
+    setTimeout(() => setCopyNotification(null), 3000);
+  };
+
+  const handleExportWord = async () => {
+    if (labelsToPrint.length === 0) return;
+    setIsExportingWord(true);
+    try {
+      await exportLabelsToWordDocx(
+        labelsToPrint,
+        renderLabelToCanvasBlob,
+        `สติกเกอร์บาร์โค้ด-Word-55x22mm-${Date.now().toString().slice(-4)}.docx`
+      );
+      setCopyNotification('ดาวน์โหลดไฟล์ Word (.docx) ขนาด 5.5 x 2.2 ซม. สำเร็จแล้ว! เปิดไฟล์แล้วกดสั่งพิมพ์ใน Word ได้ทันที');
+      setTimeout(() => setCopyNotification(null), 5000);
+    } catch (err) {
+      console.error('Export Word error:', err);
+      setCopyNotification('เกิดข้อผิดพลาดในการสร้างไฟล์ Word');
+      setTimeout(() => setCopyNotification(null), 3500);
+    } finally {
+      setIsExportingWord(false);
+    }
   };
 
   const uniqueWards = Array.from(new Set(machines.map(m => m.ward).filter(Boolean)));
@@ -1297,14 +1464,15 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
               </div>
 
               {/* Crucial Browser Print Notice Banner */}
-              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl space-y-1 text-[10.5px] leading-tight text-amber-900 dark:text-amber-200">
-                <div className="font-bold flex items-center space-x-1">
-                  <span>คำแนะนำสำคัญเพื่อไม่ให้ตกขอบ:</span>
+              <div className="p-2.5 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 rounded-xl space-y-1 text-[10.5px] leading-tight text-sky-950 dark:text-sky-200">
+                <div className="font-bold flex items-center space-x-1 text-sky-900 dark:text-sky-300">
+                  <span>💡 การตั้งค่าสั่งพิมพ์ในบราวเซอร์เพื่อไม่ให้ตกขอบ:</span>
                 </div>
                 <ul className="list-disc pl-4 space-y-0.5 text-[10px]">
-                  <li><strong>ระยะขอบ (Margins):</strong> เลือก <strong>"ไม่มี" (None)</strong> เท่านั้น</li>
+                  <li><strong>ระยะขอบ (Margins):</strong> เลือก <strong>"ไม่มี" (None)</strong> เท่านั้น (ห้ามเลือกค่าเริ่มต้น)</li>
+                  <li><strong>การวางแนว (Layout):</strong> <strong>"แนวตั้ง" (Portrait)</strong> ตามที่ตั้งใน Word</li>
+                  <li><strong>มาตราส่วน (Scale):</strong> เลือก <strong>100%</strong> หรือ "พอดีกับหน้ากระดาษ"</li>
                   <li><strong>ส่วนหัวและส่วนท้าย:</strong> ติ๊กออก (Uncheck Headers & Footers)</li>
-                  <li><strong>การวางแนว (Layout):</strong> แนวนอน (Landscape)</li>
                 </ul>
               </div>
             </div>
@@ -1315,38 +1483,79 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
           <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
             
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center space-x-2">
                   <h3 className="text-xs font-black text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                    ตัวอย่างสติกเกอร์ {printMode === 'roll_76x51' ? 'แล็บ 7.62x5.08 cm' : printMode === 'roll_50x20' ? '50x20 mm' : printMode === 'roll_50x25' ? '50x25 mm' : 'A4 Grid'} ({totalStickers} ดวง)
+                    ตัวอย่างสติกเกอร์ {printMode === 'roll_55x22' ? 'สูตร Word รพ. (5.5x2.2 cm)' : printMode === 'roll_76x51' ? 'แล็บ 7.62x5.08 cm' : printMode === 'roll_50x20' ? '50x20 mm' : printMode === 'roll_50x25' ? '50x25 mm' : 'A4 Grid'} ({totalStickers} ดวง)
                   </h3>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5">
+                  {labelsToPrint.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleExportWord}
+                        disabled={isExportingWord}
+                        className="text-xs font-black text-white bg-blue-600 hover:bg-blue-700 active:scale-98 flex items-center space-x-1.5 px-3 py-1.5 rounded-xl shadow-xs cursor-pointer transition-all disabled:opacity-50"
+                        title="ดาวน์โหลดไฟล์ Microsoft Word (.docx) สำเร็จรูป ตั้งค่าหน้า 5.5 x 2.2 ซม. ขอบ 0.2 ซม. ให้เรียบร้อย สั่งพิมพ์ได้ทันที"
+                      >
+                        <FileText size={13} />
+                        <span>{isExportingWord ? 'กำลังสร้าง Word...' : 'Export เป็น Word (.docx)'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyStickerImage(labelsToPrint[0], 0)}
+                        className="text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 active:scale-98 flex items-center space-x-1 px-3 py-1.5 rounded-xl shadow-xs cursor-pointer transition-all"
+                        title="คัดลอกภาพสติกเกอร์ขนาด 5.5 x 2.2 ซม. เข้าคลิปบอร์ด เปิด Word แล้วกด Ctrl+V วางได้ทันที"
+                      >
+                        {copiedImageIdx === 0 ? <Check size={13} /> : <Copy size={13} />}
+                        <span>{copiedImageIdx === 0 ? 'คัดลอกแล้ว!' : 'คัดลอกรูป (Ctrl+V)'}</span>
+                      </button>
+                    </>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => setShowZplPanel(!showZplPanel)}
-                    className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center space-x-1 cursor-pointer bg-sky-50 dark:bg-sky-950 px-2 py-1 rounded-lg border border-sky-200 dark:border-sky-800"
+                    className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center space-x-1 cursor-pointer bg-sky-50 dark:bg-sky-950 px-2 py-1.5 rounded-xl border border-sky-200 dark:border-sky-800"
                   >
                     <FileCode size={13} />
-                    <span>คำสั่ง Zebra ZPL</span>
+                    <span>ZPL</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setZoomPreview(!zoomPreview)}
-                    className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center space-x-1 cursor-pointer"
+                    className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center space-x-1 cursor-pointer p-1.5"
                   >
                     <Maximize2 size={13} />
-                    <span>{zoomPreview ? 'ย่อ' : 'ขยาย'}</span>
                   </button>
                 </div>
               </div>
+
+              {/* Toast Notification Banner */}
+              {copyNotification && (
+                <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md flex items-center justify-between text-xs font-bold animate-fade-in">
+                  <div className="flex items-center space-x-2">
+                    <Check size={15} className="shrink-0" />
+                    <span>{copyNotification}</span>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => setCopyNotification(null)}
+                    className="text-white/80 hover:text-white p-0.5 cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
 
               {/* ZPL Code Inspector Panel */}
               {showZplPanel && (
                 <div className="p-3 bg-slate-900 text-slate-100 rounded-2xl border border-slate-700 space-y-2 animate-fade-in text-xs font-mono">
                   <div className="flex items-center justify-between pb-1 border-b border-slate-800">
-                    <span className="font-bold text-sky-400">Zebra ZPL II Code (50x20 mm, 203 DPI)</span>
+                    <span className="font-bold text-sky-400">Zebra ZPL II Code (55x22 mm, 203 DPI)</span>
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"
@@ -1377,7 +1586,7 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
 
               {/* PREVIEW CONTAINER */}
               <div 
-                className={`p-4 bg-slate-200/70 dark:bg-slate-950/70 rounded-3xl border border-slate-300 dark:border-slate-800 overflow-y-auto max-h-[460px] flex flex-wrap gap-3 items-start justify-center transition-all ${
+                className={`p-4 bg-slate-200/70 dark:bg-slate-950/70 rounded-3xl border border-slate-300 dark:border-slate-800 overflow-y-auto max-h-[460px] flex flex-wrap gap-4 items-start justify-center transition-all ${
                   zoomPreview ? 'scale-110 origin-top' : ''
                 }`}
               >
@@ -1394,60 +1603,82 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                     const cardH = is55x22 ? '22mm' : is76x51 ? '50.8mm' : is50x20 ? '20mm' : '25mm';
 
                     return (
-                      <div
-                        key={idx}
-                        style={{
-                          width: cardW,
-                          height: cardH,
-                          minWidth: cardW,
-                          maxWidth: cardW,
-                          minHeight: cardH,
-                          maxHeight: cardH,
-                          transform: rotate180 ? 'rotate(180deg)' : 'none',
-                          transition: 'transform 0.2s ease'
-                        }}
-                        className={`bg-white text-black rounded shadow-sm border border-slate-300 flex flex-col justify-between select-none overflow-hidden ${
-                          is76x51 ? 'p-2.5' : is55x22 ? 'p-1' : 'px-1.5 py-1'
-                        }`}
-                      >
-                        {/* Line 1: Header Org & Title */}
-                        <div className={`flex items-center justify-between leading-none font-black border-b border-black/25 ${
-                          is76x51 ? 'text-[11px] pb-1' : is55x22 ? 'text-[7.5px] pb-0.5' : 'text-[7.5px] pb-0.5'
-                        }`}>
-                          <span className={`truncate ${is76x51 ? 'max-w-[46mm]' : is55x22 ? 'max-w-[30mm]' : 'max-w-[27mm]'}`}>{label.header}</span>
-                          <span className={`truncate text-slate-700 font-bold ${is76x51 ? 'max-w-[24mm]' : is55x22 ? 'max-w-[21mm]' : 'max-w-[19mm]'}`}>{label.title}</span>
-                        </div>
-
-                        {/* Line 2: Barcode SVG & Display Code */}
-                        <div className="flex flex-col items-center justify-center my-auto py-0.2">
-                          <BarcodeSvg 
-                            text={label.barcode} 
-                            height={is76x51 ? 38 : is55x22 ? 24 : barcodeStyle === 'large_barcode' ? 26 : 20} 
-                            barWidth={is76x51 ? 2.2 : 2} 
-                            quietZone={is76x51 ? 16 : 14} 
-                          />
-                          <span className={`font-mono font-black tracking-wider leading-none ${
-                            is76x51 ? 'text-[11px] mt-1' : is55x22 ? 'text-[7.5px] mt-0.5' : 'text-[7.5px] mt-0.5'
+                      <div key={idx} className="flex flex-col items-center space-y-1">
+                        <div
+                          style={{
+                            width: cardW,
+                            height: cardH,
+                            minWidth: cardW,
+                            maxWidth: cardW,
+                            minHeight: cardH,
+                            maxHeight: cardH,
+                            transform: rotate180 ? 'rotate(180deg)' : 'none',
+                            transition: 'transform 0.2s ease'
+                          }}
+                          className={`bg-white text-black rounded shadow-sm border border-slate-300 flex flex-col justify-between select-none overflow-hidden ${
+                            is76x51 ? 'p-2.5' : is55x22 ? 'p-1' : 'px-1.5 py-1'
+                          }`}
+                        >
+                          {/* Line 1: Header Org & Title */}
+                          <div className={`flex items-center justify-between leading-none font-black border-b border-black/25 ${
+                            is76x51 ? 'text-[11px] pb-1' : is55x22 ? 'text-[7.5px] pb-0.5' : 'text-[7.5px] pb-0.5'
                           }`}>
-                            {label.displayCode}
-                          </span>
+                            <span className={`truncate ${is76x51 ? 'max-w-[46mm]' : is55x22 ? 'max-w-[30mm]' : 'max-w-[27mm]'}`}>{label.header}</span>
+                            <span className={`truncate text-slate-700 font-bold ${is76x51 ? 'max-w-[24mm]' : is55x22 ? 'max-w-[21mm]' : 'max-w-[19mm]'}`}>{label.title}</span>
+                          </div>
+
+                          {/* Line 2: Barcode SVG & Display Code */}
+                          <div className="flex flex-col items-center justify-center my-auto py-0.2">
+                            <BarcodeSvg 
+                              text={label.barcode} 
+                              height={is76x51 ? 38 : is55x22 ? 24 : barcodeStyle === 'large_barcode' ? 26 : 20} 
+                              barWidth={is76x51 ? 2.2 : 2} 
+                              quietZone={is76x51 ? 16 : 14} 
+                            />
+                            <span className={`font-mono font-black tracking-wider leading-none ${
+                              is76x51 ? 'text-[11px] mt-1' : is55x22 ? 'text-[7.5px] mt-0.5' : 'text-[7.5px] mt-0.5'
+                            }`}>
+                              {label.displayCode}
+                            </span>
+                          </div>
+
+                          {/* Line 3: LOT, EXP & Open Date Blank */}
+                          <div className={`leading-none font-mono font-bold flex items-center justify-between border-t border-black/25 ${
+                            is76x51 ? 'text-[10px] pt-1' : is55x22 ? 'text-[7px] pt-0.5' : 'text-[7px] pt-0.5'
+                          }`}>
+                            <div className={`flex space-x-1.5 truncate ${is76x51 ? 'max-w-[48mm]' : is55x22 ? 'max-w-[32mm]' : 'max-w-[27mm]'}`}>
+                              <span>{label.subInfo1}</span>
+                              <span>{label.subInfo2}</span>
+                            </div>
+                            {label.showOpenDateBlank && (
+                              <span className={`font-sans font-black bg-slate-100 rounded shrink-0 ${
+                                is76x51 ? 'text-[9.5px] px-1.5 py-0.5' : 'text-[6.5px] px-1'
+                              }`}>
+                                เปิด: ___/___
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Line 3: LOT, EXP & Open Date Blank */}
-                        <div className={`leading-none font-mono font-bold flex items-center justify-between border-t border-black/25 ${
-                          is76x51 ? 'text-[10px] pt-1' : is55x22 ? 'text-[7px] pt-0.5' : 'text-[7px] pt-0.5'
-                        }`}>
-                          <div className={`flex space-x-1.5 truncate ${is76x51 ? 'max-w-[48mm]' : is55x22 ? 'max-w-[32mm]' : 'max-w-[27mm]'}`}>
-                            <span>{label.subInfo1}</span>
-                            <span>{label.subInfo2}</span>
-                          </div>
-                          {label.showOpenDateBlank && (
-                            <span className={`font-sans font-black bg-slate-100 rounded shrink-0 ${
-                              is76x51 ? 'text-[9.5px] px-1.5 py-0.5' : 'text-[6.5px] px-1'
-                            }`}>
-                              เปิด: ___/___
-                            </span>
-                          )}
+                        {/* Quick card action buttons */}
+                        <div className="flex items-center space-x-1 text-[9.5px]">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyStickerImage(label, idx)}
+                            className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-200 hover:text-emerald-700 dark:hover:text-emerald-300 font-bold border border-slate-200 dark:border-slate-700 flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                            title="คัดลอกภาพสติกเกอร์ไปวางใน Word (Ctrl+V)"
+                          >
+                            {copiedImageIdx === idx ? <Check size={10} className="text-emerald-600" /> : <Copy size={10} />}
+                            <span>{copiedImageIdx === idx ? 'คัดลอกแล้ว' : 'วาง Word'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadStickerImage(label)}
+                            className="p-1 rounded-md bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer shadow-2xs"
+                            title="ดาวน์โหลดรูปสติกเกอร์ (PNG 5.5 x 2.2 ซม.)"
+                          >
+                            <Download size={10} />
+                          </button>
                         </div>
                       </div>
                     );
@@ -1478,19 +1709,45 @@ export const BarcodePrinterModal: React.FC<BarcodePrinterModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                  className="px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
                 >
-                  ปิดหน้าต่าง
+                  ปิด
                 </button>
+
+                {labelsToPrint.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleExportWord}
+                      disabled={isExportingWord}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-black flex items-center space-x-1.5 cursor-pointer shadow-md shadow-blue-600/30 transition-all disabled:opacity-50"
+                      title="ดาวน์โหลดไฟล์ Microsoft Word (.docx) สำเร็จรูป พร้อมสั่งพิมพ์ได้ทันที"
+                    >
+                      <FileText size={15} />
+                      <span>{isExportingWord ? 'กำลังสร้าง Word...' : 'Export เป็น Word (.docx)'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyStickerImage(labelsToPrint[0], 0)}
+                      className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-black flex items-center space-x-1.5 cursor-pointer shadow-md shadow-emerald-600/30 transition-all"
+                      title="คัดลอกภาพสติกเกอร์ขนาด 5.5 x 2.2 ซม. ไปวางใน Microsoft Word (Ctrl+V) ได้ทันที"
+                    >
+                      <Copy size={15} />
+                      <span>คัดลอกไปวาง Word</span>
+                    </button>
+                  </>
+                )}
+
                 <button
                   type="button"
                   onClick={handlePrint}
                   disabled={totalStickers === 0 || isPrinting}
-                  className="px-6 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 active:scale-98 text-white text-xs font-black flex items-center space-x-2 cursor-pointer shadow-lg shadow-sky-600/30 transition-all disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 active:scale-98 text-white text-xs font-black flex items-center space-x-2 cursor-pointer shadow-lg shadow-sky-600/30 transition-all disabled:opacity-50"
                   id="btn-print-barcode-50x20"
                 >
                   <Printer size={16} />
-                  <span>{isPrinting ? 'กำลังเตรียมพิมพ์...' : 'สั่งพิมพ์ทันที (Print Now)'}</span>
+                  <span>{isPrinting ? 'กำลังเตรียมพิมพ์...' : 'สั่งพิมพ์ทันที'}</span>
                 </button>
               </div>
             </div>
