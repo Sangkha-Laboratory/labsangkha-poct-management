@@ -8,21 +8,33 @@ import CustomSelect from "./CustomSelect";
 import { RepairRequest, DtxMachine } from '../types';
 import { dbService } from '../lib/supabase';
 import PrintForm from './PrintForm';
-import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck, ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Phone, Info, CheckCircle2 } from 'lucide-react';
+import { Search, Edit, FileText, Printer, Check, X, ShieldAlert, AlertCircle, Wrench, RefreshCw, UserCheck, ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Phone, Info, CheckCircle2, Trash2 } from 'lucide-react';
 import { formatToThaiDate, getThaiTodayDateOnly } from '../lib/dateUtils';
 
 interface RepairManagementProps {
   repairs: RepairRequest[];
   onUpdateRepair: (repair: RepairRequest) => void;
   onAddRepair?: (repair: RepairRequest) => Promise<any> | void;
+  onDeleteRepair?: (id: string) => void;
   machines?: DtxMachine[];
   lineNotifyToken: string;
 }
+
+export const AVAILABLE_REPAIR_ACTIONS = [
+  { id: 'change_battery', label: 'เปลี่ยนถ่าน' },
+  { id: 'clean_machine', label: 'ทำความสะอาดตัวเครื่อง/ช่องเสียบ' },
+  { id: 'calibrate_system', label: 'ปรับตั้งค่า/รีเซ็ตระบบ' },
+  { id: 'pass_iqc', label: 'ทดสอบ IQC ผ่านเกณฑ์' },
+  { id: 'return_original', label: 'ส่งคืนเครื่องเดิม' },
+  { id: 'provide_new', label: 'จ่ายเครื่องใหม่ทดแทน' },
+  { id: 'claim_vendor', label: 'ส่งเคลมบริษัท' },
+];
 
 export default function RepairManagement({
   repairs,
   onUpdateRepair,
   onAddRepair,
+  onDeleteRepair,
   machines = [],
   lineNotifyToken
 }: RepairManagementProps) {
@@ -50,16 +62,74 @@ export default function RepairManagement({
   // Selected repair for editing or printing
   const [editingRepair, setEditingRepair] = useState<RepairRequest | null>(null);
   const [printingRepair, setPrintingRepair] = useState<RepairRequest | null>(null);
+  const [batchPrintRepairs, setBatchPrintRepairs] = useState<RepairRequest[] | null>(null);
+
+  // Multi-select state for bulk actions
+  const [selectedRepairIds, setSelectedRepairIds] = useState<string[]>([]);
+
+  // Deletion & Batch Print handlers
+  const handleDeleteSingleRepair = (id: string) => {
+    if (window.confirm(`คุณต้องการลบประวัติแจ้งซ่อมรหัส "${id}" ใช่หรือไม่?`)) {
+      if (onDeleteRepair) {
+        onDeleteRepair(id);
+      } else {
+        dbService.deleteRepair(id).catch(console.error);
+      }
+      setSelectedRepairIds(prev => prev.filter(item => item !== id));
+      if (editingRepair && editingRepair.id === id) {
+        setEditingRepair(null);
+      }
+    }
+  };
+
+  const handleBulkDeleteRepairs = () => {
+    if (selectedRepairIds.length === 0) return;
+    if (window.confirm(`คุณต้องการลบรายการแจ้งซ่อมที่เลือกทั้ง ${selectedRepairIds.length} รายการใช่หรือไม่?`)) {
+      selectedRepairIds.forEach(id => {
+        if (onDeleteRepair) {
+          onDeleteRepair(id);
+        } else {
+          dbService.deleteRepair(id).catch(console.error);
+        }
+      });
+      setSelectedRepairIds([]);
+    }
+  };
+
+  const handleBatchPrintSelected = () => {
+    if (selectedRepairIds.length === 0) return;
+    const selectedList = repairs.filter(r => selectedRepairIds.includes(r.id));
+    setBatchPrintRepairs(selectedList);
+  };
 
   // Edit form states
   const [editStatus, setEditStatus] = useState<RepairRequest['status']>('pending');
+  const [editRequestDate, setEditRequestDate] = useState('');
+  const [editReporterName, setEditReporterName] = useState('');
   const [editDiagnosed, setEditDiagnosed] = useState('');
   const [editInspection, setEditInspection] = useState('');
   const [editAction, setEditAction] = useState<RepairRequest['actionTaken']>('none');
+  const [editActions, setEditActions] = useState<string[]>([]);
   const [editActionDetails, setEditActionDetails] = useState('');
   const [editOperator, setEditOperator] = useState('');
   const [editReceiver, setEditReceiver] = useState('');
+  const [editCompletionDate, setEditCompletionDate] = useState('');
   
+  // Bulk repair status update
+  const handleBulkUpdateRepairStatus = (newStatus: RepairRequest['status']) => {
+    if (selectedRepairIds.length === 0) return;
+    const targetRepairs = repairs.filter(r => selectedRepairIds.includes(r.id));
+    targetRepairs.forEach(r => {
+      const updated: RepairRequest = {
+        ...r,
+        status: newStatus,
+        ...(newStatus === 'completed' ? { completionDate: getThaiTodayDateOnly() } : {})
+      };
+      onUpdateRepair(updated);
+    });
+    setSelectedRepairIds([]);
+  };
+
   // Checklist states
   const [cleanliness, setCleanliness] = useState<'pass' | 'fail' | 'pending'>('pending');
   const [buttons, setButtons] = useState<'pass' | 'fail' | 'pending'>('pending');
@@ -87,6 +157,7 @@ export default function RepairManagement({
   const [newDiagnosedProblem, setNewDiagnosedProblem] = useState<string>('');
   const [newInspectionResult, setNewInspectionResult] = useState<string>('');
   const [newActionTaken, setNewActionTaken] = useState<RepairRequest['actionTaken']>('none');
+  const [newActionsTaken, setNewActionsTaken] = useState<string[]>([]);
   const [newActionDetails, setNewActionDetails] = useState<string>('');
   const [newOperatorName, setNewOperatorName] = useState<string>('ทนพ. สมชาย ดีเลิศ');
   const [newReceiverName, setNewReceiverName] = useState<string>('');
@@ -143,6 +214,8 @@ export default function RepairManagement({
     const newId = `REP-${Date.now().toString().slice(-4)}`;
     const isCompleted = newStatus === 'completed';
 
+    const actionTakenJoined = newActionsTaken.length > 0 ? newActionsTaken.join(',') : 'none';
+
     const newRepair: RepairRequest = {
       id: newId,
       serialNumber: finalCode.toUpperCase(),
@@ -156,7 +229,8 @@ export default function RepairManagement({
       needsBackup: newNeedsBackup,
       diagnosedProblem: newDiagnosedProblem.trim() || undefined,
       inspectionResult: newInspectionResult.trim() || undefined,
-      actionTaken: newActionTaken,
+      actionTaken: actionTakenJoined,
+      actionsTaken: newActionsTaken,
       actionDetails: newActionDetails.trim() || undefined,
       operatorName: newOperatorName.trim() || undefined,
       receiverName: newReceiverName.trim() || undefined,
@@ -193,6 +267,7 @@ export default function RepairManagement({
       setNewDiagnosedProblem('');
       setNewInspectionResult('');
       setNewActionTaken('none');
+      setNewActionsTaken([]);
       setNewActionDetails('');
       setNewReceiverName('');
     } catch (err: any) {
@@ -206,12 +281,24 @@ export default function RepairManagement({
   const startEdit = (rep: RepairRequest) => {
     setEditingRepair(rep);
     setEditStatus(rep.status);
+    setEditRequestDate(rep.requestDate || getThaiTodayDateOnly());
+    setEditReporterName(rep.reporterName || 'เจ้าหน้าที่ประจำหอผู้ป่วย');
     setEditDiagnosed(rep.diagnosedProblem || '');
     setEditInspection(rep.inspectionResult || '');
+
+    // Multi-select actions initialization
+    let initialActions: string[] = [];
+    if (rep.actionsTaken && Array.isArray(rep.actionsTaken) && rep.actionsTaken.length > 0) {
+      initialActions = rep.actionsTaken;
+    } else if (rep.actionTaken && rep.actionTaken !== 'none') {
+      initialActions = rep.actionTaken.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    setEditActions(initialActions);
     setEditAction(rep.actionTaken || 'none');
     setEditActionDetails(rep.actionDetails || '');
     setEditOperator(rep.operatorName || 'ทนพ. สมชาย ดีเลิศ');
-    setEditReceiver(rep.receiverName || rep.reporterName);
+    setEditReceiver(rep.receiverName || '');
+    setEditCompletionDate(rep.completionDate || rep.requestDate || getThaiTodayDateOnly());
 
     // Set checklists
     const c = rep.checklist;
@@ -231,17 +318,21 @@ export default function RepairManagement({
     e.preventDefault();
     if (!editingRepair) return;
 
+    const actionTakenJoined = editActions.length > 0 ? editActions.join(',') : 'none';
+
     const updated: RepairRequest = {
       ...editingRepair,
       status: editStatus,
-      requestDate: editingRepair.requestDate || getThaiTodayDateOnly(),
+      requestDate: editRequestDate || editingRepair.requestDate || getThaiTodayDateOnly(),
+      reporterName: editReporterName.trim() || editingRepair.reporterName,
       diagnosedProblem: editDiagnosed.trim(),
       inspectionResult: editInspection.trim(),
-      actionTaken: editAction,
+      actionTaken: actionTakenJoined,
+      actionsTaken: editActions,
       actionDetails: editActionDetails.trim(),
       operatorName: editOperator.trim(),
       receiverName: editReceiver.trim(),
-      completionDate: editStatus === 'completed' ? getThaiTodayDateOnly() : undefined,
+      completionDate: editStatus === 'completed' ? (editCompletionDate || getThaiTodayDateOnly()) : undefined,
       checklist: {
         cleanliness,
         buttons,
@@ -329,14 +420,32 @@ export default function RepairManagement({
             ลงข้อมูลซ่อมบำรุง บันทึกประวัติย้อนหลัง บันทึกผลวินิจฉัย และพิมพ์ส่งรายงานตามมาตรฐานกลุ่มงานเทคนิคการแพทย์
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setIsAddModalOpen(true)}
-          className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 cursor-pointer shadow-md shadow-sky-500/20 shrink-0 transition-all self-start sm:self-auto"
-        >
-          <Plus size={16} />
-          <span>+ บันทึกแจ้งซ่อม / ลงประวัติย้อนหลัง</span>
-        </button>
+        <div className="flex items-center space-x-2 shrink-0 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              if (filteredRepairs.length === 0) {
+                alert('ไม่มีรายการแจ้งซ่อมสำหรับพิมพ์');
+                return;
+              }
+              setBatchPrintRepairs(filteredRepairs);
+            }}
+            disabled={filteredRepairs.length === 0}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all disabled:opacity-50"
+            title="พิมพ์ใบรายงานการซ่อมบำรุงทุกรายการที่ผ่านการกรอง"
+          >
+            <Printer size={15} />
+            <span>พิมพ์แบบฟอร์มทั้งหมด ({filteredRepairs.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 cursor-pointer shadow-md shadow-sky-500/20 transition-all"
+          >
+            <Plus size={16} />
+            <span>+ บันทึกแจ้งซ่อม / ลงประวัติย้อนหลัง</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -381,11 +490,77 @@ export default function RepairManagement({
         </div>
       </div>
 
+      {/* Bulk Action Floating Bar when items selected */}
+      {selectedRepairIds.length > 0 && (
+        <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xl flex flex-wrap items-center justify-between gap-3 text-xs animate-fade-in">
+          <div className="flex items-center space-x-2 font-bold">
+            <span className="bg-sky-500 text-slate-950 px-2.5 py-0.5 rounded-full font-black text-[11px]">
+              เลือกแล้ว {selectedRepairIds.length} รายการ
+            </span>
+            <span className="text-slate-300">ดำเนินการ:</span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleBatchPrintSelected}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer transition-colors shadow-2xs flex items-center space-x-1"
+            >
+              <Printer size={13} />
+              <span>พิมพ์ใบซ่อมที่เลือก ({selectedRepairIds.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkUpdateRepairStatus('repairing')}
+              className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold cursor-pointer transition-colors shadow-2xs"
+            >
+              เปลี่ยนเป็น "กำลังตรวจซ่อม"
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkUpdateRepairStatus('completed')}
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer transition-colors shadow-2xs"
+            >
+              เปลี่ยนเป็น "เสร็จสิ้น/ส่งคืน"
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDeleteRepairs}
+              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer transition-colors shadow-2xs flex items-center space-x-1"
+            >
+              <Trash2 size={13} />
+              <span>ลบที่เลือก ({selectedRepairIds.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedRepairIds([])}
+              className="px-2.5 py-1.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-white font-bold cursor-pointer"
+            >
+              ยกเลิกการเลือก
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Repair List Table */}
       <div className="overflow-x-auto border border-slate-200/90 rounded-2xl bg-white shadow-2xs" id="repairs-table-container">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
             <tr className="bg-white text-slate-700 font-bold border-b border-slate-200">
+              <th className="p-4 w-10 text-center">
+                <input
+                  type="checkbox"
+                  checked={paginatedRepairs.length > 0 && selectedRepairIds.length === paginatedRepairs.length}
+                  onChange={() => {
+                    if (selectedRepairIds.length === paginatedRepairs.length) {
+                      setSelectedRepairIds([]);
+                    } else {
+                      setSelectedRepairIds(paginatedRepairs.map(r => r.id));
+                    }
+                  }}
+                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                />
+              </th>
               <th className="p-4">เลขแจ้งซ่อม</th>
               <th className="p-4">รหัสเครื่อง DTX</th>
               <th className="p-4">หน่วยงานที่ส่ง</th>
@@ -398,51 +573,77 @@ export default function RepairManagement({
           <tbody className="divide-y divide-slate-100">
             {paginatedRepairs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center p-8 text-slate-400">
+                <td colSpan={8} className="text-center p-8 text-slate-400">
                   ยังไม่มีข้อมูลประวัติการแจ้งซ่อมบำรุง
                 </td>
               </tr>
             ) : (
-              paginatedRepairs.map((rep) => (
-                <tr key={rep.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="p-4 font-bold text-slate-800">{rep.id}</td>
-                  <td className="p-4 font-bold text-sky-600 font-mono">{rep.serialNumber}</td>
-                  <td className="p-4 text-slate-700 font-semibold">
-                    <div>{rep.ward}</div>
-                    {rep.needsBackup && (
-                      <span className="inline-block mt-1 px-1.5 py-0.5 rounded-sm text-[10px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
-                        ต้องการเครื่องสำรอง
-                      </span>
-                    )}
-                  </td>
-                  <td className="p-4 text-slate-600 font-medium max-w-xs truncate" title={rep.reportedProblem}>
-                    {rep.reportedProblem}
-                  </td>
-                  <td className="p-4 text-slate-500">{formatToThaiDate(rep.requestDate)}</td>
-                  <td className="p-4">{getStatusBadge(rep.status)}</td>
-                  <td className="p-4">
-                    <div className="flex items-center justify-center space-x-2">
-                      <button
-                        onClick={() => startEdit(rep)}
-                        className="p-1.5 hover:bg-sky-50 text-sky-600 rounded-lg hover:text-sky-500 transition-colors font-bold text-[11px] flex items-center space-x-1"
-                        title="กรอกข้อมูลวิเคราะห์/ซ่อม"
-                      >
-                        <Edit size={13} />
-                        <span>ลงข้อมูลซ่อม</span>
-                      </button>
+              paginatedRepairs.map((rep) => {
+                const isSelected = selectedRepairIds.includes(rep.id);
+                return (
+                  <tr key={rep.id} className={`hover:bg-slate-50/50 transition-colors ${isSelected ? 'bg-sky-50/50' : ''}`}>
+                    <td className="p-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {
+                          if (isSelected) {
+                            setSelectedRepairIds(selectedRepairIds.filter(i => i !== rep.id));
+                          } else {
+                            setSelectedRepairIds([...selectedRepairIds, rep.id]);
+                          }
+                        }}
+                        className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
+                      />
+                    </td>
+                    <td className="p-4 font-bold text-slate-800">{rep.id}</td>
+                    <td className="p-4 font-bold text-sky-600 font-mono">{rep.serialNumber}</td>
+                    <td className="p-4 text-slate-700 font-semibold">
+                      <div>{rep.ward}</div>
+                      {rep.needsBackup && (
+                        <span className="inline-block mt-1 px-1.5 py-0.5 rounded-sm text-[10px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
+                          ต้องการเครื่องสำรอง
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-slate-600 font-medium max-w-xs truncate" title={rep.reportedProblem}>
+                      {rep.reportedProblem}
+                    </td>
+                    <td className="p-4 text-slate-500">{formatToThaiDate(rep.requestDate)}</td>
+                    <td className="p-4">{getStatusBadge(rep.status)}</td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <button
+                          onClick={() => startEdit(rep)}
+                          className="p-1.5 hover:bg-sky-50 text-sky-600 rounded-lg hover:text-sky-500 transition-colors font-bold text-[11px] flex items-center space-x-1 cursor-pointer"
+                          title="กรอกข้อมูลวิเคราะห์/ซ่อม"
+                        >
+                          <Edit size={13} />
+                          <span>ลงข้อมูลซ่อม</span>
+                        </button>
 
-                      <button
-                        onClick={() => setPrintingRepair(rep)}
-                        className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg hover:text-emerald-500 transition-colors font-bold text-[11px] flex items-center space-x-1"
-                        title="เปิดฟอร์มพิมพ์รายงานการซ่อมบำรุง"
-                      >
-                        <Printer size={13} />
-                        <span>ปริ้นฟอร์ม</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                        <button
+                          onClick={() => setPrintingRepair(rep)}
+                          className="p-1.5 hover:bg-emerald-50 text-emerald-600 rounded-lg hover:text-emerald-500 transition-colors font-bold text-[11px] flex items-center space-x-1 cursor-pointer"
+                          title="เปิดฟอร์มพิมพ์รายงานการซ่อมบำรุง"
+                        >
+                          <Printer size={13} />
+                          <span>ปริ้นฟอร์ม</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteSingleRepair(rep.id)}
+                          className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg hover:text-rose-500 transition-colors font-bold text-[11px] flex items-center space-x-1 cursor-pointer"
+                          title="ลบประวัติแจ้งซ่อมนี้"
+                        >
+                          <Trash2 size={13} />
+                          <span>ลบ</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -557,121 +758,103 @@ export default function RepairManagement({
                 )}
               </div>
 
-              {/* Checklist Section Grid */}
+              {/* Editable Dates & Reporter Name Block */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-sky-50/60 p-3.5 rounded-xl border border-sky-100">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center space-x-1">
+                    <Calendar size={13} className="text-sky-600" />
+                    <span>วันที่รับเรื่อง / วันที่ตรวจวินิจฉัย * (แก้ไขได้)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={editRequestDate}
+                    onChange={(e) => setEditRequestDate(e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-900"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center space-x-1">
+                    <User size={13} className="text-sky-600" />
+                    <span>ชื่อผู้แจ้งซ่อม (หอผู้ป่วย)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editReporterName}
+                    onChange={(e) => setEditReporterName(e.target.value)}
+                    placeholder="เช่น พยาบาลประจำหอผู้ป่วย..."
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold text-slate-900"
+                  />
+                </div>
+              </div>
+
+              {/* Checklist Section Table */}
               <div className="space-y-3">
-                <h4 className="font-bold text-slate-800 text-xs border-b border-slate-100 pb-1 flex items-center">
-                  <UserCheck size={14} className="mr-1 text-sky-600" />
-                  <span>เช็คลิสต์ตรวจเช็คตามใบฟอร์มมาตรฐาน</span>
+                <h4 className="font-bold text-slate-800 text-xs border-b border-slate-100 pb-1.5 flex items-center justify-between">
+                  <span className="flex items-center space-x-1.5">
+                    <UserCheck size={15} className="text-sky-600" />
+                    <span>เช็คลิสต์ตรวจเช็คตามใบฟอร์มมาตรฐาน</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">เลือกผลการตรวจในแต่ละรายการ</span>
                 </h4>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2.5 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                  {/* Cleanliness */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-700">1.1. ความสะอาดวัสดุตัวเครื่อง</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setCleanliness(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${cleanliness === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'ไม่ผ่าน' : 'ยังไม่ระบุ'}
-                        </button>
+                <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold text-[11px]">
+                        <th className="py-2.5 px-3 w-14 text-center border-r border-slate-200">ข้อ</th>
+                        <th className="py-2.5 px-3 border-r border-slate-200">รายการตรวจเช็คตามมาตรฐาน</th>
+                        <th className="py-2.5 px-3 text-center w-60">ผลการตรวจเช็ค</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200/80">
+                      {[
+                        { id: 'cleanliness', num: '1.1', label: 'วัสดุตัวเครื่องและความสะอาด', val: cleanliness, set: setCleanliness },
+                        { id: 'buttons', num: '1.2', label: 'ปุ่มเปิด/ปิด และปุ่มกด', val: buttons, set: setButtons },
+                        { id: 'stripSlot', num: '1.3', label: 'ช่องเสียบแถบตรวจ Strip', val: stripSlot, set: setStripSlot },
+                        { id: 'batterySlot', num: '1.4', label: 'ช่องใส่ถ่าน/ฝาปิด', val: batterySlot, set: setBatterySlot },
+                        { id: 'battery', num: '2.0', label: 'ถ่าน / พลังงาน (Battery)', val: battery, set: setBattery },
+                        { id: 'screen', num: '3.0', label: 'การแสดงผลหน้าจอ (Screen)', val: screen, set: setScreen },
+                        { id: 'measurement', num: '4.0', label: 'การตรวจวัดค่าและผลค่าตรวจ (Glucose)', val: measurement, set: setMeasurement },
+                        { id: 'iqc', num: '5.0', label: 'การทดสอบ IQC 3 Level ผ่านเกณฑ์', val: iqc, set: setIqc },
+                        { id: 'intercomparison', num: '6.0', label: 'Intercomparison ผ่านเกณฑ์', val: intercomparison, set: setIntercomparison },
+                      ].map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-2 px-3 text-center font-mono font-bold text-slate-500 border-r border-slate-200">{item.num}</td>
+                          <td className="py-2 px-3 font-medium text-slate-800 border-r border-slate-200">{item.label}</td>
+                          <td className="py-1.5 px-3 text-center">
+                            <div className="inline-flex bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                              {(['pass', 'fail', 'pending'] as const).map((opt) => {
+                                let activeStyle = '';
+                                let optLabel = '';
+                                if (opt === 'pass') {
+                                  optLabel = 'ผ่าน';
+                                  activeStyle = item.val === 'pass' ? 'bg-emerald-600 text-white shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900';
+                                } else if (opt === 'fail') {
+                                  optLabel = 'ไม่ผ่าน';
+                                  activeStyle = item.val === 'fail' ? 'bg-rose-600 text-white shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900';
+                                } else {
+                                  optLabel = 'ยังไม่ระบุ';
+                                  activeStyle = item.val === 'pending' ? 'bg-slate-500 text-white shadow-2xs font-extrabold' : 'text-slate-600 hover:text-slate-900';
+                                }
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => item.set(opt)}
+                                    className={`px-2.5 py-1 text-[11px] rounded-md transition-all cursor-pointer ${activeStyle}`}
+                                  >
+                                    {optLabel}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Buttons */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-700">1.2. ปุ่มเปิด/ปิด และปุ่มกด</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setButtons(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${buttons === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'ไม่ผ่าน' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Strip slot */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-700">1.3. ช่องเสียบแถบตรวจ Strip</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setStripSlot(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${stripSlot === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'ไม่ผ่าน' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Battery slot */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-700">1.4. ช่องใส่ถ่าน/ฝาปิด</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setBatterySlot(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${batterySlot === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'ไม่ผ่าน' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Battery */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">2. ถ่าน / พลังงาน</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setBattery(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${battery === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ดี/เปลี่ยนแล้ว' : opt === 'fail' ? 'หมด/เสื่อม' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Screen */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">3. หน้าจอแสดงผล</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setScreen(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${screen === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'ไม่ผ่าน' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Measurement */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">4. ผลค่าตรวจวัด (Glucose)</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setMeasurement(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${measurement === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ปกติ' : opt === 'fail' ? 'คลาดเคลื่อน' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* IQC */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">5. การทดสอบ IQC 3 Level</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setIqc(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${iqc === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'หลุดเกณฑ์' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Intercomparison */}
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800">6. Intercomparison</span>
-                    <div className="flex bg-white rounded-lg p-0.5 border border-slate-200">
-                      {(['pass', 'fail', 'pending'] as const).map(opt => (
-                        <button key={opt} type="button" onClick={() => setIntercomparison(opt)} className={`px-2 py-1 text-[10px] font-bold rounded ${intercomparison === opt ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-500'}`}>
-                          {opt === 'pass' ? 'ผ่าน' : opt === 'fail' ? 'ไม่ผ่าน' : 'ยังไม่ระบุ'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -728,23 +911,49 @@ export default function RepairManagement({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                {/* Action Taken */}
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-700">สรุปการดำเนินการ *</label>
-                  <CustomSelect
-                    value={editAction}
-                    onChange={(e) => setEditAction(e.target.value as any)}
-                    className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
-                    required
-                  >
-                    <option value="none">-- เลือกมาตรการ --</option>
-                    <option value="change_battery">เปลี่ยนถ่าน (Change Battery)</option>
-                    <option value="return_original">คืนเครื่องเดิม (Return Device)</option>
-                    <option value="provide_new">จ่ายเครื่องใหม่ทดแทน (Provide New)</option>
-                  </CustomSelect>
+              {/* Action Taken Multi-Select Section */}
+              <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <CheckCircle2 size={15} className="text-sky-600" />
+                    <span>สรุปการดำเนินการ (เลือกได้มากกว่า 1) *</span>
+                  </label>
+                  <span className="text-[10px] text-slate-500">เลือกทุกมาตรการที่ปฏิบัติจริง</span>
                 </div>
 
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {AVAILABLE_REPAIR_ACTIONS.map((act) => {
+                    const isSelected = editActions.includes(act.id);
+                    return (
+                      <button
+                        key={act.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setEditActions(editActions.filter(a => a !== act.id));
+                          } else {
+                            setEditActions([...editActions, act.id]);
+                          }
+                        }}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold border text-left flex items-center space-x-2 transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300 hover:bg-sky-50/50'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected ? 'bg-white border-white text-sky-600' : 'border-slate-300 bg-white'
+                        }`}>
+                          {isSelected && <Check size={12} strokeWidth={3} />}
+                        </div>
+                        <span className="truncate">{act.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-2xs">
                 {/* Repair Status */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-700">อัปเดตสถานะงานแจ้งซ่อม *</label>
@@ -774,23 +983,58 @@ export default function RepairManagement({
                     required
                   />
                 </div>
+
+                {/* Receiver Staff */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">ชื่อผู้รับมอบเครื่องคืน</label>
+                  <input
+                    type="text"
+                    placeholder="เช่น พยาบาลประจำหอผู้ป่วย"
+                    value={editReceiver}
+                    onChange={(e) => setEditReceiver(e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
+                  />
+                </div>
+
+                {/* Completion Date */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-700">วันที่ซ่อมเสร็จ / ส่งคืน *</label>
+                  <input
+                    type="date"
+                    value={editCompletionDate}
+                    onChange={(e) => setEditCompletionDate(e.target.value)}
+                    className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold"
+                    required
+                  />
+                </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end space-x-2">
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => setEditingRepair(null)}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-lg"
+                  onClick={() => handleDeleteSingleRepair(editingRepair.id)}
+                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-3.5 py-2.5 rounded-lg flex items-center space-x-1 text-xs cursor-pointer transition-colors"
                 >
-                  ยกเลิก
+                  <Trash2 size={14} />
+                  <span>ลบรายการนี้</span>
                 </button>
-                <button
-                  type="submit"
-                  className="bg-sky-600 hover:bg-sky-500 text-white font-bold px-5 py-2.5 rounded-lg flex items-center space-x-1"
-                >
-                  <Check size={14} />
-                  <span>บันทึกและส่งรายงานซ่อม</span>
-                </button>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingRepair(null)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-lg cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-sky-600 hover:bg-sky-500 text-white font-bold px-5 py-2.5 rounded-lg flex items-center space-x-1 cursor-pointer shadow-md shadow-sky-500/20"
+                  >
+                    <Check size={14} />
+                    <span>บันทึกและส่งรายงานซ่อม</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1251,18 +1495,41 @@ export default function RepairManagement({
                         required
                       />
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-700">การดำเนินการตรวจซ่อม *</label>
-                      <CustomSelect
-                        value={newActionTaken}
-                        onChange={(e) => setNewActionTaken(e.target.value as any)}
-                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-bold"
-                      >
-                        <option value="return_original">ส่งคืนเครื่องเดิม (ซ่อมบำรุงเรียบร้อย)</option>
-                        <option value="change_battery">เปลี่ยนแบตเตอรี่ใหม่</option>
-                        <option value="provide_new">เปลี่ยนเครื่องใหม่ทดแทน</option>
-                        <option value="none">อื่นๆ / ตรวจเช็คสอบเทียบผ่าน</option>
-                      </CustomSelect>
+                    <div className="space-y-1.5 col-span-full">
+                      <label className="text-[10px] font-bold text-slate-700 flex items-center justify-between">
+                        <span>สรุปการดำเนินการตรวจซ่อม (เลือกได้มากกว่า 1)</span>
+                        <span className="text-[9px] text-slate-500 font-normal">คลิกเลือกมาตรการ</span>
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+                        {AVAILABLE_REPAIR_ACTIONS.map((act) => {
+                          const isSelected = newActionsTaken.includes(act.id);
+                          return (
+                            <button
+                              key={act.id}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setNewActionsTaken(newActionsTaken.filter(a => a !== act.id));
+                                } else {
+                                  setNewActionsTaken([...newActionsTaken, act.id]);
+                                }
+                              }}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border text-left flex items-center space-x-1.5 transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-sky-50/60'
+                              }`}
+                            >
+                              <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                                isSelected ? 'bg-white border-white text-sky-600' : 'border-slate-300 bg-white'
+                              }`}>
+                                {isSelected && <Check size={10} strokeWidth={3} />}
+                              </div>
+                              <span className="truncate">{act.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -1347,10 +1614,14 @@ export default function RepairManagement({
       )}
 
       {/* Render Print Preview overlay if requested */}
-      {printingRepair && (
+      {(printingRepair || batchPrintRepairs) && (
         <PrintForm
-          repair={printingRepair}
-          onClose={() => setPrintingRepair(null)}
+          repair={printingRepair || undefined}
+          repairs={batchPrintRepairs || undefined}
+          onClose={() => {
+            setPrintingRepair(null);
+            setBatchPrintRepairs(null);
+          }}
         />
       )}
     </div>

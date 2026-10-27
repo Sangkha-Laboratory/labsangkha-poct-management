@@ -312,9 +312,46 @@ export default function QCManagement({
       .catch(err => console.error("Failed to fetch wards:", err));
   }, []);
 
+  // Reagent Strip Stock items source of truth
+  const [stockItems, setStockItems] = useState<StripReagentItem[]>([]);
+  const [isLoadingStock, setIsLoadingStock] = useState<boolean>(false);
+
+  const loadStockItems = async () => {
+    setIsLoadingStock(true);
+    try {
+      const items = await dbService.getStripReagentItems();
+      if (Array.isArray(items)) {
+        setStockItems(items);
+      }
+    } catch (err) {
+      console.warn('Failed to load strip stock items in QCManagement:', err);
+    } finally {
+      setIsLoadingStock(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStockItems();
+  }, []);
+
+  // Filter lotConfigs to ensure only Strip LOT configs (excluding control solution bottles)
+  const validStripLotConfigs = useMemo(() => {
+    return lotConfigs.filter(cfg => {
+      if (!cfg || !cfg.lotNumber) return false;
+      const key = cfg.lotNumber.trim().toUpperCase();
+      if (cfg.barcode?.startsWith('QC-')) return false;
+      if (stockItems.length > 0) {
+        const isBottleOnly = stockItems.some(i => i.lotNumber?.trim().toUpperCase() === key && i.itemType === 'control_solution') &&
+          !stockItems.some(i => i.lotNumber?.trim().toUpperCase() === key && i.itemType === 'strip');
+        if (isBottleOnly) return false;
+      }
+      return true;
+    });
+  }, [lotConfigs, stockItems]);
+
   // Sort lotConfigs so latest lot (by expDate / lotNumber) is always at the top
   const sortedLotConfigs = useMemo(() => {
-    return [...lotConfigs].sort((a, b) => {
+    return [...validStripLotConfigs].sort((a, b) => {
       if (a.expDate && b.expDate) {
         return new Date(b.expDate).getTime() - new Date(a.expDate).getTime();
       }
@@ -322,7 +359,7 @@ export default function QCManagement({
       if (b.expDate) return 1;
       return b.lotNumber.localeCompare(a.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [lotConfigs]);
+  }, [validStripLotConfigs]);
 
   // Quick QC Entry Form States
   const [operator, setOperator] = useState<string>(() => localStorage.getItem('dtx_qc_operator') || '');
@@ -467,29 +504,7 @@ export default function QCManagement({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(10);
 
-  // Reagent Strip Stock items source of truth
-  const [stockItems, setStockItems] = useState<StripReagentItem[]>([]);
-  const [isLoadingStock, setIsLoadingStock] = useState<boolean>(false);
-
-  const loadStockItems = async () => {
-    setIsLoadingStock(true);
-    try {
-      const items = await dbService.getStripReagentItems();
-      if (Array.isArray(items)) {
-        setStockItems(items);
-      }
-    } catch (err) {
-      console.warn('Failed to load strip stock items in QCManagement:', err);
-    } finally {
-      setIsLoadingStock(false);
-    }
-  };
-
-  useEffect(() => {
-    loadStockItems();
-  }, []);
-
-  // Unique LOTs grouped from Reagent Strip Stock
+  // Unique LOTs grouped from Reagent Strip Stock (STRIP ONLY - QC range is configured for strips only)
   const stockLots = useMemo(() => {
     const map = new Map<string, {
       lotNumber: string;
@@ -504,13 +519,15 @@ export default function QCManagement({
     }>();
 
     stockItems.forEach(item => {
+      // Exclude bottles / control solution / batteries - QC range is configured for strips only
+      if (item.itemType !== 'strip') return;
       const lot = item.lotNumber?.trim();
       if (!lot) return;
       const key = lot.toUpperCase();
       const existing = map.get(key) || {
         lotNumber: lot,
         manufacturer: item.manufacturer || 'VivaChek Fad',
-        itemType: item.itemType || 'strip',
+        itemType: 'strip',
         receivedDate: item.receivedDate,
         expDate: item.expDate,
         totalBoxes: 0,
@@ -530,7 +547,7 @@ export default function QCManagement({
     return Array.from(map.values());
   }, [stockItems]);
 
-  // Unified LOT list combining Reagent Strip Stock LOTs with QC Target Range configs
+  // Unified LOT list combining Reagent Strip Stock LOTs with QC Target Range configs (Strip only)
   const unifiedLotList = useMemo(() => {
     const map = new Map<string, {
       lotNumber: string;
@@ -551,13 +568,13 @@ export default function QCManagement({
       isConfigured: boolean;
     }>();
 
-    // 1. First add all LOTs physically present in Reagent Strip Stock
+    // 1. First add all strip LOTs physically present in Reagent Strip Stock
     stockLots.forEach(s => {
       const key = s.lotNumber.trim().toUpperCase();
       map.set(key, {
         lotNumber: s.lotNumber.trim(),
         manufacturer: s.manufacturer,
-        itemType: s.itemType,
+        itemType: 'strip',
         expDate: s.expDate,
         receivedDate: s.receivedDate,
         stockInfo: {
@@ -570,8 +587,8 @@ export default function QCManagement({
       });
     });
 
-    // 2. Attach or merge existing QC Target Range configurations
-    lotConfigs.forEach(cfg => {
+    // 2. Attach or merge existing valid strip QC Target Range configurations
+    validStripLotConfigs.forEach(cfg => {
       if (!cfg || !cfg.lotNumber) return;
       const key = cfg.lotNumber.trim().toUpperCase();
       const existing = map.get(key);
@@ -586,6 +603,7 @@ export default function QCManagement({
         map.set(key, {
           lotNumber: cfg.lotNumber.trim(),
           manufacturer: cfg.manufacturer || 'VivaChek Fad',
+          itemType: 'strip',
           expDate: cfg.expDate,
           openDate: cfg.openDate,
           openExpDays: cfg.openExpDays,
@@ -597,7 +615,7 @@ export default function QCManagement({
     });
 
     return Array.from(map.values());
-  }, [stockLots, lotConfigs]);
+  }, [stockLots, validStripLotConfigs]);
 
   // Lot Config editing
   const [editingLotIdx, setEditingLotIdx] = useState<number | null>(null);
@@ -609,10 +627,10 @@ export default function QCManagement({
   const [pendingExpiredRecord, setPendingExpiredRecord] = useState<QcRecord | null>(null);
   const [pendingExpiredLotInfo, setPendingExpiredLotInfo] = useState<LotExpInfo | null>(null);
 
-  // Calculate LOT Expiration details across all configs
+  // Calculate LOT Expiration details across all valid strip configs
   const allLotExpInfoList = useMemo(() => {
-    return lotConfigs.map(calculateLotExpInfo);
-  }, [lotConfigs]);
+    return validStripLotConfigs.map(calculateLotExpInfo);
+  }, [validStripLotConfigs]);
 
   // Expiring soon or expired lots
   const expiringOrExpiredLots = useMemo(() => {
@@ -642,7 +660,7 @@ export default function QCManagement({
   const [batchScope, setBatchScope] = useState<'all' | 'lab' | 'ward'>('all');
   const [batchWardFilter, setBatchWardFilter] = useState<string>('');
   const [batchLot, setBatchLot] = useState<string>(() => {
-    const list = [...lotConfigs].sort((a, b) => {
+    const list = [...validStripLotConfigs].sort((a, b) => {
       if (a.expDate && b.expDate) return new Date(b.expDate).getTime() - new Date(a.expDate).getTime();
       if (a.expDate) return -1;
       if (b.expDate) return 1;
@@ -1861,7 +1879,7 @@ export default function QCManagement({
                   onClick={() => setCaViewMode("edit")}
                   className="px-4 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-extrabold text-xs cursor-pointer transition-all flex items-center space-x-1.5"
                 >
-                  <span>️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
+                  <span> ปรับปรุงแก้ไขบันทึก (Edit)</span>
                 </button>
                 <button
                   type="button"
@@ -2110,7 +2128,7 @@ export default function QCManagement({
             <option value="chart"> กราฟเดี่ยว LJ</option>
             <option value="comparison"> เปรียบเทียบกลุ่ม (Peer)</option>
             <option value="table"> ประวัติผลตรวจ</option>
-            <option value="config">️ ตั้งค่า LOT</option>
+            <option value="config"> ตั้งค่า LOT</option>
           </select>
         </div>
 
@@ -2275,7 +2293,7 @@ export default function QCManagement({
               <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs flex items-start gap-2.5 text-amber-900">
                 <Clock size={16} className="text-amber-600 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
-                  <strong className="block font-bold">️ แจ้งเตือน: Control {selectedLot} ใกล้หมดอายุ</strong>
+                  <strong className="block font-bold"> แจ้งเตือน: Control {selectedLot} ใกล้หมดอายุ</strong>
                   <p className="text-[11px] text-amber-700">
                     จะหมดอายุในอีก {selectedLotExpInfo.daysRemaining} วัน (วันที่ {selectedLotExpInfo.effectiveExpDate}) กรุณาเตรียมเบิกขวด LOT ใหม่
                   </p>
@@ -2399,18 +2417,18 @@ export default function QCManagement({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="font-bold text-slate-700">3. ชุดน้ำยา (Control LOT) *</label>
+                    <label className="font-bold text-slate-700">3. LOT แถบตรวจ (Strip LOT) *</label>
                     <CustomSelect
                       value={selectedLot}
                       onChange={(e) => setSelectedLot(e.target.value)}
                       className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-bold text-slate-800"
                       required
                     >
-                      {lotConfigs.map((cfg, idx) => {
+                      {sortedLotConfigs.map((cfg, idx) => {
                         const exp = calculateLotExpInfo(cfg);
                         return (
                           <option key={idx} value={cfg.lotNumber}>
-                            {cfg.lotNumber} {exp.status === 'expired' ? '( หมดอายุ)' : exp.status === 'critical' || exp.status === 'warning' ? `(️ เหลือ ${exp.daysRemaining} วัน)` : ''}
+                            {cfg.lotNumber} (Strip) {exp.status === 'expired' ? '(หมดอายุ)' : exp.status === 'critical' || exp.status === 'warning' ? `(เหลือ ${exp.daysRemaining} วัน)` : ''}
                           </option>
                         );
                       })}
@@ -2688,14 +2706,14 @@ export default function QCManagement({
 
                 {/* LOT */}
                 <div className="flex items-center space-x-1.5">
-                  <span className="text-slate-500 font-medium">Control LOT:</span>
+                  <span className="text-slate-500 font-medium">LOT แถบตรวจ:</span>
                   <CustomSelect
                     value={batchLot}
                     onChange={(e) => setBatchLot(e.target.value)}
-                    className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-bold min-w-[130px]"
+                    className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-bold min-w-[140px]"
                   >
-                    {lotConfigs.map((cfg, idx) => (
-                      <option key={idx} value={cfg.lotNumber}>{cfg.lotNumber}</option>
+                    {sortedLotConfigs.map((cfg, idx) => (
+                      <option key={idx} value={cfg.lotNumber}>{cfg.lotNumber} (Strip)</option>
                     ))}
                   </CustomSelect>
                 </div>
@@ -2928,7 +2946,7 @@ export default function QCManagement({
                       >
                         <option value="all">ทุกสถานะ</option>
                         <option value="in_control"> In Control</option>
-                        <option value="out_control">️ Out Control</option>
+                        <option value="out_control"> Out Control</option>
                       </select>
                     </td>
                   </tr>
@@ -3860,8 +3878,8 @@ export default function QCManagement({
                       className="text-xs p-1.5 rounded-lg border border-slate-200 bg-slate-50 font-semibold min-w-[120px]"
                     >
                       <option value="">-- ทุก LOT --</option>
-                      {lotConfigs.map((c, idx) => (
-                        <option key={idx} value={c.lotNumber}>{c.lotNumber}</option>
+                      {sortedLotConfigs.map((c, idx) => (
+                        <option key={idx} value={c.lotNumber}>{c.lotNumber} (Strip)</option>
                       ))}
                     </CustomSelect>
                   </div>
@@ -4108,10 +4126,10 @@ export default function QCManagement({
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm sm:text-base font-extrabold text-slate-800 flex items-center gap-2">
                   <PackageCheck size={18} className="text-sky-600" />
-                  <span>Setting Range by LOT (ตั้งค่าช่วงค่ามาตรฐานตาม LOT แถบตรวจในคลัง)</span>
+                  <span>Setting Range by LOT (ตั้งค่าช่วงค่ามาตรฐานตาม LOT แถบตรวจ Strip)</span>
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
-                  {stockLots.length} LOTs ในคลังพัสดุ
+                  {stockLots.length} LOTs แถบตรวจในคลัง
                 </span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                   {unifiedLotList.filter(l => l.isConfigured).length} ตั้งค่าแล้ว
@@ -4123,7 +4141,7 @@ export default function QCManagement({
                 )}
               </div>
               <p className="text-xs text-slate-500">
-                นำข้อมูล LOT จากกล่องแถบตรวจในคลังพัสดุ (Reagent Strip Stock) มากำหนดค่า Target, S.D., และ Min/Max (mg/dL) เพื่อใช้ประเมินผล IQC ประจำวัน
+                ช่วงค่าเป้าหมาย QC (L1, L2, L3) กำหนดจากฉลากข้างกล่องแถบตรวจ (Test Strip) โดยตรง ไม่ใช่อ้างอิงจากขวดน้ำยา
               </p>
             </div>
 
@@ -4146,7 +4164,7 @@ export default function QCManagement({
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-md hover:shadow-lg transition-all"
                 >
                   <Plus size={15} />
-                  <span>เพิ่ม LOT / ตั้งค่า Target ใหม่</span>
+                  <span>เพิ่ม LOT แถบตรวจ / ตั้งค่า Target ใหม่</span>
                 </button>
               )}
             </div>
@@ -4177,7 +4195,7 @@ export default function QCManagement({
                   }}
                   className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3.5 py-1.5 rounded-xl shrink-0 cursor-pointer shadow-2xs"
                 >
-                  ️ ตั้งค่า LOT แรกที่รอดำเนินการ
+                   ตั้งค่า LOT แรกที่รอดำเนินการ
                 </button>
               )}
             </div>
@@ -4223,8 +4241,8 @@ export default function QCManagement({
                     <div className="flex items-start justify-between border-b border-slate-100 pb-3">
                       <div className="space-y-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                            {item.itemType === 'control_solution' ? 'Control Solution' : 'Test Strip LOT'}
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 uppercase tracking-wider">
+                            แถบตรวจ (Test Strip LOT)
                           </span>
                           <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded">
                             {item.manufacturer || 'VivaChek Fad'}
@@ -4298,7 +4316,7 @@ export default function QCManagement({
                           <strong className="text-slate-800 font-mono">{item.expDate || '-'}</strong>
                         </div>
                         <div>
-                          <span className="text-slate-400 block text-[10px]">วันเปิดขวด (อายุ {cfg?.openExpDays || 90} วัน)</span>
+                          <span className="text-slate-400 block text-[10px]">วันเปิดใช้งาน (อายุ {cfg?.openExpDays || 90} วัน)</span>
                           <strong className="text-slate-800 font-mono">{cfg?.openDate || 'ยังไม่เปิด'}</strong>
                         </div>
                       </div>
@@ -4380,10 +4398,10 @@ export default function QCManagement({
                     </div>
                     <div>
                       <h3 className="text-sm sm:text-base font-extrabold leading-tight">
-                        {editedLot.lotNumber ? `ตั้งค่าช่วงมาตรฐาน LOT ${editedLot.lotNumber}` : 'เพิ่ม LOT ควบคุมคุณภาพ & Strip ใหม่'}
+                        {editedLot.lotNumber ? `ตั้งค่าช่วงมาตรฐาน LOT แถบตรวจ ${editedLot.lotNumber}` : 'เพิ่ม LOT แถบตรวจ & กำหนดค่าเป้าหมายใหม่'}
                       </h3>
                       <p className="text-[11px] sm:text-xs text-emerald-100 font-medium">
-                        กำหนดเลข LOT, วันหมดอายุ (EXP), และช่วงค่าควบคุม (Range Control L1, L2, L3)
+                        กำหนดเลข LOT แถบตรวจ (Strip), วันหมดอายุ (EXP), และช่วงค่าควบคุมมาตรฐาน (Range Control L1, L2, L3) ตามฉลากข้างกล่องแถบตรวจ
                       </p>
                     </div>
                   </div>
@@ -4416,7 +4434,7 @@ export default function QCManagement({
                       <div className="flex items-center justify-between">
                         <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
                           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          <span>1. ข้อมูลทั่วไปของ LOT (Basic Details)</span>
+                          <span>1. ข้อมูลทั่วไปของ LOT แถบตรวจ (Strip LOT Details)</span>
                         </h4>
                         {stockLots.length > 0 && (
                           <span className="text-[10px] text-slate-400 font-medium">
@@ -4466,7 +4484,7 @@ export default function QCManagement({
                           <datalist id="admin-stock-lots-datalist">
                             {stockLots.map((sl, i) => (
                               <option key={i} value={sl.lotNumber}>
-                                {sl.lotNumber} ({sl.itemType === 'control_solution' ? 'น้ำยา QC' : 'Strip'}) {sl.expDate ? `EXP: ${sl.expDate}` : ''}
+                                {sl.lotNumber} (แถบตรวจ / Strip) {sl.expDate ? `EXP: ${sl.expDate}` : ''}
                               </option>
                             ))}
                           </datalist>
@@ -4505,7 +4523,7 @@ export default function QCManagement({
                       <div className="flex items-center justify-between">
                         <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
                           <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          <span>2. ช่วงค่าควบคุมมาตรฐาน (Standard Range Control)</span>
+                          <span>2. ช่วงค่าควบคุมมาตรฐานตามฉลากแถบตรวจ (Standard Range Control from Strip Label)</span>
                         </h4>
                         <span className="text-[10px] text-slate-400 font-medium">หน่วย: mg/dL</span>
                       </div>
@@ -4704,7 +4722,7 @@ export default function QCManagement({
                         ) : (
                           <>
                             <Check size={15} />
-                            <span>บันทึก LOT ใหม่</span>
+                            <span>บันทึก LOT แถบตรวจ</span>
                           </>
                         )}
                       </button>
@@ -4719,7 +4737,7 @@ export default function QCManagement({
         </div>
       )}
 
-      {/* Modal: Alert when performing QC with EXPIRED control */}
+      {/* Modal: Alert when performing QC with EXPIRED strip */}
       {showExpiredPromptDialog && pendingExpiredRecord && pendingExpiredLotInfo && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-rose-200 text-xs">
@@ -4734,10 +4752,10 @@ export default function QCManagement({
                   Critical Warning
                 </span>
                 <h3 className="text-base font-black text-slate-900">
-                  ตรวจพบการทำ QC ด้วยน้ำยาที่หมดอายุ!
+                  ตรวจพบการทำ QC ด้วยแถบตรวจที่หมดอายุ!
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  น้ำยา Control LOT นี้หมดอายุการใช้งานแล้ว ผลการตรวจอาจคลาดเคลื่อน
+                  แถบตรวจ (Strip) LOT นี้หมดอายุการใช้งานแล้ว ผลการตรวจอาจคลาดเคลื่อน
                 </p>
               </div>
             </div>
@@ -4746,7 +4764,7 @@ export default function QCManagement({
             <div className="p-4 bg-rose-50/80 rounded-2xl border border-rose-200 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-extrabold text-rose-950">
-                  ชุดน้ำยา: LOT {pendingExpiredRecord.lotNumber}
+                  LOT แถบตรวจ: LOT {pendingExpiredRecord.lotNumber}
                 </span>
                 <span className="px-2 py-0.5 rounded-md bg-rose-200 text-rose-900 text-[10px] font-black">
                   {pendingExpiredLotInfo.statusText}
@@ -4789,7 +4807,7 @@ export default function QCManagement({
             <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] flex items-start space-x-2">
               <Info size={16} className="shrink-0 text-amber-600 mt-0.5" />
               <p>
-                <strong>คำแนะนำมาตรฐาน:</strong> ควรยกเลิกและนำน้ำยา Control ขวดใหม่มาตรวจซ้ำ เพื่อให้มั่นใจในความถูกต้องของผลตรวจตามมาตรฐานห้องปฏิบัติการ
+                <strong>คำแนะนำมาตรฐาน:</strong> ควรยกเลิกและนำแถบตรวจ (Strip) กล่องใหม่มาตรวจซ้ำ เพื่อให้มั่นใจในความถูกต้องของผลตรวจตามมาตรฐานห้องปฏิบัติการ
               </p>
             </div>
 
@@ -4804,7 +4822,7 @@ export default function QCManagement({
                 }}
                 className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs cursor-pointer transition-all"
               >
-                 ยกเลิก (เพื่อเปลี่ยนขวดน้ำยาใหม่)
+                 ยกเลิก (เพื่อเปลี่ยนแถบตรวจกล่องใหม่)
               </button>
 
               <button

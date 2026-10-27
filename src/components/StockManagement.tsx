@@ -5,15 +5,17 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import CustomSelect from "./CustomSelect";
-import { DtxMachine, MachineLocationLog } from '../types';
+import { DtxMachine, UnopenedMachine, MachineLocationLog } from '../types';
 import { dbService, generateUUID } from '../lib/supabase';
 import { getThaiTodayDateOnly, formatThaiDateOnly } from '../lib/dateUtils';
+import { BarcodePrinterModal } from './BarcodePrinterModal';
 import { 
   Search, Plus, Edit2, Trash2, X, RefreshCw, Layers, CheckCircle, 
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight,
   Upload, Download, FileSpreadsheet, FileDown, AlertTriangle, 
   AlertCircle, CheckCircle2, Loader2, Sparkles, History, ArrowRightLeft,
-  Calendar, User, ArrowRight, Clock, Building2, Check, ArrowRightCircle
+  Calendar, User, ArrowRight, Clock, Building2, Check, ArrowRightCircle,
+  Box, Zap, Database, Smartphone, Printer, FileText
 } from 'lucide-react';
 
 interface StockManagementProps {
@@ -22,6 +24,7 @@ interface StockManagementProps {
   onUpdateMachine: (machine: DtxMachine) => void;
   onDeleteMachine: (id: string) => void;
   onBulkAddMachines?: (machines: DtxMachine[], overwrite?: boolean) => Promise<{ success: number; failed: number }>;
+  filterInStockOnly?: boolean;
 }
 
 interface ParsedMachineRow {
@@ -35,17 +38,58 @@ interface ParsedMachineRow {
   duplicateMatchReason?: string;
 }
 
+const UNOPENED_MACHINES_SQL = `-- 1. สร้าง Schema dtx_system
+CREATE SCHEMA IF NOT EXISTS dtx_system;
+
+-- 2. สร้างตารางกายภาพ dtx_system.unopened_machines
+CREATE TABLE IF NOT EXISTS dtx_system.unopened_machines (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    serial_number VARCHAR(150) UNIQUE NOT NULL,
+    machine_serial VARCHAR(150),
+    lot_number VARCHAR(100) NOT NULL,
+    brand VARCHAR(150) DEFAULT 'VivaChek',
+    model VARCHAR(100) DEFAULT 'Fad',
+    receive_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    rec_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(50) DEFAULT 'standby' NOT NULL,
+    ward VARCHAR(150) DEFAULT 'คลังแล็บ/สำรอง (In Stock)',
+    bgm_code VARCHAR(100),
+    remark TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+-- 3. เปิดใช้งาน RLS และกำหนด Policy
+ALTER TABLE dtx_system.unopened_machines ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "unopened_machines_all_policy" ON dtx_system.unopened_machines;
+CREATE POLICY "unopened_machines_all_policy" ON dtx_system.unopened_machines 
+FOR ALL TO anon, authenticated, service_role, postgres USING (true) WITH CHECK (true);
+
+-- 4. สร้าง View ใน Schema public พร้อม prefix dtx_
+CREATE OR REPLACE VIEW public.dtx_unopened_machines AS 
+SELECT * FROM dtx_system.unopened_machines;
+
+-- 5. กำหนดสิทธิ์การเข้าถึง
+GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
+GRANT ALL ON TABLE dtx_system.unopened_machines TO anon, authenticated, service_role, postgres;
+GRANT ALL ON TABLE public.dtx_unopened_machines TO anon, authenticated, service_role, postgres;
+
+NOTIFY pgrst, 'reload schema';`;
+
 export default function StockManagement({ 
+
   machines, 
   onAddMachine, 
   onUpdateMachine, 
   onDeleteMachine,
-  onBulkAddMachines 
+  onBulkAddMachines,
+  filterInStockOnly = false
 }: StockManagementProps) {
+  const [showOnlyInStock, setShowOnlyInStock] = useState<boolean>(filterInStockOnly);
   const [searchTerm, setSearchTerm] = useState(() => localStorage.getItem("dtx_stock_search") || "");
   const [filterWard, setFilterWard] = useState(() => localStorage.getItem("dtx_stock_filter_ward") || "");
   const [filterStatus, setFilterStatus] = useState(() => localStorage.getItem("dtx_stock_filter_status") || "");
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);
+  const [isBarcodePrinterOpen, setIsBarcodePrinterOpen] = useState(false);
 
   // Pagination State (Persisted on refresh)
   const [currentPage, setCurrentPage] = useState(() => {
@@ -91,6 +135,277 @@ export default function StockManagement({
       .then(setWards)
       .catch(err => console.error('Failed to fetch wards:', err));
   }, []);
+
+  // View mode: Active machines in-service vs Unopened machines in lab storage
+  const [activeView, setActiveView] = useState<'active_machines' | 'unopened_stock'>('active_machines');
+
+  // Unopened Machines States & Data
+  const [unopenedMachines, setUnopenedMachines] = useState<UnopenedMachine[]>([]);
+  const [isLoadingUnopened, setIsLoadingUnopened] = useState(false);
+  const [unopenedSearch, setUnopenedSearch] = useState('');
+  const [unopenedLotFilter, setUnopenedLotFilter] = useState('all');
+  const [unopenedBrandFilter, setUnopenedBrandFilter] = useState('all');
+
+  // Universal In-App Confirmation Modal Dialog (Fixes iframe sandbox blocking window.confirm)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmText?: string;
+    isLoading?: boolean;
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    confirmText: 'ยืนยัน',
+    onConfirm: () => {}
+  });
+
+  // Modals for Unopened DTX Machines:
+  // 1. Add New DTX Machines (single or bulk S/N)
+  const [isOpenAddUnopenedModal, setIsOpenAddUnopenedModal] = useState(false);
+  const [addUnopenedForm, setAddUnopenedForm] = useState({
+    serialNumbers: '',
+    lotNumber: '',
+    brand: 'VivaChek',
+    model: 'Fad',
+    receiveDate: getThaiTodayDateOnly(),
+    remark: ''
+  });
+
+  // 2. Deploy / Commission machine to Ward with automatic BGM-XXX run
+  const [commissioningMachine, setCommissioningMachine] = useState<UnopenedMachine | null>(null);
+  const [commissionForm, setCommissionForm] = useState({
+    bgmCode: '',
+    targetWard: '',
+    status: 'active' as 'active' | 'backup',
+    operatorName: 'เจ้าหน้าที่ห้องแล็บ',
+    deployDate: getThaiTodayDateOnly(),
+    notes: ''
+  });
+
+  // 3. Edit unopened machine
+  const [editingUnopenedMachine, setEditingUnopenedMachine] = useState<UnopenedMachine | null>(null);
+
+  // 4. SQL Setup Modal
+  const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
+
+  // Load Unopened Machines
+  const loadUnopenedMachines = async () => {
+    setIsLoadingUnopened(true);
+    try {
+      const list = await dbService.getUnopenedMachines();
+      setUnopenedMachines(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.warn('Failed to load unopened machines:', err);
+      setUnopenedMachines([]);
+    } finally {
+      setIsLoadingUnopened(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUnopenedMachines();
+  }, []);
+
+  // Automatic BGM code runner: Finds highest BGM-XXX and suggests next BGM-XXX (e.g. BGM-001, BGM-045 -> BGM-046)
+  const suggestNextBgmCode = () => {
+    let maxNum = 0;
+    machines.forEach(m => {
+      const code = (m.serialNumber || '').trim();
+      const match = code.match(/^BGM-(\d+)$/i);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (!isNaN(n) && n > maxNum) {
+          maxNum = n;
+        }
+      }
+    });
+    const nextNum = maxNum + 1;
+    return `BGM-${String(nextNum).padStart(3, '0')}`;
+  };
+
+  const openCommissionModal = (machine: UnopenedMachine) => {
+    setCommissioningMachine(machine);
+    setCommissionForm({
+      bgmCode: suggestNextBgmCode(),
+      targetWard: wards[0]?.thai_name || 'งานชันสูตรสาธารณสุข',
+      status: 'active',
+      operatorName: 'เจ้าหน้าที่ห้องแล็บ',
+      deployDate: getThaiTodayDateOnly(),
+      notes: ''
+    });
+  };
+
+  const handleCommissionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commissioningMachine) return;
+    const cleanCode = commissionForm.bgmCode.trim().toUpperCase();
+    if (!cleanCode || cleanCode === '-') {
+      alert('กรุณาระบุรหัสประจำเครื่อง (CODE BGM)');
+      return;
+    }
+    if (!commissionForm.targetWard) {
+      alert('กรุณาเลือกหอผู้ป่วย / หน่วยงาน (Ward) ที่จะส่งมอบเครื่อง');
+      return;
+    }
+
+    const isDuplicate = machines.some(m =>
+      m.serialNumber && m.serialNumber.trim().toUpperCase() === cleanCode && cleanCode !== '-'
+    );
+    if (isDuplicate) {
+      alert(`รหัสประจำเครื่อง ${cleanCode} ซ้ำกับเครื่องอื่นในระบบ กรุณาใช้รหัสอื่น`);
+      return;
+    }
+
+    const newMachine: DtxMachine = {
+      id: generateUUID(),
+      serialNumber: cleanCode, // CODE BGM-XXX ออกโดยแลป
+      machineSerial: commissioningMachine.serialNumber, // Factory manufacturer S/N
+      brand: commissioningMachine.brand || 'VivaChek',
+      model: commissioningMachine.model || 'Fad',
+      ward: commissionForm.targetWard,
+      status: commissionForm.status,
+      receiveDate: commissioningMachine.receiveDate || getThaiTodayDateOnly(),
+      lotNumber: commissioningMachine.lotNumber || '',
+      remark: commissioningMachine.remark ? `${commissioningMachine.remark} [เปิดใช้: ${commissionForm.notes || 'ส่งมอบ'}]` : (commissionForm.notes || undefined),
+      locationHistory: [
+        {
+          id: `loc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          date: commissionForm.deployDate || getThaiTodayDateOnly(),
+          actionType: 'initial_deploy',
+          fromWard: 'คลังแล็บ/สำรอง (Unopened Machine Stock)',
+          toWard: commissionForm.targetWard,
+          operator: commissionForm.operatorName.trim() || 'เจ้าหน้าที่ห้องแล็บ',
+          reason: `เปิดใช้งานประจำการและส่งมอบเครื่อง ออกรหัส ${cleanCode} ${commissionForm.notes ? `(${commissionForm.notes})` : ''}`
+        }
+      ]
+    };
+
+    try {
+      await dbService.commissionUnopenedMachine(commissioningMachine.id, newMachine);
+      onAddMachine(newMachine);
+      setUnopenedMachines(prev => prev.filter(m => m.id !== commissioningMachine.id));
+      setImportResultToast(`เปิดใช้งานเครื่อง ${cleanCode} (S/N: ${commissioningMachine.serialNumber}) ส่งมอบ ${commissionForm.targetWard} สำเร็จ`);
+      setCommissioningMachine(null);
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาดในการเปิดใช้งานเครื่อง: ${err?.message || err}`);
+    }
+  };
+
+  const handleAddUnopenedSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const rawSns = addUnopenedForm.serialNumbers
+      .split(/[\n,;]+/)
+      .map(s => s.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (rawSns.length === 0) {
+      alert('กรุณาระบุ Serial Number ประจำเครื่องอย่างน้อย 1 รายการ');
+      return;
+    }
+    if (!addUnopenedForm.lotNumber.trim()) {
+      alert('กรุณาระบุ LOT ของเครื่อง');
+      return;
+    }
+
+    const itemsToInsert: UnopenedMachine[] = rawSns.map(sn => ({
+      id: generateUUID(),
+      serialNumber: sn,
+      brand: addUnopenedForm.brand.trim() || 'VivaChek',
+      model: addUnopenedForm.model.trim() || 'Fad',
+      lotNumber: addUnopenedForm.lotNumber.trim().toUpperCase(),
+      receiveDate: addUnopenedForm.receiveDate || getThaiTodayDateOnly(),
+      remark: addUnopenedForm.remark.trim() || undefined
+    }));
+
+    try {
+      const res = await dbService.insertBulkUnopenedMachines(itemsToInsert);
+      await loadUnopenedMachines();
+      setImportResultToast(`รับเข้าเครื่อง DTX ใหม่จำนวน ${res.success} เครื่อง เรียบร้อยแล้ว`);
+      setIsOpenAddUnopenedModal(false);
+      setAddUnopenedForm({
+        serialNumbers: '',
+        brand: 'VivaChek',
+        model: 'Fad',
+        lotNumber: '',
+        receiveDate: getThaiTodayDateOnly(),
+        remark: ''
+      });
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาด: ${err?.message || err}`);
+    }
+  };
+
+  const handleDeleteUnopenedMachine = (m: UnopenedMachine) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันลบเครื่องรอเปิดใช้งาน',
+      description: `ยืนยันลบเครื่อง S/N: ${m.serialNumber} (LOT: ${m.lotNumber}) ออกจากคลังเครื่องรอเปิดใช้งานใช่หรือไม่?`,
+      confirmText: 'ยืนยันลบเครื่อง',
+      onConfirm: async () => {
+        try {
+          setConfirmDialog(prev => ({ ...prev, isLoading: true }));
+          await dbService.deleteUnopenedMachine(m.id);
+          setUnopenedMachines(prev => prev.filter(x => x.id !== m.id));
+          setImportResultToast(`ลบเครื่อง S/N: ${m.serialNumber} เรียบร้อยแล้ว`);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err: any) {
+          alert(`เกิดข้อผิดพลาด: ${err?.message || err}`);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        }
+      }
+    });
+  };
+
+  const handleSaveEditUnopened = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUnopenedMachine) return;
+    try {
+      await dbService.updateUnopenedMachine(editingUnopenedMachine.id, editingUnopenedMachine);
+      setUnopenedMachines(prev => prev.map(m => m.id === editingUnopenedMachine.id ? editingUnopenedMachine : m));
+      setImportResultToast(`แก้ไขข้อมูลเครื่อง S/N: ${editingUnopenedMachine.serialNumber} เรียบร้อยแล้ว`);
+      setEditingUnopenedMachine(null);
+    } catch (err: any) {
+      alert(`เกิดข้อผิดพลาด: ${err?.message || err}`);
+    }
+  };
+
+  // Distinct Lots for Unopened Machines
+  const distinctUnopenedLots = React.useMemo(() => {
+    const lots = new Set<string>();
+    unopenedMachines.forEach(m => {
+      if (m.lotNumber && m.lotNumber.trim()) lots.add(m.lotNumber.trim().toUpperCase());
+    });
+    return Array.from(lots);
+  }, [unopenedMachines]);
+
+  // Distinct Brands for Unopened Machines
+  const distinctUnopenedBrands = React.useMemo(() => {
+    const brands = new Set<string>();
+    unopenedMachines.forEach(m => {
+      if (m.brand && m.brand.trim()) brands.add(m.brand.trim());
+    });
+    return Array.from(brands);
+  }, [unopenedMachines]);
+
+  // Filtered Unopened Machines (Search by S/N, LOT, Brand)
+  const filteredUnopenedMachines = React.useMemo(() => {
+    return unopenedMachines.filter(m => {
+      const q = unopenedSearch.trim().toUpperCase();
+      const snStr = (m.serialNumber || '').toUpperCase();
+      const lotStr = (m.lotNumber || '').toUpperCase();
+      const brandStr = (m.brand || '').toUpperCase();
+      const modelStr = (m.model || '').toUpperCase();
+
+      const textMatch = !q || snStr.includes(q) || lotStr.includes(q) || brandStr.includes(q) || modelStr.includes(q);
+      const lotMatch = unopenedLotFilter === 'all' || lotStr === unopenedLotFilter.toUpperCase();
+      const brandMatch = unopenedBrandFilter === 'all' || (m.brand || '').trim() === unopenedBrandFilter.trim();
+
+      return textMatch && lotMatch && brandMatch;
+    });
+  }, [unopenedMachines, unopenedSearch, unopenedLotFilter, unopenedBrandFilter]);
 
   // Compute deduplicated machines list (unique by serialNumber/CODE and id)
   const deduplicatedMachines = React.useMemo(() => {
@@ -160,6 +475,7 @@ export default function StockManagement({
   const [isCustomLot, setIsCustomLot] = useState(false);
   const [customLot, setCustomLot] = useState('');
   const [remark, setRemark] = useState('');
+  const [isStockOnly, setIsStockOnly] = useState(true);
 
   // =========================================================================
   // Location History & Transfer States
@@ -167,6 +483,7 @@ export default function StockManagement({
   const [selectedMachineForHistory, setSelectedMachineForHistory] = useState<DtxMachine | null>(null);
   const [isOpenHistoryModal, setIsOpenHistoryModal] = useState(false);
   const [transferToWard, setTransferToWard] = useState('');
+  const [transferBgmCode, setTransferBgmCode] = useState('');
   const [transferActionType, setTransferActionType] = useState<MachineLocationLog['actionType']>('transfer');
   const [transferReason, setTransferReason] = useState('');
   const [transferOperator, setTransferOperator] = useState('');
@@ -191,15 +508,17 @@ export default function StockManagement({
   const [importResultToast, setImportResultToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check if current typed CODE is duplicate
+  // Check if current typed CODE is duplicate (ignoring hyphens / unassigned)
   const trimmedCode = serialNumber.trim().toUpperCase();
-  const isCodeDuplicate = !!trimmedCode && deduplicatedMachines.some(m =>
-    m.serialNumber.trim().toUpperCase() === trimmedCode &&
-    (modalMode === 'add' || (m.id !== currentMachineId && m.serialNumber.trim().toUpperCase() !== trimmedCode))
+  const isCodeDuplicate = !!trimmedCode && trimmedCode !== '-' && deduplicatedMachines.some(m =>
+    m.serialNumber && m.serialNumber.trim().toUpperCase() === trimmedCode &&
+    trimmedCode !== '-' &&
+    (modalMode === 'add' || m.id !== currentMachineId)
   );
 
   const openAddModal = () => {
     setModalMode('add');
+    setIsStockOnly(true);
     setSerialNumber('');
     setMachineSerial('');
     if (distinctBrands.length > 0) {
@@ -211,9 +530,9 @@ export default function StockManagement({
       setIsCustomBrand(true);
       setCustomBrand('');
     }
-    setModel('');
-    setWard('');
-    setStatus('active');
+    setModel('Fad');
+    setWard('คลังแล็บ/สำรอง (In Stock)');
+    setStatus('standby');
     setReceiveDate(getThaiTodayDateOnly());
     if (distinctLots.length > 0) {
       setLotNumber(distinctLots[0]);
@@ -231,8 +550,11 @@ export default function StockManagement({
   const openEditModal = (machine: DtxMachine) => {
     setModalMode('edit');
     setCurrentMachineId(machine.id);
-    setSerialNumber(machine.serialNumber || '');
+    setSerialNumber(machine.serialNumber && machine.serialNumber !== '-' ? machine.serialNumber : '');
     setMachineSerial(machine.machineSerial || '');
+
+    const isStockMachine = !machine.ward || machine.ward === 'คลังแล็บ/สำรอง (In Stock)' || !machine.serialNumber || machine.serialNumber === '-';
+    setIsStockOnly(isStockMachine);
 
     const cleanedBrand = machine.brand ? machine.brand.replace(/\(หลัก\)/g, '').trim() : '';
     if (cleanedBrand && distinctBrands.includes(cleanedBrand)) {
@@ -246,8 +568,8 @@ export default function StockManagement({
     }
 
     setModel(machine.model || '');
-    setWard(machine.ward || '');
-    setStatus(machine.status || 'active');
+    setWard(machine.ward || (isStockMachine ? 'คลังแล็บ/สำรอง (In Stock)' : ''));
+    setStatus(machine.status || (isStockMachine ? 'standby' : 'active'));
     setReceiveDate(machine.receiveDate || '');
 
     if (machine.lotNumber && distinctLots.includes(machine.lotNumber)) {
@@ -269,20 +591,22 @@ export default function StockManagement({
 
     const finalBrand = (isCustomBrand ? customBrand.trim() : brand).trim();
     const finalLot = (isCustomLot ? customLot.trim() : lotNumber).trim();
-    const finalWard = ward.trim() || 'ไม่ระบุหน่วยงาน';
+    const isUnassigned = isStockOnly || ward === 'คลังแล็บ/สำรอง (In Stock)' || !ward.trim();
+    const finalWard = isUnassigned ? 'คลังแล็บ/สำรอง (In Stock)' : ward.trim();
+    const finalCode = isUnassigned && (!serialNumber.trim() || serialNumber.trim() === '-') ? '-' : serialNumber.trim().toUpperCase();
     const finalSerial = machineSerial.trim().toUpperCase() || '-';
 
-    if (!serialNumber.trim()) {
-      alert('กรุณาระบุรหัสเครื่อง (CODE)');
+    if (!isUnassigned && (finalCode === '-' || !finalCode)) {
+      alert('กรุณาระบุรหัสเครื่อง (CODE BGM) สำหรับเครื่องที่เบิกจ่ายประจำการแล้ว');
       return;
     }
 
-    if (isCodeDuplicate) {
-      alert(`ข้อผิดพลาด: รหัสเครื่อง (CODE) "${trimmedCode}" ซ้ำกับเครื่องอื่นในคลัง! กรุณาตรวจสอบรหัสเครื่องใหม่อีกครั้ง`);
+    if (finalCode !== '-' && isCodeDuplicate) {
+      alert(`ข้อผิดพลาด: รหัสเครื่อง (CODE) "${finalCode}" ซ้ำกับเครื่องอื่นในคลัง! กรุณาตรวจสอบรหัสเครื่องใหม่อีกครั้ง`);
       return;
     }
 
-    const existingMachine = deduplicatedMachines.find(m => m.id === currentMachineId || m.serialNumber === serialNumber.trim().toUpperCase());
+    const existingMachine = deduplicatedMachines.find(m => m.id === currentMachineId || (finalCode !== '-' && m.serialNumber === finalCode));
     let history: MachineLocationLog[] = existingMachine?.locationHistory ? [...existingMachine.locationHistory] : [];
 
     // If editing and the ward was changed, automatically append an edit/transfer log
@@ -300,12 +624,12 @@ export default function StockManagement({
 
     const machineData: DtxMachine = {
       id: modalMode === 'add' ? generateUUID() : currentMachineId,
-      serialNumber: serialNumber.trim().toUpperCase(),
+      serialNumber: finalCode,
       machineSerial: finalSerial,
       brand: finalBrand,
       model: model.trim(),
       ward: finalWard,
-      status: status || 'active',
+      status: isUnassigned ? 'standby' : (status || 'active'),
       receiveDate: receiveDate || getThaiTodayDateOnly(),
       lotNumber: finalLot,
       remark: remark.trim(),
@@ -360,13 +684,19 @@ export default function StockManagement({
       return;
     }
 
+    const isUnassignedStock = !selectedMachineForHistory.serialNumber || selectedMachineForHistory.serialNumber === '-';
+    if (isUnassignedStock && transferToWard !== 'คลังแล็บ/สำรอง (In Stock)' && !transferBgmCode.trim()) {
+      alert('กรุณาระบุรหัสเครื่อง (CODE BGM) ใหม่สำหรับการเบิกจ่ายเครื่องออกประจำการ');
+      return;
+    }
+
     setIsSavingTransfer(true);
     try {
       const nowStr = new Date().toISOString().replace('T', ' ').substring(0, 16);
       const newLog: MachineLocationLog = {
         id: `LOG-${Date.now()}`,
         date: transferDate ? `${transferDate} ${nowStr.split(' ')[1] || '12:00'}` : nowStr,
-        fromWard: selectedMachineForHistory.ward || 'ไม่ระบุ',
+        fromWard: selectedMachineForHistory.ward || 'คลังแล็บ/สำรอง (In Stock)',
         toWard: transferToWard,
         actionType: transferActionType,
         reason: transferReason.trim() || (transferActionType === 'return_to_lab' ? 'ส่งคืนแลปเพื่อสำรอง' : 'โอนย้ายสถานที่ติดตั้ง'),
@@ -376,8 +706,13 @@ export default function StockManagement({
       const existingLogs = selectedMachineForHistory.locationHistory || [];
       const updatedHistory = [newLog, ...existingLogs];
 
+      const assignedCode = isUnassignedStock && transferBgmCode.trim() 
+        ? transferBgmCode.trim().toUpperCase() 
+        : selectedMachineForHistory.serialNumber;
+
       const updatedMachine: DtxMachine = {
         ...selectedMachineForHistory,
+        serialNumber: assignedCode,
         ward: transferToWard,
         status: transferStatus,
         locationHistory: updatedHistory,
@@ -389,7 +724,8 @@ export default function StockManagement({
       await onUpdateMachine(updatedMachine);
       setSelectedMachineForHistory(updatedMachine);
       setTransferReason('');
-      alert(`บันทึกประวัติการย้ายเครื่อง ${selectedMachineForHistory.serialNumber} ไปยัง "${transferToWard}" เรียบร้อยแล้ว`);
+      setTransferBgmCode('');
+      alert(`บันทึกประวัติการย้ายเครื่อง ${assignedCode} ไปยัง "${transferToWard}" เรียบร้อยแล้ว`);
     } catch (err: any) {
       console.error(err);
       alert(`เกิดข้อผิดพลาดในการบันทึก: ${err.message}`);
@@ -420,9 +756,21 @@ export default function StockManagement({
   };
 
   const handleDelete = (id: string, serial: string) => {
-    if (confirm(`คุณแน่ใจหรือไม่ที่จะลบเครื่อง DTX รหัส ${serial} ออกจากระบบ?`)) {
-      onDeleteMachine(id);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันลบเครื่องตรวจ DTX',
+      description: `คุณแน่ใจหรือไม่ที่จะลบเครื่อง DTX รหัส "${serial}" ออกจากระบบ? ข้อมูลจะถูกลบออกจากฐานข้อมูลถาวร`,
+      confirmText: 'ยืนยันลบเครื่อง',
+      onConfirm: async () => {
+        try {
+          setConfirmDialog(prev => ({ ...prev, isLoading: true }));
+          await onDeleteMachine(id);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        } catch (err: any) {
+          setConfirmDialog(prev => ({ ...prev, isOpen: false, isLoading: false }));
+        }
+      }
+    });
   };
 
   // =========================================================================
@@ -878,6 +1226,10 @@ export default function StockManagement({
 
   // Filtered machines - always based on deduplicated data
   const filteredMachines = deduplicatedMachines.filter(m => {
+    const isUnassignedStock = !m.ward || m.ward === 'คลังแล็บ/สำรอง (In Stock)' || !m.serialNumber || m.serialNumber === '-';
+    if (showOnlyInStock && !isUnassignedStock) {
+      return false;
+    }
     const matchesSearch = m.serialNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (m.machineSerial && m.machineSerial.toLowerCase().includes(searchTerm.toLowerCase())) ||
                           m.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -968,53 +1320,89 @@ export default function StockManagement({
         </div>
         
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {/* Refresh Button */}
-          <button
-            onClick={handleRefreshStock}
-            disabled={isRefreshing}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer disabled:opacity-50"
-            title="รีเฟรชข้อมูลคลังเครื่อง"
-          >
-            <RefreshCw size={14} className={`text-slate-500 ${isRefreshing ? "animate-spin" : ""}`} />
-            <span>รีเฟรช</span>
-          </button>
-          {/* CSV Export Button */}
-          <button
-            onClick={handleExportCSV}
-            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer"
-            title="ส่งออกรายการเครื่อง DTX เป็นไฟล์ CSV"
-            id="export-csv-btn"
-          >
-            <Download size={14} className="text-slate-500" />
-            <span>ส่งออก CSV</span>
-          </button>
+          {activeView === 'active_machines' ? (
+            <>
+              {/* Refresh Button */}
+              <button
+                type="button"
+                onClick={handleRefreshStock}
+                disabled={isRefreshing}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer disabled:opacity-50"
+                title="รีเฟรชข้อมูลคลังเครื่อง"
+              >
+                <RefreshCw size={14} className={`text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span>รีเฟรช</span>
+              </button>
 
-          {/* CSV Import Button */}
-          <button
-            onClick={() => {
-              setParsedRows([]);
-              setCsvFile(null);
-              setCsvFileName('');
-              setCsvParseError(null);
-              setIsOpenCsvModal(true);
-            }}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-emerald-600/10 cursor-pointer"
-            title="นำเข้าไฟล์ CSV เพิ่มเครื่อง DTX จำนวนมาก"
-            id="import-csv-btn"
-          >
-            <Upload size={14} />
-            <span>นำเข้าไฟล์ CSV</span>
-          </button>
 
-          {/* Add Single Machine Button */}
-          <button
-            onClick={openAddModal}
-            className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-sky-600/10 cursor-pointer"
-            id="add-machine-btn"
-          >
-            <Plus size={14} />
-            <span>เพิ่มเครื่อง DTX ใหม่</span>
-          </button>
+              {/* CSV Export Button */}
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer"
+                title="ส่งออกรายการเครื่อง DTX เป็นไฟล์ CSV"
+                id="export-csv-btn"
+              >
+                <Download size={14} className="text-slate-500" />
+                <span>ส่งออก CSV</span>
+              </button>
+
+              {/* CSV Import Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setParsedRows([]);
+                  setCsvFile(null);
+                  setCsvFileName('');
+                  setCsvParseError(null);
+                  setIsOpenCsvModal(true);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-emerald-600/10 cursor-pointer"
+                title="นำเข้าไฟล์ CSV เพิ่มเครื่อง DTX จำนวนมาก"
+                id="import-csv-btn"
+              >
+                <Upload size={14} />
+                <span>นำเข้าไฟล์ CSV</span>
+              </button>
+
+              {/* Add Single Machine Button */}
+              <button
+                type="button"
+                onClick={openAddModal}
+                className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-sky-600/10 cursor-pointer"
+                id="add-machine-btn"
+              >
+                <Plus size={14} />
+                <span>เพิ่มเครื่อง DTX ใหม่</span>
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Refresh Unopened */}
+              <button
+                type="button"
+                onClick={loadUnopenedMachines}
+                disabled={isLoadingUnopened}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs border border-slate-200/80 cursor-pointer disabled:opacity-50"
+                title="รีเฟรชสต็อกเครื่องยังไม่เปิด"
+              >
+                <RefreshCw size={14} className={`text-slate-500 ${isLoadingUnopened ? 'animate-spin' : ''}`} />
+                <span>รีเฟรช</span>
+              </button>
+
+
+
+              {/* Add Unopened Machine */}
+              <button
+                type="button"
+                onClick={() => setIsOpenAddUnopenedModal(true)}
+                className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-sky-600/10 cursor-pointer"
+              >
+                <Plus size={14} />
+                <span>+ รับเข้าเครื่องใหม่ (ยังไม่เปิดกล่อง)</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1030,10 +1418,49 @@ export default function StockManagement({
             onClick={() => setImportResultToast(null)} 
             className="text-slate-400 hover:text-slate-600 cursor-pointer font-bold px-2 py-0.5"
           >
-            
+            x
           </button>
         </div>
       )}
+
+      {/* Sub-Navigation Tabs */}
+      <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 overflow-x-auto text-xs font-black">
+        <button
+          type="button"
+          onClick={() => setActiveView('active_machines')}
+          className={`px-4 py-2.5 rounded-xl transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+            activeView === 'active_machines'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Layers size={15} />
+          <span>เครื่องประจำการ / เปิดใช้งานแล้ว ({deduplicatedMachines.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveView('unopened_stock')}
+          className={`px-4 py-2.5 rounded-xl transition-all flex items-center space-x-2 cursor-pointer whitespace-nowrap ${
+            activeView === 'unopened_stock'
+              ? 'bg-sky-600 text-white shadow-sm'
+              : 'text-sky-700 hover:bg-sky-50'
+          }`}
+        >
+          <Box size={15} className={activeView === 'unopened_stock' ? 'text-white' : 'text-sky-500'} />
+          <span>เครื่องตรวจ DTX รอเปิดใช้งาน ({unopenedMachines.length})</span>
+          {unopenedMachines.length > 0 && (
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+              activeView === 'unopened_stock' ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-800'
+            }`}>
+              In Stock
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeView === 'active_machines' && (
+        <div className="space-y-4">
 
       {/* Filters Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" id="stock-filters">
@@ -1055,6 +1482,7 @@ export default function StockManagement({
             className="w-full text-xs p-2.5 rounded-xl border border-slate-200 focus:outline-hidden focus:border-sky-500 bg-white"
           >
             <option value="">-- หน่วยงานทั้งหมด --</option>
+            <option value="คลังแล็บ/สำรอง (In Stock)">คลังแล็บ/สำรอง (In Stock)</option>
             {wards.map((w, idx) => (
               <option key={idx} value={w.thai_name}>{w.thai_name}</option>
             ))}
@@ -1175,17 +1603,35 @@ export default function StockManagement({
                 </td>
               </tr>
             ) : (
-              paginatedMachines.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-3 py-2.5 font-bold text-slate-800 text-center whitespace-nowrap">{m.serialNumber}</td>
-                  <td className="px-3 py-2.5 font-mono text-slate-600 font-semibold text-center whitespace-nowrap">{m.machineSerial || '-'}</td>
-                  <td className="px-3 py-2.5 text-slate-700 font-semibold text-center whitespace-nowrap">{m.brand || '-'}</td>
-                  <td className="px-2.5 py-2.5 text-center whitespace-nowrap">
-                    <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
-                      {m.model || '-'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-700 font-semibold text-left whitespace-nowrap">{m.ward || '-'}</td>
+              paginatedMachines.map((m) => {
+                const isStockMachine = !m.serialNumber || m.serialNumber === '-' || m.ward === 'คลังแล็บ/สำรอง (In Stock)';
+                return (
+                  <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-3 py-2.5 font-bold text-slate-800 text-center whitespace-nowrap">
+                      {isStockMachine ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200/90 shadow-3xs">
+                           ในสต็อก (ยังไม่ออก CODE)
+                        </span>
+                      ) : (
+                        m.serialNumber
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-slate-700 font-bold text-center whitespace-nowrap">{m.machineSerial || '-'}</td>
+                    <td className="px-3 py-2.5 text-slate-700 font-semibold text-center whitespace-nowrap">{m.brand || '-'}</td>
+                    <td className="px-2.5 py-2.5 text-center whitespace-nowrap">
+                      <span className="text-[11px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200">
+                        {m.model || '-'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-700 font-semibold text-left whitespace-nowrap">
+                      {m.ward === 'คลังแล็บ/สำรอง (In Stock)' || isStockMachine ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50/80 text-amber-900 border border-amber-200/60">
+                          คลังแล็บ/สำรอง (In Stock)
+                        </span>
+                      ) : (
+                        m.ward || '-'
+                      )}
+                    </td>
                   <td className="px-3 py-2.5 text-center whitespace-nowrap">
                     <span className="font-mono text-[10px] bg-sky-50 text-sky-700 font-bold px-2 py-0.5 rounded border border-sky-100">
                       {m.lotNumber || '-'}
@@ -1229,8 +1675,9 @@ export default function StockManagement({
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
+              );
+            })
+          )}
           </tbody>
         </table>
       </div>
@@ -1321,6 +1768,186 @@ export default function StockManagement({
               </nav>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )}
+
+      {/* ========================================================================= */}
+      {/* UNOPENED MACHINES VIEW (เครื่องตรวจ DTX รอเปิดใช้งาน) */}
+      {/* ========================================================================= */}
+      {activeView === 'unopened_stock' && (
+        <div className="space-y-4 animate-fadeIn">
+          {/* Unopened Filters Bar */}
+          <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            {/* Search */}
+            <div className="relative flex-1 max-w-md">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="ค้นหาตาม Serial Number (S/N จากโรงงาน), LOT, ยี่ห้อ..."
+                value={unopenedSearch}
+                onChange={(e) => setUnopenedSearch(e.target.value)}
+                className="w-full text-xs p-2.5 pl-9 rounded-xl border border-slate-200 bg-white font-bold text-slate-800 focus:outline-hidden focus:border-sky-500"
+              />
+            </div>
+
+            {/* Filter Dropdowns */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* LOT filter */}
+              <div className="flex items-center space-x-1.5 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">LOT:</span>
+                <select
+                  value={unopenedLotFilter}
+                  onChange={(e) => setUnopenedLotFilter(e.target.value)}
+                  className="bg-transparent font-bold text-slate-700 outline-none cursor-pointer text-xs"
+                >
+                  <option value="all">ทุก LOT ({distinctUnopenedLots.length})</option>
+                  {distinctUnopenedLots.map(lot => (
+                    <option key={lot} value={lot}>LOT {lot}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Brand filter */}
+              <div className="flex items-center space-x-1.5 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">ยี่ห้อ:</span>
+                <select
+                  value={unopenedBrandFilter}
+                  onChange={(e) => setUnopenedBrandFilter(e.target.value)}
+                  className="bg-transparent font-bold text-slate-700 outline-none cursor-pointer text-xs"
+                >
+                  <option value="all">ทุกยี่ห้อ ({distinctUnopenedBrands.length})</option>
+                  {distinctUnopenedBrands.map(b => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+
+              {(unopenedSearch || unopenedLotFilter !== 'all' || unopenedBrandFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnopenedSearch('');
+                    setUnopenedLotFilter('all');
+                    setUnopenedBrandFilter('all');
+                  }}
+                  className="px-2.5 py-1.5 text-slate-500 hover:text-slate-800 font-bold text-xs cursor-pointer"
+                >
+                  ล้างตัวกรอง
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Unopened Machines Table */}
+          {filteredUnopenedMachines.length === 0 ? (
+            <div className="bg-slate-50/50 rounded-2xl border border-slate-200 p-12 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mx-auto">
+                <Box size={24} />
+              </div>
+              <h3 className="text-sm font-bold text-slate-700">
+                {unopenedMachines.length === 0 ? 'ยังไม่มีเครื่องตรวจ DTX รอเปิดใช้งานในคลัง' : 'ไม่พบเครื่องที่ตรงกับเงื่อนไขการค้นหา'}
+              </h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                {unopenedMachines.length === 0
+                  ? 'คุณสามารถกดปุ่ม "+ รับเข้าเครื่องใหม่ (ยังไม่เปิดกล่อง)" ด้านบน เพื่อบันทึก Serial Number และ LOT ของเครื่องใหม่เข้าสต็อก'
+                  : 'ลองเปลี่ยนคำค้นหา หรือรีเซ็ตตัวกรองด้านบน'}
+              </p>
+              {unopenedMachines.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsOpenAddUnopenedModal(true)}
+                  className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold inline-flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                >
+                  <Plus size={14} />
+                  <span>+ รับเข้าเครื่อง DTX ใหม่เข้าคลัง</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="border border-slate-200 rounded-xl overflow-x-auto shadow-2xs">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                    <th className="px-3.5 py-2.5 text-center w-12">#</th>
+                    <th className="px-3.5 py-2.5">Serial Number (S/N จากโรงงาน)</th>
+                    <th className="px-3.5 py-2.5">ยี่ห้อ & รุ่น</th>
+                    <th className="px-3.5 py-2.5 text-center">LOT Number</th>
+                    <th className="px-3.5 py-2.5 text-center">วันที่รับเข้าคลัง</th>
+                    <th className="px-3.5 py-2.5">หมายเหตุ</th>
+                    <th className="px-3.5 py-2.5 text-right pr-4">การดำเนินการ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredUnopenedMachines.map((m, idx) => (
+                    <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-3.5 py-3 text-center text-slate-400 font-mono text-[11px]">
+                        {idx + 1}
+                      </td>
+                      <td className="px-3.5 py-3">
+                        <span className="font-mono font-black text-slate-900 text-xs">
+                          {m.serialNumber}
+                        </span>
+                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                          ยังไม่มี CODE BGM (รอเปิดใช้งาน)
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-3">
+                        <span className="font-bold text-slate-800 block">{m.brand || 'VivaChek'}</span>
+                        <span className="text-[10px] text-slate-400">{m.model || 'Fad'}</span>
+                      </td>
+                      <td className="px-3.5 py-3 text-center">
+                        <span className="font-mono text-[10px] bg-sky-50 text-sky-700 font-bold px-2 py-0.5 rounded border border-sky-100">
+                          {m.lotNumber ? `LOT ${m.lotNumber}` : '-'}
+                        </span>
+                      </td>
+                      <td className="px-3.5 py-3 text-center font-bold text-slate-600">
+                        {m.receiveDate ? formatThaiDateOnly(m.receiveDate) : '-'}
+                      </td>
+                      <td className="px-3.5 py-3 text-slate-500 text-[11px]">
+                        {m.remark || '-'}
+                      </td>
+                      <td className="px-3.5 py-3 text-right pr-4">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          {/* Commission / Deploy Button with Auto-run BGM */}
+                          <button
+                            type="button"
+                            onClick={() => openCommissionModal(m)}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center space-x-1 cursor-pointer shadow-xs transition-colors"
+                            title="เปิดใช้งานและระบบจะ RUN เลข BGM-XXX ให้อัตโนมัติ"
+                          >
+                            <Zap size={13} />
+                            <span>เปิดใช้งานเครื่อง (RUN BGM)</span>
+                          </button>
+
+                          {/* Edit button */}
+                          <button
+                            type="button"
+                            onClick={() => setEditingUnopenedMachine(m)}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 cursor-pointer transition-colors"
+                            title="แก้ไขข้อมูล S/N, LOT"
+                          >
+                            <Edit2 size={13} />
+                          </button>
+
+                          {/* Delete button */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUnopenedMachine(m)}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 cursor-pointer transition-colors"
+                            title="ลบออกจากสต็อกเครื่องรอเปิดใช้"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -1801,13 +2428,52 @@ export default function StockManagement({
             </div>
 
             <form onSubmit={handleSave} className="space-y-3.5">
+              {/* Stock Status Mode Toggle */}
+              <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/90 flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-700">สถานะตัวเครื่อง:</span>
+                <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsStockOnly(true);
+                      setWard('คลังแล็บ/สำรอง (In Stock)');
+                      setStatus('standby');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                      isStockOnly
+                        ? 'bg-amber-500 text-white shadow-2xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ในสต็อก (ยังไม่เบิก)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsStockOnly(false);
+                      if (ward === 'คลังแล็บ/สำรอง (In Stock)') setWard('');
+                      setStatus('active');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                      !isStockOnly
+                        ? 'bg-sky-600 text-white shadow-2xs'
+                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ประจำการ Ward
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 {/* CODE */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">รหัสเครื่อง (CODE) *</label>
+                  <label className="text-[11px] font-bold text-slate-700">
+                    {isStockOnly ? 'รหัสเครื่อง (CODE) (ออกเมื่อเบิกจ่าย)' : 'รหัสเครื่อง (CODE) *'}
+                  </label>
                   <input
                     type="text"
-                    placeholder="เช่น BGM-001"
+                    placeholder={isStockOnly ? 'ยังไม่ออก CODE (เว้นว่างได้)' : 'เช่น BGM-001'}
                     value={serialNumber}
                     onChange={(e) => setSerialNumber(e.target.value)}
                     className={`w-full text-xs p-2.5 rounded-lg border font-mono font-bold uppercase transition-colors ${
@@ -1815,7 +2481,7 @@ export default function StockManagement({
                         ? 'border-rose-500 bg-rose-50/50 text-rose-800' 
                         : 'border-slate-200 focus:outline-hidden focus:border-sky-500'
                     }`}
-                    required
+                    required={!isStockOnly}
                   />
                   {isCodeDuplicate && (
                     <p className="text-[10px] font-bold text-rose-600 animate-fadeIn">
@@ -1826,13 +2492,16 @@ export default function StockManagement({
 
                 {/* Manufacturer Serial Number */}
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-700">หมายเลขซีเรียล (S/N) <span className="font-normal text-slate-400 text-[10px]">(เว้นว่างได้ถ้ายังไม่แกะกล่อง)</span></label>
+                  <label className="text-[11px] font-bold text-slate-700">
+                    {isStockOnly ? 'หมายเลขซีเรียล (S/N) *' : 'หมายเลขซีเรียล (S/N)'}
+                  </label>
                   <input
                     type="text"
-                    placeholder="เช่น 103A2002FB7 หรือเว้นว่าง"
+                    placeholder="เช่น 103A2002FB7"
                     value={machineSerial}
                     onChange={(e) => setMachineSerial(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-200 focus:outline-hidden focus:border-sky-500 font-mono font-bold uppercase"
+                    required={isStockOnly}
                   />
                 </div>
               </div>
@@ -2088,12 +2757,32 @@ export default function StockManagement({
                       onClick={applyWardTransferPreset}
                       className="bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold px-2 py-1 rounded-lg transition-colors cursor-pointer border border-sky-300/60"
                     >
-                      ️ ย้าย Ward ประจำการ
+                       ย้าย Ward ประจำการ
                     </button>
                   </div>
                 </div>
 
                 <form onSubmit={handleSaveTransfer} className="space-y-3">
+                  {(!selectedMachineForHistory.serialNumber || selectedMachineForHistory.serialNumber === '-') && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-1 animate-fadeIn">
+                      <label className="text-[11px] font-bold text-amber-900 flex items-center space-x-1">
+                        <Sparkles size={13} className="text-amber-600" />
+                        <span>เบิกจ่ายเครื่องเข้าประจำการ — ออกรหัสเครื่อง (CODE BGM) *</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="กรอกรหัสเครื่อง เช่น BGM-010"
+                        value={transferBgmCode}
+                        onChange={(e) => setTransferBgmCode(e.target.value)}
+                        className="w-full text-xs p-2.5 rounded-lg border border-amber-300 bg-white font-mono font-bold uppercase text-slate-900 focus:outline-hidden focus:border-amber-500"
+                        required
+                      />
+                      <p className="text-[10px] text-amber-700">
+                        เครื่องนี้ยังอยู่ในสต็อก (ยังไม่มี CODE) ระบบจะออก CODE BGM นี้ให้อัตโนมัติเมื่อย้ายเข้าประจำการ Ward
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     
                     {/* Destination Ward */}
@@ -2123,8 +2812,8 @@ export default function StockManagement({
                       >
                         <option value="return_to_lab"> ส่งคืนห้องแลป (สำรองหมุนเวียน)</option>
                         <option value="backup_loan"> จ่ายยืมสำรองทดแทนซ่อม</option>
-                        <option value="transfer">️ โอนย้ายเปลี่ยน Ward ประจำการ</option>
-                        <option value="edit">️ แก้ไขข้อมูลสถานที่</option>
+                        <option value="transfer"> โอนย้ายเปลี่ยน Ward ประจำการ</option>
+                        <option value="edit"> แก้ไขข้อมูลสถานที่</option>
                       </CustomSelect>
                     </div>
 
@@ -2264,8 +2953,8 @@ export default function StockManagement({
                                   {isReturnLab ? ' ส่งคืนห้องปฏิบัติการ (LAB)' :
                                    isBackup ? ' จ่ายยืมสำรองทดแทนซ่อม' :
                                    isInitial ? ' บันทึกแรกเริ่มประจำการ' :
-                                   isEdit ? '️ แก้ไขข้อมูลสถานที่' :
-                                   '️ โอนย้ายเปลี่ยน Ward'}
+                                   isEdit ? ' แก้ไขข้อมูลสถานที่' :
+                                   ' โอนย้ายเปลี่ยน Ward'}
                                 </span>
 
                                 {idx === 0 && (
@@ -2319,13 +3008,477 @@ export default function StockManagement({
                 onClick={() => setIsOpenHistoryModal(false)}
                 className="bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-colors cursor-pointer shadow-sm"
               >
-                ปิดหน้าต่าง
+                ปิดหน้าต่างประวัติ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1. COMMISSION / DEPLOY UNOPENED MACHINE MODAL (AUTO-RUN BGM-XXX) */}
+      {/* ========================================================================= */}
+      {commissioningMachine && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[100] animate-fadeIn">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-scaleUp">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-emerald-50/50">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+                  <Zap size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">
+                    เปิดใช้งานเครื่องตรวจ DTX (Deploy & Commission)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    ระบบ RUN เลขรหัสครุภัณฑ์ (BGM-XXX) ให้อัตโนมัติ พร้อมส่งมอบประจำการ
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommissioningMachine(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={18} />
               </button>
             </div>
 
+            {/* Modal Form */}
+            <form onSubmit={handleCommissionSubmit} className="p-5 space-y-4 text-xs overflow-y-auto max-h-[80vh]">
+              {/* Machine Factory Info Banner */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  ข้อมูลเครื่องจากกล่อง (Factory Info)
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">Serial Number (โรงงาน)</span>
+                    <span className="font-mono font-black text-slate-900">{commissioningMachine.serialNumber}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">LOT Number</span>
+                    <span className="font-mono font-bold text-sky-700">{commissioningMachine.lotNumber ? `LOT ${commissioningMachine.lotNumber}` : '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">ยี่ห้อ / รุ่น</span>
+                    <span className="font-bold text-slate-700">{commissioningMachine.brand || 'VivaChek'} ({commissioningMachine.model || 'Fad'})</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 text-[10px] block">วันที่รับเข้า</span>
+                    <span className="text-slate-700 font-medium">{commissioningMachine.receiveDate || '-'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* CODE BGM Auto-Run Field */}
+              <div className="space-y-1.5 bg-sky-50/60 p-3.5 rounded-2xl border border-sky-100">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-sky-900 flex items-center space-x-1.5">
+                    <Sparkles size={14} className="text-sky-600" />
+                    <span>รหัสประจำเครื่อง (CODE ออกโดยแล็บ) *</span>
+                  </label>
+                  <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full">
+                    Auto-generated
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  required
+                  value={commissionForm.bgmCode}
+                  onChange={(e) => setCommissionForm({ ...commissionForm, bgmCode: e.target.value.toUpperCase() })}
+                  placeholder="เช่น BGM-001, BGM-046"
+                  className="w-full bg-white border border-sky-300 font-mono font-black text-sm text-sky-900 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                />
+                <p className="text-[10px] text-sky-700">
+                  * คำนวณจากเลข BGM ล่าสุดในระบบอัตโนมัติ (สามารถปรับแก้ได้หากต้องการ)
+                </p>
+              </div>
+
+              {/* Target Ward Dropdown */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">
+                  หอผู้ป่วย / หน่วยงานที่ส่งมอบเครื่อง (Ward) *
+                </label>
+                <select
+                  required
+                  value={commissionForm.targetWard}
+                  onChange={(e) => setCommissionForm({ ...commissionForm, targetWard: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 cursor-pointer"
+                >
+                  <option value="">-- เลือกหอผู้ป่วย / หน่วยงาน --</option>
+                  {wards.map((w, idx) => (
+                    <option key={idx} value={w.thai_name}>
+                      {w.thai_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status & Operator */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">สถานะเริ่มต้น *</label>
+                  <select
+                    value={commissionForm.status}
+                    onChange={(e) => setCommissionForm({ ...commissionForm, status: e.target.value as any })}
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none cursor-pointer"
+                  >
+                    <option value="active">ประจำการ (Active)</option>
+                    <option value="backup">สำรองแล็บ (Backup)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">วันที่ส่งมอบ *</label>
+                  <input
+                    type="date"
+                    required
+                    value={commissionForm.deployDate}
+                    onChange={(e) => setCommissionForm({ ...commissionForm, deployDate: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Operator Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">เจ้าหน้าที่ผู้เปิดใช้งาน/ส่งมอบ</label>
+                <input
+                  type="text"
+                  value={commissionForm.operatorName}
+                  onChange={(e) => setCommissionForm({ ...commissionForm, operatorName: e.target.value })}
+                  placeholder="เจ้าหน้าที่ห้องแล็บ"
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">หมายเหตุเพิ่มเติม</label>
+                <input
+                  type="text"
+                  value={commissionForm.notes}
+                  onChange={(e) => setCommissionForm({ ...commissionForm, notes: e.target.value })}
+                  placeholder="เช่น ทดสอบ IQC ผ่านก่อนส่งมอบ, แลกเปลี่ยนเครื่องเดิม"
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              {/* Modal Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setCommissioningMachine(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center space-x-1.5 shadow-md shadow-emerald-600/20 cursor-pointer transition-all"
+                >
+                  <Check size={15} />
+                  <span>ยืนยันเปิดใช้งานและบันทึกเข้าคลัง</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 2. ADD UNOPENED MACHINE MODAL (SINGLE OR BATCH) */}
+      {/* ========================================================================= */}
+      {isOpenAddUnopenedModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[100] animate-fadeIn">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-scaleUp">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-sky-50/50">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shadow-xs">
+                  <Box size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">
+                    รับเข้าเครื่องตรวจ DTX ใหม่ (ยังไม่เปิดกล่อง)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    บันทึก Serial Number และ LOT เข้าคลังแล็บ (ยังไม่ต้องระบุรหัส BGM)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsOpenAddUnopenedModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleAddUnopenedSubmit} className="p-5 space-y-4 text-xs overflow-y-auto max-h-[80vh]">
+              {/* Serial Numbers (Supports multi-line paste) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700">
+                    Serial Number ประจำเครื่อง (S/N จากโรงงาน) *
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    (ใส่ได้หลายเครื่อง คั่นด้วยขึ้นบรรทัดใหม่)
+                  </span>
+                </div>
+                <textarea
+                  required
+                  rows={3}
+                  value={addUnopenedForm.serialNumbers}
+                  onChange={(e) => setAddUnopenedForm({ ...addUnopenedForm, serialNumbers: e.target.value })}
+                  placeholder="เช่น SN103A2002FB1&#10;SN103A2002FB2&#10;SN103A2002FB3"
+                  className="w-full bg-slate-50 border border-slate-200 font-mono font-bold text-xs text-slate-800 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              {/* LOT Number */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">LOT Number ของเครื่อง *</label>
+                <input
+                  type="text"
+                  required
+                  value={addUnopenedForm.lotNumber}
+                  onChange={(e) => setAddUnopenedForm({ ...addUnopenedForm, lotNumber: e.target.value.toUpperCase() })}
+                  placeholder="เช่น LOT2026A, 250101"
+                  className="w-full bg-slate-50 border border-slate-200 font-mono font-bold text-xs text-slate-800 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              {/* Brand and Model */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">ยี่ห้อ (Brand)</label>
+                  <input
+                    type="text"
+                    value={addUnopenedForm.brand}
+                    onChange={(e) => setAddUnopenedForm({ ...addUnopenedForm, brand: e.target.value })}
+                    placeholder="VivaChek"
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">รุ่น (Model)</label>
+                  <input
+                    type="text"
+                    value={addUnopenedForm.model}
+                    onChange={(e) => setAddUnopenedForm({ ...addUnopenedForm, model: e.target.value })}
+                    placeholder="Fad"
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Receive Date */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">วันที่รับเข้าคลังแล็บ</label>
+                <input
+                  type="date"
+                  value={addUnopenedForm.receiveDate}
+                  onChange={(e) => setAddUnopenedForm({ ...addUnopenedForm, receiveDate: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              {/* Remark */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">หมายเหตุ / ข้อมูลจัดซื้อ</label>
+                <input
+                  type="text"
+                  value={addUnopenedForm.remark}
+                  onChange={(e) => setAddUnopenedForm({ ...addUnopenedForm, remark: e.target.value })}
+                  placeholder="เช่น ซื้อจากงบประมาณปี 2569, รับบริจาค"
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              {/* Modal Buttons */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsOpenAddUnopenedModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs flex items-center space-x-1.5 shadow-md shadow-sky-600/20 cursor-pointer transition-all"
+                >
+                  <Plus size={15} />
+                  <span>บันทึกรับเข้าคลัง</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. EDIT UNOPENED MACHINE MODAL */}
+      {/* ========================================================================= */}
+      {editingUnopenedMachine && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-[100] animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-scaleUp">
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h3 className="text-sm font-bold text-slate-800">
+                แก้ไขข้อมูลเครื่องรอเปิดใช้งาน
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingUnopenedMachine(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditUnopened} className="p-5 space-y-3.5 text-xs">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">Serial Number (S/N โรงงาน)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUnopenedMachine.serialNumber}
+                  onChange={(e) => setEditingUnopenedMachine({ ...editingUnopenedMachine, serialNumber: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 font-mono font-bold text-xs text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">LOT Number</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUnopenedMachine.lotNumber}
+                  onChange={(e) => setEditingUnopenedMachine({ ...editingUnopenedMachine, lotNumber: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 font-mono font-bold text-xs text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">ยี่ห้อ</label>
+                  <input
+                    type="text"
+                    value={editingUnopenedMachine.brand}
+                    onChange={(e) => setEditingUnopenedMachine({ ...editingUnopenedMachine, brand: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">รุ่น</label>
+                  <input
+                    type="text"
+                    value={editingUnopenedMachine.model}
+                    onChange={(e) => setEditingUnopenedMachine({ ...editingUnopenedMachine, model: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">วันที่รับเข้า</label>
+                <input
+                  type="date"
+                  value={editingUnopenedMachine.receiveDate}
+                  onChange={(e) => setEditingUnopenedMachine({ ...editingUnopenedMachine, receiveDate: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">หมายเหตุ</label>
+                <input
+                  type="text"
+                  value={editingUnopenedMachine.remark || ''}
+                  onChange={(e) => setEditingUnopenedMachine({ ...editingUnopenedMachine, remark: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 font-bold text-slate-800 p-2.5 rounded-xl outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingUnopenedMachine(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs cursor-pointer shadow-sm"
+                >
+                  บันทึกการแก้ไข
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Barcode Printer Modal */}
+      {isBarcodePrinterOpen && (
+        <BarcodePrinterModal
+          isOpen={isBarcodePrinterOpen}
+          machines={deduplicatedMachines}
+          initialSource="machines"
+          onClose={() => setIsBarcodePrinterOpen(false)}
+        />
+      )}
+
+      {/* Universal In-App Confirmation Modal Dialog (Zero native confirm() blocks) */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 dark:border-slate-800 space-y-5 animate-scale-up">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 flex items-center justify-center text-rose-600 shrink-0">
+                <AlertTriangle size={24} />
+              </div>
+              <div className="space-y-1.5 flex-1 text-left">
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  {confirmDialog.title}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                  {confirmDialog.description}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                disabled={confirmDialog.isLoading}
+                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs cursor-pointer transition-colors disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={confirmDialog.isLoading}
+                onClick={() => confirmDialog.onConfirm()}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-all cursor-pointer flex items-center space-x-2 disabled:opacity-50"
+              >
+                {confirmDialog.isLoading && <RefreshCw size={14} className="animate-spin" />}
+                <span>{confirmDialog.confirmText || 'ยืนยัน'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
     </div>
   );
 }
+
+
+
+

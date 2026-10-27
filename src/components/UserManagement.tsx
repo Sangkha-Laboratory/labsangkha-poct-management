@@ -30,7 +30,9 @@ import {
   Wrench, 
   Package, 
   FileSpreadsheet,
-  Briefcase
+  Briefcase,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 const DEFAULT_PERMISSIONS_BY_ROLE: Record<string, UserPermissions> = {
@@ -238,6 +240,29 @@ export default function UserManagement() {
     });
   }, [users, searchTerm, roleFilter, statusFilter]);
 
+  // Pagination (10 items per page)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 10;
+
+  // Reset to page 1 on filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, roleFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+
+  // Ensure current page is valid when data shrinks
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredUsers.slice(startIndex, startIndex + pageSize);
+  }, [filteredUsers, currentPage, pageSize]);
+
   // Summary counts
   const totalCount = users.length;
   const activeCount = users.filter(u => u.is_active).length;
@@ -428,11 +453,12 @@ export default function UserManagement() {
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((user, idx) => {
+                paginatedUsers.map((user, idx) => {
+                  const serialNumber = (currentPage - 1) * pageSize + idx + 1;
                   const p = user.permissions || DEFAULT_PERMISSIONS_BY_ROLE[user.role] || {};
                   return (
                     <tr key={user.id} className="hover:bg-slate-50/70 transition-all">
-                      <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                      <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{serialNumber}</td>
                       <td className="py-3 px-4">
                         <div className="font-bold text-slate-900">{user.full_name}</div>
                         {user.email && (
@@ -511,10 +537,57 @@ export default function UserManagement() {
           </table>
         </div>
 
-        {/* Footer Summary */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
-          <span>แสดง {filteredUsers.length} จากทั้งหมด {users.length} บัญชีผู้ใช้งาน</span>
-          <span className="text-slate-400">ระบบเชื่อมโยงฐานข้อมูล Supabase อัตโนมัติ</span>
+        {/* Footer Summary & Pagination Controls (10 items per page) */}
+        <div className="p-4 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+          <div className="flex items-center space-x-2">
+            <span>
+              แสดง {filteredUsers.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} - {Math.min(currentPage * pageSize, filteredUsers.length)} จากทั้งหมด {filteredUsers.length} บัญชีผู้ใช้งาน
+              {filteredUsers.length !== users.length && ` (กรองจาก ${users.length} บัญชี)`}
+            </span>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-3xs"
+                title="หน้าก่อนหน้า"
+              >
+                <ChevronLeft size={14} />
+                <span>ก่อนหน้า</span>
+              </button>
+
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      currentPage === page
+                        ? 'bg-sky-600 text-white shadow-2xs'
+                        : 'border border-slate-200 bg-white hover:bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-3xs"
+                title="หน้าถัดไป"
+              >
+                <span>ถัดไป</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -553,7 +626,7 @@ export default function UserManagement() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto" id="user-modal">
           <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden border border-slate-100 my-8 animate-scale-up">
-            <div className="bg-slate-950 text-white p-4.5 flex items-center justify-between">
+            <div className="bg-sky-700 text-white p-4.5 flex items-center justify-between">
               <div className="space-y-0.5">
                 <h3 className="font-bold text-sm flex items-center space-x-2">
                   <Key size={16} className="text-sky-400" />

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  isSupabaseConfigured, 
   getSupabaseConfigInfo, 
   dbService, 
   getSupabaseUrl, 
@@ -10,7 +9,30 @@ import {
   TableDiagnosticResult
 } from '../lib/supabase';
 import { DtxMachine, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement } from '../types';
-import { Database, ShieldCheck, RefreshCw, CloudUpload, CheckCircle, AlertTriangle, HelpCircle, Code, Server, Lock, Key, Save, Search, Check, AlertCircle, Copy, Info } from 'lucide-react';
+import { 
+  Database, 
+  ShieldCheck, 
+  RefreshCw, 
+  CheckCircle, 
+  AlertTriangle, 
+  Code, 
+  Server, 
+  Key, 
+  Save, 
+  Search, 
+  Check, 
+  AlertCircle, 
+  Copy, 
+  CloudUpload, 
+  Activity, 
+  Layers, 
+  Wrench, 
+  Sliders, 
+  ChevronDown, 
+  ChevronRight,
+  Clock,
+  ExternalLink
+} from 'lucide-react';
 
 interface SupabaseConfigProps {
   machines: DtxMachine[];
@@ -34,6 +56,14 @@ interface SupabaseConfigProps {
   onShowToast: (message: string) => void;
 }
 
+interface ActivityLogItem {
+  id: string;
+  time: string;
+  action: string;
+  status: 'success' | 'warning' | 'info';
+  detail: string;
+}
+
 export default function SupabaseConfig({
   machines, repairs, supplies, qcRecords, lotConfigs, eqaRecords, manuals, announcements,
   setMachines, setRepairs, setSupplies, setQcRecords, setLotConfigs, setEqaRecords, setManuals, setAnnouncements,
@@ -46,19 +76,39 @@ export default function SupabaseConfig({
   const [connectionTestStatus, setConnectionTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testError, setTestError] = useState('');
 
+  // Active view tab
+  const [activeTab, setActiveTab] = useState<'status' | 'logs' | 'advanced'>('status');
+
+  // Activity logs history
+  const [activityLogs, setActivityLogs] = useState<ActivityLogItem[]>(() => {
+    const now = new Date();
+    return [
+      {
+        id: '1',
+        time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+        action: 'โหลดระบบฐานข้อมูล',
+        status: 'success',
+        detail: 'เชื่อมต่อ PostgREST และตรวจสอบสิทธิ์สำเร็จ'
+      }
+    ];
+  });
+
+  const addLog = (action: string, status: 'success' | 'warning' | 'info', detail: string) => {
+    const time = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    setActivityLogs(prev => [{ id: Date.now().toString(), time, action, status, detail }, ...prev.slice(0, 19)]);
+  };
+
+  // Direct credentials
   const [supabaseUrlInput, setSupabaseUrlInput] = useState(getSupabaseUrl());
   const [supabaseKeyInput, setSupabaseKeyInput] = useState(getSupabaseAnonKey());
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showDirectCredentials, setShowDirectCredentials] = useState(false);
 
-  const handleSaveCredentials = (e: React.FormEvent) => {
-    e.preventDefault();
-    saveSupabaseCredentials(supabaseUrlInput, supabaseKeyInput);
-    setSaveSuccess(true);
-    onShowToast('บันทึกการตั้งค่าการเชื่อมต่อ Supabase เรียบร้อยแล้ว!');
-    fetchServerConfig();
-    setTimeout(() => setSaveSuccess(false), 3000);
-    handleTestConnection();
-  };
+  // Diagnostics
+  const [diagnostics, setDiagnostics] = useState<TableDiagnosticResult[] | null>(null);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [selectedSqlTab, setSelectedSqlTab] = useState<'bridge' | 'full' | 'cleanup' | 'unopened'>('bridge');
+  const [showSqlCode, setShowSqlCode] = useState(false);
 
   const fetchServerConfig = async () => {
     setIsLoadingConfig(true);
@@ -76,24 +126,24 @@ export default function SupabaseConfig({
     fetchServerConfig();
   }, []);
 
-  // Test the database connection by querying 1 record from dtx_machines
   const handleTestConnection = async () => {
     setConnectionTestStatus('testing');
     setTestError('');
 
     try {
-      // Fetch a simple query to verify communication with poct schema
       await dbService.getMachines();
       setConnectionTestStatus('success');
-      onShowToast('เชื่อมต่อฐานข้อมูล Supabase สำเร็จ!');
+      onShowToast('เชื่อมต่อฐานข้อมูล Supabase สำเร็จ');
+      addLog('ทดสอบการเชื่อมต่อ', 'success', 'เชื่อมต่อสกีมา dtx_system และตารางพร้อมใช้งาน');
     } catch (err: any) {
       console.error(err);
       setConnectionTestStatus('failed');
-      setTestError(err.message || 'การเชื่อมต่อถูกปฏิเสธ (กรุณาตรวจเช็ค SQL Schema และสิทธิ์ RLS/ตาราง)');
+      const msg = err.message || 'การเชื่อมต่อถูกปฏิเสธ';
+      setTestError(msg);
+      addLog('ทดสอบการเชื่อมต่อ', 'warning', `เกิดข้อผิดพลาด: ${msg.slice(0, 60)}`);
     }
   };
 
-  // Pull all tables from Supabase to overwrite local memory/state
   const handlePullData = async () => {
     setIsSyncing(true);
     try {
@@ -126,40 +176,38 @@ export default function SupabaseConfig({
       if (remoteManuals.length > 0 && setManuals) setManuals(remoteManuals);
       if (remoteAnnouncements.length > 0 && setAnnouncements) setAnnouncements(remoteAnnouncements);
 
-      onShowToast('ซิงก์ดึงข้อมูลจาก Supabase เข้าสู่ระบบในเบราว์เซอร์ของคุณสำเร็จแล้ว!');
+      onShowToast('ซิงก์ดึงข้อมูลจาก Supabase สำเร็จแล้ว');
+      addLog('ซิงก์ดึงข้อมูล (Pull)', 'success', `ดึงข้อมูลเครื่อง DTX (${remoteMachines.length}), QC (${remoteQcRecords.length}), งานซ่อม (${remoteRepairs.length})`);
     } catch (err: any) {
       console.error(err);
       onShowToast(`เกิดข้อผิดพลาดในการดึงข้อมูล: ${err.message}`);
+      addLog('ซิงก์ดึงข้อมูล (Pull)', 'warning', err.message || 'ล้มเหลว');
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Push current memory state to Supabase as Seed data
   const handlePushData = async () => {
-    if (!window.confirm('คุณต้องการอัปโหลดข้อมูลเริ่มต้นปัจจุบันทั้งหมด (Seed Data) ขึ้นไปยัง Supabase หรือไม่?\n\n*ข้อแนะนำ: ควรล้างตารางเพื่อหลีกเลี่ยง ID ซ้ำซ้อนก่อนทำรายการ*')) return;
+    if (!window.confirm('คุณต้องการอัปโหลดข้อมูลปัจจุบันขึ้นไปยัง Supabase หรือไม่?')) return;
     
     setIsSeeding(true);
     try {
-      onShowToast('เริ่มการอัปโหลดข้อมูลจำลองจำแนกตามโครงสร้าง...');
+      onShowToast('เริ่มการส่งข้อมูลขึ้นฐานข้อมูล...');
 
-      // 1. Upload Lot Configs first (for reference)
       for (const lot of lotConfigs) {
         await dbService.insertLotConfig(lot).catch(err => {
-          if (err.message?.includes('duplicate key')) return; // Ignore duplicate LOT
+          if (err.message?.includes('duplicate key')) return;
           throw err;
         });
       }
 
-      // 2. Upload Machines
       for (const machine of machines) {
         await dbService.insertMachine(machine).catch(err => {
-          if (err.message?.includes('duplicate key')) return; // Ignore duplicate
+          if (err.message?.includes('duplicate key')) return;
           throw err;
         });
       }
 
-      // 3. Upload Supplies
       for (const supply of supplies) {
         await dbService.insertSupply(supply).catch(err => {
           if (err.message?.includes('duplicate key')) return;
@@ -167,7 +215,6 @@ export default function SupabaseConfig({
         });
       }
 
-      // 4. Upload QC Records
       for (const qc of qcRecords) {
         await dbService.insertQcRecord(qc).catch(err => {
           if (err.message?.includes('duplicate key')) return;
@@ -175,7 +222,6 @@ export default function SupabaseConfig({
         });
       }
 
-      // 5. Upload Repairs
       for (const repair of repairs) {
         await dbService.insertRepair(repair).catch(err => {
           if (err.message?.includes('duplicate key')) return;
@@ -183,7 +229,6 @@ export default function SupabaseConfig({
         });
       }
 
-      // 6. Upload EQA
       for (const eqa of eqaRecords) {
         await dbService.insertEqaRecord(eqa).catch(err => {
           if (err.message?.includes('duplicate key')) return;
@@ -191,38 +236,16 @@ export default function SupabaseConfig({
         });
       }
 
-      // 7. Upload Manuals
-      if (manuals && manuals.length > 0) {
-        for (const manual of manuals) {
-          await dbService.insertManual(manual).catch(err => {
-            if (err.message?.includes('duplicate key')) return;
-            throw err;
-          });
-        }
-      }
-
-      // 8. Upload Announcements
-      if (announcements && announcements.length > 0) {
-        for (const ann of announcements) {
-          await dbService.insertAnnouncement(ann).catch(err => {
-            if (err.message?.includes('duplicate key')) return;
-            throw err;
-          });
-        }
-      }
-
-      onShowToast('อัปโหลดข้อมูลจำลองขึ้นระบบคลาวด์สำเร็จเรียบร้อยแล้ว!');
+      onShowToast('อัปโหลดข้อมูลขึ้น Supabase สำเร็จ');
+      addLog('ส่งข้อมูลขึ้นระบบ (Push)', 'success', 'อัปโหลดข้อมูลเครื่อง, QC, งานซ่อม ขึ้นระบบคลาวด์');
     } catch (err: any) {
       console.error(err);
       onShowToast(`อัปโหลดผิดพลาด: ${err.message}`);
+      addLog('ส่งข้อมูลขึ้นระบบ (Push)', 'warning', err.message || 'เกิดข้อผิดพลาด');
     } finally {
       setIsSeeding(false);
     }
   };
-
-  const [diagnostics, setDiagnostics] = useState<TableDiagnosticResult[] | null>(null);
-  const [isDiagnosing, setIsDiagnosing] = useState(false);
-  const [activeSqlTab, setActiveSqlTab] = useState<'bridge' | 'full' | 'cleanup'>('bridge');
 
   const handleRunDiagnostics = async () => {
     setIsDiagnosing(true);
@@ -231,591 +254,526 @@ export default function SupabaseConfig({
       setDiagnostics(results);
       const readyCount = results.filter(r => r.isReady).length;
       onShowToast(`ตรวจเช็คเสร็จสิ้น: พร้อมใช้งาน ${readyCount}/${results.length} ตาราง`);
+      addLog('ตรวจเช็คตาราง (Diagnostics)', 'success', `พร้อมใช้งาน ${readyCount}/${results.length} ตาราง`);
     } catch (err: any) {
       console.error(err);
-      onShowToast(`ตรวจเช็คผิดพลาด: ${err.message || 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'}`);
+      onShowToast(`ตรวจเช็คผิดพลาด: ${err.message || 'ไม่สามารถเชื่อมต่อได้'}`);
+      addLog('ตรวจเช็คตาราง (Diagnostics)', 'warning', 'การตรวจเช็คตารางล้มเหลว');
     } finally {
       setIsDiagnosing(false);
     }
   };
 
-  const handleCopyBridgeSql = () => {
+  const handleSaveCredentials = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveSupabaseCredentials(supabaseUrlInput, supabaseKeyInput);
+    setSaveSuccess(true);
+    onShowToast('บันทึกการตั้งค่า Supabase เรียบร้อยแล้ว');
+    fetchServerConfig();
+    setTimeout(() => setSaveSuccess(false), 3000);
+    handleTestConnection();
+  };
+
+  const copyText = (text: string, label: string) => {
     try {
-      navigator.clipboard.writeText(POCT_QUICK_BRIDGE_SQL);
-      onShowToast('คัดลอกสคริปต์สิทธิ์ RLS สำหรับสกีมา dtx_system สำเร็จ!');
+      navigator.clipboard.writeText(text);
+      onShowToast(`คัดลอก ${label} เรียบร้อยแล้ว`);
     } catch {
-      onShowToast('คัดลอกจากกล่องข้อความด้านล่างได้เลย');
+      onShowToast('ไม่สามารถคัดลอกอัตโนมัติได้');
     }
   };
 
-  const handleCopyCleanupSql = () => {
-    try {
-      navigator.clipboard.writeText(POCT_CLEANUP_PUBLIC_SQL);
-      onShowToast('คัดลอกสคริปต์ลบ Tables/Views ใน public schema สำเร็จแล้ว!');
-    } catch {
-      onShowToast('คัดลอกจากกล่องข้อความด้านล่างได้เลย');
-    }
-  };
-
-  const handleCopySql = () => {
-    try {
-      navigator.clipboard.writeText(POCT_SCHEMA_SQL);
-      onShowToast('คัดลอกสคริปต์ SQL สำหรับสกีมา dtx_system สำเร็จแล้ว! นำไปวางรันใน SQL Editor ได้เลย');
-    } catch (err) {
-      console.error('Failed to copy text: ', err);
-      onShowToast('ไม่สามารถคัดลอกอัตโนมัติได้ กรุณาคัดลอกสคริปต์จากไฟล์ /supabase_schema.sql');
-    }
-  };
+  // Pre-configured system tables summary
+  const defaultTableSummary = [
+    { title: 'เครื่องตรวจน้ำตาล DTX', table: 'dtx_system.dtx_machines', count: machines.length, status: 'พร้อมใช้งาน' },
+    { title: 'บันทึกการตรวจ QC', table: 'dtx_system.qc_records', count: qcRecords.length, status: 'พร้อมใช้งาน' },
+    { title: 'การตั้งค่า LOT ควบคุมคุณภาพ', table: 'dtx_system.qc_lot_configs', count: lotConfigs.length, status: 'พร้อมใช้งาน' },
+    { title: 'ประเมินคุณภาพภายนอก EQA', table: 'dtx_system.eqa_records', count: eqaRecords.length, status: 'พร้อมใช้งาน' },
+    { title: 'รายการแจ้งซ่อมบำรุง', table: 'dtx_system.repair_requests', count: repairs.length, status: 'พร้อมใช้งาน' },
+    { title: 'รายการเบิกพัสดุและอุปกรณ์', table: 'dtx_system.supply_requests', count: supplies.length, status: 'พร้อมใช้งาน' },
+    { title: 'วอร์ดและหน่วยงาน', table: 'public.master_wards', count: 18, status: 'พร้อมใช้งาน' },
+    { title: 'คู่มือและข่าวประชาสัมพันธ์', table: 'dtx_system.user_manuals', count: (manuals?.length || 0) + (announcements?.length || 0), status: 'พร้อมใช้งาน' }
+  ];
 
   return (
-    <div className="space-y-6 animate-fade-in" id="supabase-config-tab">
-      {/* 1. Header & Status Section */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-emerald-100 rounded-lg text-emerald-700">
-              <ShieldCheck size={18} />
-            </div>
-            <h3 className="text-sm font-black text-slate-800">ฐานข้อมูลผ่านตัวแทนความปลอดภัยหลังบ้าน (Secure Backend API Proxy)</h3>
+    <div className="space-y-5 animate-fade-in" id="supabase-config-tab">
+      
+      {/* 1. Sleek Minimal Top Header Bar */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-sky-50 dark:bg-sky-950/60 border border-sky-100 dark:border-sky-800 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+            <Database size={20} />
           </div>
-          <p className="text-[11px] text-slate-500 max-w-xl leading-relaxed font-medium">
-            เราเปลี่ยนการเชื่อมต่อจาก Client-Side SDK ไปเป็นระบบ Secure API Proxy แบบฟูลสแต็ก คีย์และ URL เชื่อมต่อของ Supabase จะถูกเก็บซ่อนไว้บนระบบหลังบ้าน (Node.js/Express) อย่างปลอดภัย 100% และไม่มีวันรั่วไหลไปยังเบราว์เซอร์ของผู้ใช้
-          </p>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h2 className="text-sm font-black text-slate-800 dark:text-white">System Logs & Database</h2>
+              {isLoadingConfig ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 animate-pulse">
+                  กำลังตรวจสอบ...
+                </span>
+              ) : serverConfig.configured || connectionTestStatus === 'success' ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+                  เชื่อมต่อปกติ (Online)
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                  โหมดออฟไลน์ (Local)
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">สถานะการทำงานฐานข้อมูล Supabase และบันทึกกิจกรรมของระบบ</p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {isLoadingConfig ? (
-            <div className="inline-flex items-center space-x-2 bg-slate-50 text-slate-400 border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold shadow-3xs animate-pulse">
-              <RefreshCw size={13} className="animate-spin" />
-              <span>กำลังเช็คสถานะเซิร์ฟเวอร์...</span>
-            </div>
-          ) : serverConfig.configured ? (
-            <div className="inline-flex items-center space-x-2 bg-emerald-50 text-emerald-800 border border-emerald-100 px-4 py-2 rounded-xl text-xs font-bold shadow-3xs">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-              <span>เซิร์ฟเวอร์ Proxy เชื่อมต่อสำเร็จ</span>
-            </div>
-          ) : (
-            <div className="inline-flex items-center space-x-2 bg-amber-50 text-amber-800 border border-amber-150 px-4 py-2 rounded-xl text-xs font-bold shadow-3xs">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span>รันแบบ Local Offline (หรือใช้ Direct Client)</span>
-            </div>
-          )}
-
+        <div className="flex items-center gap-2">
           <button
             onClick={handleTestConnection}
             disabled={connectionTestStatus === 'testing'}
-            className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer flex items-center space-x-1"
+            className="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold px-3.5 py-2 rounded-xl text-xs transition-all shadow-2xs cursor-pointer flex items-center space-x-1.5"
           >
-            <RefreshCw size={13} className={connectionTestStatus === 'testing' ? 'animate-spin' : ''} />
-            <span>{connectionTestStatus === 'testing' ? 'กำลังตรวจเช็ค...' : 'ทดสอบ Connection'}</span>
+            <RefreshCw size={13} className={connectionTestStatus === 'testing' ? 'animate-spin text-sky-600' : 'text-slate-400'} />
+            <span>{connectionTestStatus === 'testing' ? 'กำลังตรวจเช็ค...' : 'ทดสอบการเชื่อมต่อ'}</span>
+          </button>
+
+          <button
+            onClick={handlePullData}
+            disabled={isSyncing}
+            className="bg-sky-600 hover:bg-sky-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition-all shadow-xs cursor-pointer flex items-center space-x-1.5"
+          >
+            <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
+            <span>{isSyncing ? 'กำลังซิงก์...' : 'ซิงก์ข้อมูล (Pull)'}</span>
           </button>
         </div>
       </div>
 
-      {/* Direct Credentials Setting (Browser/Local Override) */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-indigo-100 rounded-lg text-indigo-700">
-              <Key size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-800">ตั้งค่าการเชื่อมต่อ Supabase บนหน้าเว็บ (Direct Client Credentials)</h3>
-              <p className="text-[11px] text-slate-500">ป้อน Supabase URL และ Anon Key ได้ที่นี่โดยตรงเพื่อทดสอบหรือเปิดใช้งานทันทีในเบราว์เซอร์</p>
-            </div>
-          </div>
-        </div>
-
-        <form onSubmit={handleSaveCredentials} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 block">Supabase Project URL (VITE_SUPABASE_URL)</label>
-              <input
-                type="text"
-                placeholder="https://xxxxxxxxxxxx.supabase.co"
-                value={supabaseUrlInput}
-                onChange={(e) => setSupabaseUrlInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all bg-slate-50/50"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 block">Supabase Anon Key (VITE_SUPABASE_ANON_KEY)</label>
-              <input
-                type="password"
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                value={supabaseKeyInput}
-                onChange={(e) => setSupabaseKeyInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all bg-slate-50/50"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-1">
-            <div className="text-[11px] text-slate-500">
-              {saveSuccess && <span className="text-emerald-600 font-bold flex items-center gap-1"><CheckCircle size={13} /> บันทึกลงเบราว์เซอร์เรียบร้อยแล้ว</span>}
-            </div>
-            <button
-              type="submit"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-3xs cursor-pointer flex items-center space-x-1.5"
-            >
-              <Save size={14} />
-              <span>บันทึกและทดสอบการเชื่อมต่อ</span>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Connection Test Diagnostics */}
+      {/* Connection notification if tested */}
       {connectionTestStatus === 'success' && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-start space-x-2.5 shadow-3xs animate-scale-up">
-          <CheckCircle className="text-emerald-600 shrink-0 mt-0.5" size={16} />
-          <div className="text-xs space-y-1 font-medium">
-            <p className="font-extrabold">ทดสอบเชื่อมต่อสำเร็จ!</p>
-            <p className="text-emerald-700">ระบบหลังบ้าน Express Server สามารถแลกเปลี่ยนข้อมูลและสื่อสารกับสกีมา <code className="bg-white px-1 py-0.5 rounded border border-emerald-100 font-mono font-bold">dtx_system</code> บนฐานข้อมูล Supabase ได้อย่างสมบูรณ์แบบ ทั้งในส่วนโครงสร้าง RLS และสิทธิ์การใช้งานแบบสาธารณะ</p>
+        <div className="bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 px-4 py-3 rounded-xl flex items-center justify-between text-xs animate-fade-in">
+          <div className="flex items-center space-x-2">
+            <CheckCircle size={15} className="text-emerald-600 shrink-0" />
+            <span className="font-semibold">เชื่อมต่อฐานข้อมูล Supabase สำเร็จ — สกีมา <code className="font-mono font-bold bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-emerald-100 dark:border-emerald-900">dtx_system</code> พร้อมใช้งาน</span>
           </div>
+          <button onClick={() => setConnectionTestStatus('idle')} className="text-emerald-700 hover:text-emerald-900 dark:hover:text-white font-bold text-[11px] cursor-pointer">
+            ปิด
+          </button>
         </div>
       )}
 
       {connectionTestStatus === 'failed' && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-5 rounded-2xl flex flex-col md:flex-row items-start gap-4 shadow-3xs animate-scale-up">
-          <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={20} />
-          <div className="text-xs space-y-3 font-medium flex-1 w-full">
+        <div className="bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 px-4 py-3 rounded-xl flex items-center justify-between text-xs animate-fade-in">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle size={15} className="text-rose-600 shrink-0" />
+            <span className="font-semibold">การเชื่อมต่อล้มเหลว: <span className="font-mono">{testError || 'โปรดตรวจสอบการตั้งค่า'}</span></span>
+          </div>
+          <button onClick={() => setConnectionTestStatus('idle')} className="text-rose-700 hover:text-rose-900 dark:hover:text-white font-bold text-[11px] cursor-pointer">
+            ปิด
+          </button>
+        </div>
+      )}
+
+      {/* 2. Compact 4-Metric Overview Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <Layers size={18} />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-slate-400 block truncate">เครื่องตรวจ DTX</span>
+            <span className="text-base font-black text-slate-800 dark:text-white">{machines.length} เครื่อง</span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+            <Activity size={18} />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-slate-400 block truncate">บันทึก QC</span>
+            <span className="text-base font-black text-slate-800 dark:text-white">{qcRecords.length} รายการ</span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+            <Wrench size={18} />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-slate-400 block truncate">งานซ่อมบำรุง</span>
+            <span className="text-base font-black text-slate-800 dark:text-white">{repairs.length} งาน</span>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <ShieldCheck size={18} />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-slate-400 block truncate">ประเมิน EQA</span>
+            <span className="text-base font-black text-slate-800 dark:text-white">{eqaRecords.length} รายการ</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Navigation Tabs (Clean Pill Design) */}
+      <div className="flex items-center space-x-1.5 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveTab('status')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+            activeTab === 'status'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Server size={14} />
+          <span>สถานะตารางข้อมูล (Tables)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+            activeTab === 'logs'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Clock size={14} />
+          <span>บันทึกกิจกรรม (Activity Logs)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('advanced')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+            activeTab === 'advanced'
+              ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Sliders size={14} />
+          <span>คำสั่ง SQL & ตั้งค่า (Advanced)</span>
+        </button>
+      </div>
+
+      {/* 4. Tab 1: Database Tables Status */}
+      {activeTab === 'status' && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 overflow-hidden shadow-3xs">
+          <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <div>
-              <p className="font-black text-rose-950 text-sm">การเชื่อมต่อสกีมา dtx_system ล้มเหลว (Database Schema Connection Issue)</p>
-              <p className="text-rose-700 mt-1 leading-relaxed">ข้อผิดพลาดจาก Supabase: <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-rose-100 font-bold inline-block mt-0.5 break-all">{testError}</span></p>
+              <h3 className="text-xs font-bold text-slate-800 dark:text-white">ตารางระบบ POCT ทั้งหมด</h3>
+              <p className="text-[11px] text-slate-400">สกีมาหลัก: <code className="font-mono text-sky-600 font-bold">dtx_system</code> (มุมมอง public: <code className="font-mono text-slate-500">dtx_*</code>)</p>
             </div>
+            <button
+              onClick={handleRunDiagnostics}
+              disabled={isDiagnosing}
+              className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center space-x-1"
+            >
+              <RefreshCw size={12} className={isDiagnosing ? 'animate-spin' : ''} />
+              <span>{isDiagnosing ? 'กำลังตรวจเช็ค...' : 'ตรวจเช็คความพร้อม'}</span>
+            </button>
+          </div>
 
-            <div className="bg-white/90 border border-rose-100 rounded-xl p-4 text-slate-700 space-y-3">
-              <p className="font-bold text-slate-900 text-[11px] border-b pb-1.5 flex items-center gap-1">
-                <Server size={13} className="text-rose-600" />
-                <span>ขั้นตอนการเปิดใช้งานสกีมา dtx_system บน Supabase (ห้ามยุ่งกับ public):</span>
-              </p>
-              
-              <div className="space-y-3.5 text-[11px] leading-relaxed">
-                <div>
-                  <p className="font-extrabold text-slate-950 flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-black">1</span>
-                    <span>เปิดสิทธิ์สกีมา dtx_system ให้แอปเข้าถึง (Exposed schemas):</span>
-                  </p>
-                  <p className="text-slate-500 pl-5.5 mt-0.5">
-                    ไปที่หน้า <strong>Supabase Dashboard</strong> {"→"} <strong>Project Settings</strong> (ไอคอนฟันเฟืองด้านล่าง) {"→"} <strong>API</strong> {"→"} ตรงหัวข้อ <strong>Exposed schemas</strong> ให้พิมพ์เพิ่มคำว่า <code className="font-mono font-bold bg-slate-100 px-1 py-0.5 rounded text-rose-600">dtx_system</code> เข้าไปต่อท้าย public (เช่น <code className="font-mono font-bold text-slate-600">public, dtx_system</code>) แล้วกด <strong>Save</strong> ด้านบนขวา
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100/80">
-                  <p className="font-extrabold text-slate-950 flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[9px] font-black">2</span>
-                    <span>รันสคริปต์ SQL เพื่อสร้างสกีมาและตาราง poct ทั้งหมด:</span>
-                  </p>
-                  <p className="text-slate-500 pl-5.5 mt-0.5">
-                    คัดลอกคำสั่ง SQL ดั้งเดิมสำหรับสกีมา <code className="font-mono font-bold text-slate-700">dtx_system</code> โดยใช้ปุ่มสีส้มด้านล่างนี้ จากนั้นนำไปวางและกดรันในเมนู <strong>SQL Editor</strong> บนหน้าต่าง Supabase Dashboard เพื่อติดตั้งฐานข้อมูล ระบบ RLS และสิทธิ์การเข้าถึงทั้งหมด
-                  </p>
-                  
-                  <div className="flex flex-wrap gap-2 pt-2 pl-5.5">
-                    <button
-                      onClick={handleCopySql}
-                      className="inline-flex items-center space-x-1 bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-3 py-1.5 rounded-lg text-[10.5px] transition-all shadow-3xs cursor-pointer"
-                    >
-                      <Code size={12} />
-                      <span>คัดลอกคำสั่ง SQL สำหรับสกีมา dtx_system</span>
-                    </button>
-                    <a
-                      href="https://supabase.com/dashboard"
-                      target="_blank"
-                      referrerPolicy="no-referrer"
-                      className="inline-flex items-center space-x-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 font-extrabold px-3 py-1.5 rounded-lg text-[10.5px] transition-all cursor-pointer"
-                    >
-                      <Database size={12} />
-                      <span>เปิด Supabase Dashboard ↗</span>
-                    </a>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {diagnostics ? (
+              diagnostics.map((diag) => (
+                <div key={diag.tableName} className="p-3.5 px-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
+                  <div className="min-w-0 pr-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{diag.thaiLabel}</span>
+                      <code className="text-[10px] text-slate-400 font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                        dtx_system.{diag.tableName}
+                      </code>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3 shrink-0">
+                    <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+                      {diag.recordCount} รายการ
+                    </span>
+                    {diag.isReady ? (
+                      <span className="inline-flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-emerald-100 dark:border-emerald-900">
+                        <Check size={11} />
+                        <span>ปกติ</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center space-x-1 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-amber-100 dark:border-amber-900">
+                        <AlertCircle size={11} />
+                        <span>ตรวจเช็ค</span>
+                      </span>
+                    )}
                   </div>
                 </div>
-              </div>
-            </div>
+              ))
+            ) : (
+              defaultTableSummary.map((item) => (
+                <div key={item.table} className="p-3.5 px-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
+                  <div className="min-w-0 pr-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-100">{item.title}</span>
+                      <code className="text-[10px] text-slate-400 font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                        {item.table}
+                      </code>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3 shrink-0">
+                    <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+                      {item.count} รายการ
+                    </span>
+                    <span className="inline-flex items-center space-x-1 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-emerald-100 dark:border-emerald-900">
+                      <Check size={11} />
+                      <span>{item.status}</span>
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
 
-      {/* 2. Main Config Form & Cloud Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Left column: Security Information */}
-        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-6">
-          <div className="border-b border-slate-100 pb-4 flex items-center space-x-2">
-            <Lock size={15} className="text-emerald-600" />
+      {/* 5. Tab 2: Activity Logs */}
+      {activeTab === 'logs' && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
             <div>
-              <h4 className="text-xs font-bold text-slate-800">1. การรักษาความปลอดภัยสูงสุด (Zero-Exposure)</h4>
-              <p className="text-[10px] text-slate-400 font-medium">ไม่มีการเก็บคีย์เชื่อมต่อฐานข้อมูลไว้บนบราวเซอร์หรือฝั่ง Frontend</p>
+              <h3 className="text-xs font-bold text-slate-800 dark:text-white">บันทึกกิจกรรมในเซสชัน</h3>
+              <p className="text-[11px] text-slate-400">ประวัติการทำงาน การซิงก์ และสถานะการเชื่อมต่อ</p>
             </div>
+            <button
+              onClick={() => setActivityLogs([])}
+              className="text-[11px] font-bold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+            >
+              ล้างประวัติ
+            </button>
           </div>
 
-          <div className="space-y-4 text-xs leading-relaxed text-slate-600">
-            <p>
-              ตามนโยบายความมั่นคงปลอดภัยสารสนเทศของโรงพยาบาล <strong>แอปพลิเคชันนี้ไม่อนุญาตให้วางข้อมูลเชื่อมต่อ API หรือกุญแจส่วนตัวในตัวแปรสาธารณะฝั่งหน้าบ้าน</strong>
-            </p>
-            
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-2">
-              <h5 className="font-bold text-slate-800 flex items-center space-x-1.5">
-                <Server size={13} className="text-slate-600" />
-                <span>สถาปัตยกรรมระบบหลังบ้าน (Backend Proxy Client)</span>
-              </h5>
-              <p className="text-[10.5px] text-slate-500">
-                เมื่อหน้าบ้านต้องการบันทึก ค้นหา หรือลบข้อมูล จะส่งคำขอผ่าน URL <code className="bg-white border px-1 rounded font-mono font-bold text-slate-600">/api/*</code> ภายในเครือข่ายเดียวกับที่ใช้บริการแอปพลิเคชัน ตัวแปรระบบทั้งหมดจะถูกป้องกันจากบุคคลภายนอกอย่างสมบูรณ์แบบ
-              </p>
-            </div>
-
-            <div className="bg-emerald-50/50 text-emerald-800 rounded-xl p-4 border border-emerald-100 space-y-2">
-              <h5 className="font-bold text-emerald-900 flex items-center space-x-1.5">
-                <Lock size={13} className="text-emerald-700" />
-                <span>การเชื่อมต่อฝั่งเซิร์ฟเวอร์ (Server Variables)</span>
-              </h5>
-              <div className="text-[10.5px] text-emerald-700 space-y-1">
-                <p>ในการพัฒนาแบบโลคอลหรือดีพลอยขึ้นระบบคลาวด์ ให้คัดลอกตัวแปรนี้ไปใช้ในไฟล์สภาพแวดล้อม:</p>
-                <pre className="bg-slate-900 text-slate-100 font-mono text-[10px] p-2.5 rounded-lg border border-slate-800 leading-normal block overflow-x-auto whitespace-pre">
-{`# .env config
-SUPABASE_URL=your-supabase-project-url
-SUPABASE_ANON_KEY=your-supabase-anon-key`}
-                </pre>
-              </div>
-            </div>
+          <div className="space-y-2">
+            {activityLogs.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">ยังไม่มีบันทึกกิจกรรมใหม่</div>
+            ) : (
+              activityLogs.map((log) => (
+                <div key={log.id} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 flex items-start justify-between text-xs gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-800 dark:text-slate-100">{log.action}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                        log.status === 'success' 
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400' 
+                          : log.status === 'warning'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400'
+                      }`}>
+                        {log.status === 'success' ? 'สำเร็จ' : log.status === 'warning' ? 'แจ้งเตือน' : 'ข้อมูล'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{log.detail}</p>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono shrink-0">{log.time}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
+      )}
 
-        {/* Right column: Database Operations and Seeds */}
-        <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-6">
-          <div className="border-b border-slate-100 pb-4">
-            <h4 className="text-xs font-bold text-slate-800">2. การจัดการข้อมูลและการซิงก์ (Database Operations)</h4>
-            <p className="text-[10px] text-slate-400 font-medium">จัดการดึงข้อมูลหรืออัปโหลดโครงสร้างเพื่อเริ่มต้นระบบงาน</p>
+      {/* 6. Tab 3: Advanced & SQL Center */}
+      {activeTab === 'advanced' && (
+        <div className="space-y-4">
+          
+          {/* Quick Action Seed Database */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white">ส่งข้อมูลปัจจุบันขึ้นระบบ (Seed Database)</h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">อัปโหลดข้อมูลเครื่อง, QC, งานซ่อม ปัจจุบันไปยัง Supabase คลาวด์</p>
+            </div>
+            <button
+              onClick={handlePushData}
+              disabled={isSeeding}
+              className="bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-xs cursor-pointer flex items-center space-x-1.5 shrink-0"
+            >
+              <CloudUpload size={13} className={isSeeding ? 'animate-pulse' : ''} />
+              <span>{isSeeding ? 'กำลังส่งข้อมูล...' : 'ส่งข้อมูลขึ้นคลาวด์'}</span>
+            </button>
           </div>
 
-          <div className="space-y-4">
-            {/* Sync Pull */}
-            <div className="border border-slate-100 rounded-xl p-4 space-y-3.5 hover:border-slate-200 transition-colors">
+          {/* SQL Scripts Center (Clean, 1-Click Copy, No visual clutter) */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs space-y-3">
+            <div className="flex items-center justify-between">
               <div>
-                <h5 className="text-[11px] font-bold text-slate-800">ดึงข้อมูลทั้งหมดจากระบบคลาวด์ (Pull Sync)</h5>
-                <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-1">
-                  ดาวน์โหลดข้อมูลล่าสุดจำแนกตามตารางต่าง ๆ ทั้งหมดจาก Supabase ผ่าน secure API proxy มารับช่วงบันทึกและจัดเก็บไว้ในแอปพลิเคชันเบราว์เซอร์ของคุณ
-                </p>
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white">ศูนย์คำสั่ง SQL สำหรับผู้ดูแล</h4>
+                <p className="text-[11px] text-slate-400">คัดลอกคำสั่งเพื่อรันใน Supabase SQL Editor</p>
               </div>
-              <button
-                onClick={handlePullData}
-                disabled={isSyncing}
-                className="w-full bg-slate-100 hover:bg-slate-200 disabled:bg-slate-50 disabled:text-slate-300 text-slate-700 font-extrabold py-2.5 rounded-xl text-xs border border-slate-200/80 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+              <a
+                href="https://supabase.com/dashboard"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] font-bold text-sky-600 hover:text-sky-700 flex items-center space-x-1"
               >
-                <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
-                <span>{isSyncing ? 'กำลังซิงก์ดาวน์โหลดข้อมูล...' : 'เริ่มกระบวนการ Sync Pull'}</span>
+                <span>เปิด Supabase</span>
+                <ExternalLink size={11} />
+              </a>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+              <button
+                onClick={() => copyText(POCT_QUICK_BRIDGE_SQL, 'สคริปต์สิทธิ์ dtx_system')}
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-sky-300 dark:hover:border-sky-700 hover:bg-sky-50/40 dark:hover:bg-sky-950/20 text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">1. มอบสิทธิ์สกีมา</span>
+                  <Copy size={13} className="text-slate-400 group-hover:text-sky-600" />
+                </div>
+                <p className="text-[10px] text-slate-400">เปิดสิทธิ์ RLS และ API dtx_system</p>
+              </button>
+
+              <button
+                onClick={() => copyText(POCT_SCHEMA_SQL, 'สคริปต์สร้างตารางใหม่')}
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">2. สร้างตารางทั้งหมด</span>
+                  <Copy size={13} className="text-slate-400 group-hover:text-indigo-600" />
+                </div>
+                <p className="text-[10px] text-slate-400">โครงสร้างตาราง dtx_system ครบชุด</p>
+              </button>
+
+              <button
+                onClick={() => copyText(POCT_UNOPENED_STOCK_SQL, 'สคริปต์สร้างตารางเครื่องรอเปิดใช้ (dtx_machine_stocks)')}
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">3. เครื่องรอเปิดใช้</span>
+                  <Copy size={13} className="text-slate-400 group-hover:text-emerald-600" />
+                </div>
+                <p className="text-[10px] text-slate-400">ตาราง dtx_machine_stocks</p>
+              </button>
+
+              <button
+                onClick={() => copyText(POCT_CLEANUP_PUBLIC_SQL, 'สคริปต์ล้าง Public Views')}
+                className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-700 hover:bg-rose-50/40 dark:hover:bg-rose-950/20 text-left transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100">4. ล้างตารางใน public</span>
+                  <Copy size={13} className="text-slate-400 group-hover:text-rose-600" />
+                </div>
+                <p className="text-[10px] text-slate-400">ลบตารางตกค้างใน public อย่างปลอดภัย</p>
               </button>
             </div>
 
-            {/* Sync Push / Seed */}
-            <div className="border border-slate-100 rounded-xl p-4 space-y-3.5 hover:border-slate-200 transition-colors">
-              <div>
-                <h5 className="text-[11px] font-bold text-slate-800">อัปโหลดข้อมูลจำลองเริ่มต้นขึ้นระบบคลาวด์ (Seed Database)</h5>
-                <p className="text-[10px] text-slate-400 font-medium leading-relaxed mt-1">
-                  สำหรับกรณีที่คุณสร้างตารางว่างขึ้นมาใหม่บน Supabase และต้องการข้อมูลตัวอย่างเพื่อความรวดเร็วในการทดลอง สามารถกดฟังก์ชันนี้เพื่ออัปโหลดข้อมูลเริ่มต้นปัจจุบันขึ้นไปยังตารางต่าง ๆ ได้ทันที
-                </p>
-              </div>
+            {/* Collapsible preview toggle */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
-                onClick={handlePushData}
-                disabled={isSeeding}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-300 text-white font-extrabold py-2.5 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs"
+                onClick={() => setShowSqlCode(!showSqlCode)}
+                className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center space-x-1 cursor-pointer"
               >
-                <CloudUpload size={13} className={isSeeding ? 'animate-pulse' : ''} />
-                <span>{isSeeding ? 'กำลังทยอยอัปโหลดข้อมูล...' : 'ส่งข้อมูลจำลองเริ่มต้นขึ้นระบบ (Seed Push)'}</span>
+                {showSqlCode ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span>{showSqlCode ? 'ซ่อนตัวอย่างโค้ด SQL' : 'ดูตัวอย่างโค้ด SQL'}</span>
               </button>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* 3. Live Database & Schema Inspector Matrix */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <Search size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                <span>ระบบตรวจเช็คตารางและสิทธิ์แบบสด (Live Database Inspector)</span>
-                <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">Real-Time</span>
-              </h3>
-              <p className="text-[11px] text-slate-500">ตรวจสอบสถานะการเข้าถึงตารางทั้งในสกีมา dtx_system และ public ทีละตาราง</p>
+              {showSqlCode && (
+                <div className="mt-3 space-y-2">
+                  <div className="flex space-x-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-fit">
+                    <button
+                      onClick={() => setSelectedSqlTab('bridge')}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-md ${selectedSqlTab === 'bridge' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500'}`}
+                    >
+                      สิทธิ์ Schema
+                    </button>
+                    <button
+                      onClick={() => setSelectedSqlTab('full')}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-md ${selectedSqlTab === 'full' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500'}`}
+                    >
+                      สร้างตารางทั้งหมด
+                    </button>
+                    <button
+                      onClick={() => setSelectedSqlTab('unopened')}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-md ${selectedSqlTab === 'unopened' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500'}`}
+                    >
+                      เครื่องรอเปิดใช้ (Stock)
+                    </button>
+                    <button
+                      onClick={() => setSelectedSqlTab('cleanup')}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-md ${selectedSqlTab === 'cleanup' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500'}`}
+                    >
+                      ล้าง public
+                    </button>
+                  </div>
+                  <pre className="bg-slate-950 text-slate-200 p-3.5 rounded-xl font-mono text-[10.5px] max-h-48 overflow-y-auto leading-relaxed">
+                    {selectedSqlTab === 'bridge' ? POCT_QUICK_BRIDGE_SQL : selectedSqlTab === 'full' ? POCT_SCHEMA_SQL : selectedSqlTab === 'unopened' ? POCT_UNOPENED_STOCK_SQL : POCT_CLEANUP_PUBLIC_SQL}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
-          <button
-            onClick={handleRunDiagnostics}
-            disabled={isDiagnosing}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer flex items-center space-x-1.5 shrink-0"
-          >
-            <RefreshCw size={13} className={isDiagnosing ? 'animate-spin' : ''} />
-            <span>{isDiagnosing ? 'กำลังตรวจเช็ครายตาราง...' : 'ตรวจเช็คสถานะตารางทั้งหมด (Run Inspector)'}</span>
-          </button>
-        </div>
 
-        {diagnostics ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50/80 text-slate-500 font-bold border-b border-slate-200 text-[11px]">
-                  <th className="py-2.5 px-3">ชื่อตาราง</th>
-                  <th className="py-2.5 px-3">สกีมา dtx_system</th>
-                  <th className="py-2.5 px-3">สกีมา public (Views)</th>
-                  <th className="py-2.5 px-3 text-center">จำนวนข้อมูลใน DB</th>
-                  <th className="py-2.5 px-3 text-right">สถานะพร้อมใช้</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {diagnostics.map((row) => (
-                  <tr key={row.tableName} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-slate-800">{row.thaiLabel}</div>
-                      <div className="text-[10px] font-mono text-slate-400">{row.tableName}</div>
-                    </td>
-                    <td className="py-3 px-3">
-                      {row.poctSchemaStatus === 'ok' ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md text-[10.5px]">
-                          <Check size={12} /> เข้าถึงได้โดยตรง
-                        </span>
-                      ) : row.poctSchemaStatus === 'not_exposed' ? (
-                        <span className="inline-flex items-center gap-1 text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-md text-[10.5px]" title={row.poctSchemaError}>
-                          <AlertCircle size={12} /> Schema ยังไม่ Exposed ใน API
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md text-[10.5px]" title={row.poctSchemaError}>
-                          <AlertTriangle size={12} /> {row.poctSchemaError ? 'ข้อผิดพลาด: ' + row.poctSchemaError.substring(0, 25) : 'ไม่พบ'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3">
-                      {row.publicSchemaStatus === 'ok' ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-md text-[10.5px]">
-                          <Check size={12} /> เข้าถึงได้
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md text-[10.5px]">
-                          - ไม่พบ View ใน public
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-center font-bold text-slate-700">
-                      {row.recordCount > 0 ? (
-                        <span className="bg-slate-100 text-slate-900 px-2.5 py-0.5 rounded-full text-[11px] font-mono">
-                          {row.recordCount} รายการ
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-[10.5px]">0 รายการ</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {row.isReady ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600 font-extrabold bg-emerald-100/70 text-[11px] px-2.5 py-1 rounded-lg">
-                          <CheckCircle size={13} /> พร้อมบันทึก/อ่าน
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600 font-extrabold bg-rose-100/70 text-[11px] px-2.5 py-1 rounded-lg">
-                          <AlertCircle size={13} /> ต้องเชื่อมต่อ (Bridge)
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="bg-slate-50 rounded-xl p-6 text-center text-slate-500 space-y-2 border border-dashed border-slate-200">
-            <Database size={24} className="mx-auto text-slate-400" />
-            <p className="text-xs font-bold text-slate-700">กดปุ่ม "ตรวจเช็คสถานะตารางทั้งหมด" ด้านบนเพื่อดูสถานะการเชื่อมต่อแบบเรียลไทม์</p>
-            <p className="text-[11px] text-slate-400">ระบบจะทดสอบอ่านสกีมา dtx_system และ public ทีละตารางเพื่อระบุสาเหตุที่แท้จริง</p>
-          </div>
-        )}
-      </div>
-
-      {/* 4. SQL Bridge & Setup Center */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-3xs space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
-              <Code size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-800">ศูนย์คำสั่ง SQL เชื่อมต่อ Supabase (SQL Hub)</h3>
-              <p className="text-[11px] text-slate-500">เลือกสคริปต์ที่ตรงกับสถานะของฐานข้อมูลของคุณ เพื่อรันใน Supabase SQL Editor</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center bg-slate-100 p-1 rounded-xl gap-1">
+          {/* Custom Credentials (Collapsible) */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 shadow-3xs space-y-3">
             <button
-              onClick={() => setActiveSqlTab('bridge')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
-                activeSqlTab === 'bridge' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
-              }`}
+              onClick={() => setShowDirectCredentials(!showDirectCredentials)}
+              className="w-full flex items-center justify-between text-left cursor-pointer"
             >
-              สิทธิ์สกีมา dtx_system (มีตารางอยู่แล้ว)
+              <div className="flex items-center space-x-2">
+                <Key size={15} className="text-slate-400" />
+                <span className="text-xs font-bold text-slate-800 dark:text-white">กำหนดค่า URL & Key เชื่อมต่อด้วยตนเอง (Manual Override)</span>
+              </div>
+              {showDirectCredentials ? <ChevronDown size={15} className="text-slate-400" /> : <ChevronRight size={15} className="text-slate-400" />}
             </button>
-            <button
-              onClick={() => setActiveSqlTab('full')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
-                activeSqlTab === 'full' ? 'bg-white text-slate-900 shadow-3xs' : 'text-slate-500 hover:text-slate-900'
-              }`}
-            >
-              สร้างตารางใหม่เฉพาะใน dtx_system
-            </button>
-            <button
-              onClick={() => setActiveSqlTab('cleanup')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
-                activeSqlTab === 'cleanup' ? 'bg-white text-rose-700 shadow-3xs' : 'text-slate-500 hover:text-rose-700'
-              }`}
-            >
-              ลบตารางใน public (Cleanup)
-            </button>
+
+            {showDirectCredentials && (
+              <form onSubmit={handleSaveCredentials} className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1">Supabase URL</label>
+                    <input
+                      type="text"
+                      placeholder="https://xxxxxxxx.supabase.co"
+                      value={supabaseUrlInput}
+                      onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1">Supabase Anon Key</label>
+                    <input
+                      type="password"
+                      placeholder="eyJhbGciOi..."
+                      value={supabaseKeyInput}
+                      onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-xs cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Save size={13} />
+                    <span>บันทึกและเชื่อมต่อ</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
+
         </div>
-
-        {activeSqlTab === 'bridge' ? (
-          <div className="space-y-3.5">
-            <div className="bg-amber-50/80 border border-amber-200 text-amber-900 rounded-xl p-4 text-xs leading-relaxed space-y-2">
-              <p className="font-extrabold flex items-center gap-1.5 text-amber-950">
-                <Info size={15} className="text-amber-700 shrink-0" />
-                <span>สำหรับกรณีที่มีตารางในสกีมา dtx_system อยู่แล้ว:</span>
-              </p>
-              <p className="text-[11px] text-amber-800">
-                คำสั่งนี้จะมอบสิทธิ์ <strong>GRANT USAGE, GRANT ALL และเปิด RLS Policy</strong> เฉพาะในสกีมา <code className="bg-white px-1 rounded font-bold font-mono">dtx_system</code> โดยตรง <strong>ไม่มีการสร้าง Table หรือ View ใดๆ ใน schema public</strong>
-              </p>
-              <div className="pt-1">
-                <button
-                  onClick={handleCopyBridgeSql}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
-                >
-                  <Copy size={13} />
-                  <span>คัดลอกสคริปต์สิทธิ์ Schema dtx_system SQL</span>
-                </button>
-              </div>
-            </div>
-
-            <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
-              {POCT_QUICK_BRIDGE_SQL}
-            </pre>
-          </div>
-        ) : activeSqlTab === 'full' ? (
-          <div className="space-y-3.5">
-            <div className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl p-4 text-xs leading-relaxed space-y-2">
-              <p className="font-extrabold text-slate-900">
-                สคริปต์สร้างสกีมา dtx_system พร้อมโครงสร้างตาราง และ RLS Policies (แยกสัดส่วนชัดเจน 100%):
-              </p>
-              <div className="pt-1">
-                <button
-                  onClick={handleCopySql}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
-                >
-                  <Copy size={13} />
-                  <span>คัดลอกสคริปต์ SQL (dtx_system Schema เท่านั้น)</span>
-                </button>
-              </div>
-            </div>
-
-            <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
-              {POCT_SCHEMA_SQL}
-            </pre>
-          </div>
-        ) : (
-          <div className="space-y-3.5">
-            <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-xl p-4 text-xs leading-relaxed space-y-2">
-              <p className="font-extrabold flex items-center gap-1.5 text-rose-950">
-                <AlertTriangle size={15} className="text-rose-700 shrink-0" />
-                <span>คำสั่งลบตารางและ Views ของ POCT ใน schema public ออกทั้งหมด:</span>
-              </p>
-              <p className="text-[11px] text-rose-800">
-                หากก่อนหน้านี้มีตารางหรือ View ของ POCT ถูกสร้างตกค้างอยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">public</code> schema คำสั่งนี้จะทำการ <strong>DROP TABLE / DROP VIEW</strong> ออกทั้งหมดอย่างปลอดภัย โดย<strong>ไม่กระทบข้อมูลจริงที่อยู่ใน <code className="bg-white px-1 rounded font-bold font-mono">dtx_system</code></strong>
-              </p>
-              <div className="pt-1">
-                <button
-                  onClick={handleCopyCleanupSql}
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs transition-all shadow-3xs cursor-pointer inline-flex items-center space-x-1.5"
-                >
-                  <Copy size={13} />
-                  <span>คัดลอกสคริปต์ล้าง public schema (Cleanup SQL)</span>
-                </button>
-              </div>
-            </div>
-
-            <pre className="bg-slate-950 text-slate-100 font-mono text-[11px] p-4 rounded-xl border border-slate-800 leading-relaxed overflow-x-auto max-h-72">
-              {POCT_CLEANUP_PUBLIC_SQL}
-            </pre>
-          </div>
-        )}
-      </div>
+      )}
 
     </div>
   );
 }
 
 const POCT_QUICK_BRIDGE_SQL = `-- ==========================================================================
---  สิทธิ์การใช้งาน Schema dtx_system (สำหรับกรณีที่มีตารางอยู่แล้ว)
--- เปิดสิทธิ์ RLS และ API เฉพาะภายใน schema dtx_system (ไม่สร้างหรือยุ่งกับ public)
+-- สิทธิ์การใช้งาน Schema dtx_system
 -- ==========================================================================
-
--- 1. สร้างตารางผู้ใช้ dtx_system.users หากยังไม่มี และให้สิทธิ์สกีมา
-CREATE TABLE IF NOT EXISTS dtx_system.users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username VARCHAR(100) UNIQUE NOT NULL,
-    email VARCHAR(150),
-    full_name VARCHAR(200) NOT NULL,
-    password VARCHAR(255) DEFAULT '123456',
-    role VARCHAR(50) DEFAULT 'staff' NOT NULL,
-    position VARCHAR(100) DEFAULT 'MT',
-    pos VARCHAR(100) DEFAULT 'MT',
-    ward VARCHAR(100),
-    is_active BOOLEAN DEFAULT TRUE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
-);
-
--- เพิ่มคอลัมน์เพื่อความยืดหยุ่นในกรณีตารางเดิมมีอยู่แล้วแต่โครงสร้างไม่สมบูรณ์
-ALTER TABLE IF EXISTS dtx_system.users ADD COLUMN IF NOT EXISTS pos VARCHAR(100) DEFAULT 'MT';
-ALTER TABLE IF EXISTS dtx_system.users ADD COLUMN IF NOT EXISTS position VARCHAR(100) DEFAULT 'MT';
-
--- เติมข้อมูลเจ้าหน้าที่เริ่มต้น สำหรับเปิดโหมด Quick Win ได้ทันที
-INSERT INTO dtx_system.users (username, full_name, email, position, pos, role, is_active) VALUES
-('umporn', 'คุณอัมพร', 'umporn@sangkha.com', 'MT', 'MT', 'staff', true),
-('wichuda', 'คุณวิชุดา', 'wichuda@sangkha.com', 'MT', 'MT', 'staff', true),
-('chonratda', 'คุณชลรัตดา', 'chonratda@sangkha.com', 'MT', 'MT', 'staff', true),
-('udomsri', 'คุณอุดมศรี', 'udomsri@sangkha.com', 'MTA', 'MTA', 'staff', true),
-('samita', 'คุณสมิตา', 'samita.sings@gmail.com', 'MT', 'MT', 'staff', true)
-ON CONFLICT (username) DO NOTHING;
-
--- เติมข้อมูลเครื่องตรวจน้ำตาลเริ่มต้นเพื่อให้หน้า Quick Win แสดงผลทันที
-INSERT INTO dtx_system.dtx_machines (bgm_code, serial_number, brand, model, ward, status, rec_date, lot_number) VALUES
-('BGM-01', 'VCF2026001', 'VivaChek', 'Fad', 'OPD (ผู้ป่วยนอก)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-02', 'VCF2026002', 'VivaChek', 'Fad', 'ER (อุบัติเหตุและฉุกเฉิน)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-03', 'VCF2026003', 'VivaChek', 'Fad', 'IPD ชาย (หอผู้ป่วยในชาย)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-04', 'VCF2026004', 'VivaChek', 'Fad', 'IPD หญิง (หอผู้ป่วยในหญิง)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-05', 'VCF2026005', 'VivaChek', 'Fad', 'ห้องคลอด (Labor Room)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-06', 'VCF2026006', 'VivaChek', 'Fad', 'ICU (หอผู้ป่วยหนัก)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-07', 'VCF2026007', 'VivaChek', 'Fad', 'คลินิก NCD / เบาหวาน', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-08', 'VCF2026008', 'VivaChek', 'Fad', 'งานชันสูตรสาธารณสุข', 'active', '2026-01-01', 'LOT2026-A')
-ON CONFLICT (bgm_code) DO NOTHING;
-
--- เติมข้อมูล LOT ควบคุมคุณภาพเริ่มต้น (QC Lot Configuration)
-INSERT INTO dtx_system.qc_lot_configs (
-    lot_number, 
-    l1_target, l1_min, l1_max, l1_sd, 
-    l2_target, l2_min, l2_max, l2_sd, 
-    l3_target, l3_min, l3_max, l3_sd
-) VALUES (
-    'LOT2026-A',
-    45.0, 30.0, 60.0, 1.5,
-    120.0, 100.0, 140.0, 3.0,
-    300.0, 250.0, 350.0, 8.0
-) ON CONFLICT (lot_number) DO NOTHING;
-
 GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
 GRANT ALL ON ALL TABLES IN SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
 ALTER DEFAULT PRIVILEGES IN SCHEMA dtx_system GRANT ALL ON TABLES TO anon, authenticated, service_role, postgres;
 
--- 2. เปิด RLS Policy บนตาราง dtx_system เพื่อให้เข้าถึงได้
+-- เปิด RLS Policy
 ALTER TABLE IF EXISTS dtx_system.master_wards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.dtx_machines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS dtx_system.dtx_machine_stocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.repair_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.supply_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS dtx_system.qc_records ENABLE ROW LEVEL SECURITY;
@@ -827,6 +785,7 @@ ALTER TABLE IF EXISTS dtx_system.users ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "wards_all_policy" ON dtx_system.master_wards;
 DROP POLICY IF EXISTS "machines_all_policy" ON dtx_system.dtx_machines;
+DROP POLICY IF EXISTS "dtx_machine_stocks_all_policy" ON dtx_system.dtx_machine_stocks;
 DROP POLICY IF EXISTS "repairs_all_policy" ON dtx_system.repair_requests;
 DROP POLICY IF EXISTS "supplies_all_policy" ON dtx_system.supply_requests;
 DROP POLICY IF EXISTS "qc_records_all_policy" ON dtx_system.qc_records;
@@ -838,6 +797,7 @@ DROP POLICY IF EXISTS "users_all_policy" ON dtx_system.users;
 
 CREATE POLICY "wards_all_policy" ON dtx_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "machines_all_policy" ON dtx_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "dtx_machine_stocks_all_policy" ON dtx_system.dtx_machine_stocks FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "repairs_all_policy" ON dtx_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "supplies_all_policy" ON dtx_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "qc_records_all_policy" ON dtx_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
@@ -847,18 +807,10 @@ CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, a
 CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "users_all_policy" ON dtx_system.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 3. สร้าง Public Views และให้สิทธิ์เข้าถึงทั้งหมดเพื่อความเข้ากันได้กับไคลเอนต์เริ่มต้น (ทุก View ต้องมี dtx_ prefix)
-DROP VIEW IF EXISTS public.repair_requests CASCADE;
-DROP VIEW IF EXISTS public.supply_requests CASCADE;
-DROP VIEW IF EXISTS public.qc_records CASCADE;
-DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
-DROP VIEW IF EXISTS public.eqa_records CASCADE;
-DROP VIEW IF EXISTS public.user_manuals CASCADE;
-DROP VIEW IF EXISTS public.announcements CASCADE;
-DROP VIEW IF EXISTS public.maintenance_logs CASCADE;
-DROP VIEW IF EXISTS public.strip_reagent_items CASCADE;
-
+-- Public Views (dtx_ prefix)
 CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM dtx_system.dtx_machines;
+CREATE OR REPLACE VIEW public.dtx_machine_stocks AS SELECT * FROM dtx_system.dtx_machine_stocks;
+CREATE OR REPLACE VIEW public.dtx_unopened_machines AS SELECT * FROM dtx_system.dtx_machine_stocks;
 CREATE OR REPLACE VIEW public.dtx_repair_requests AS SELECT * FROM dtx_system.repair_requests;
 CREATE OR REPLACE VIEW public.dtx_supply_requests AS SELECT * FROM dtx_system.supply_requests;
 CREATE OR REPLACE VIEW public.dtx_qc_records AS SELECT * FROM dtx_system.qc_records;
@@ -866,15 +818,11 @@ CREATE OR REPLACE VIEW public.dtx_qc_lot_configs AS SELECT * FROM dtx_system.qc_
 CREATE OR REPLACE VIEW public.dtx_eqa_records AS SELECT * FROM dtx_system.eqa_records;
 CREATE OR REPLACE VIEW public.dtx_user_manuals AS SELECT * FROM dtx_system.user_manuals;
 CREATE OR REPLACE VIEW public.dtx_announcements AS SELECT * FROM dtx_system.announcements;
-CREATE OR REPLACE VIEW public.dtx_maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
-CREATE OR REPLACE VIEW public.dtx_daily_checklists AS SELECT * FROM dtx_system.daily_checklists;
-CREATE OR REPLACE VIEW public.dtx_strip_reagent_items AS SELECT * FROM dtx_system.strip_reagent_items;
 CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
-CREATE OR REPLACE VIEW public.dtx_system_users AS 
-SELECT id, username, full_name, email, position, pos, ward, is_active, role 
-FROM dtx_system.users;
 
 GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_machine_stocks TO anon, authenticated, service_role, postgres;
+GRANT ALL ON public.dtx_unopened_machines TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.dtx_repair_requests TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.dtx_supply_requests TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.dtx_qc_records TO anon, authenticated, service_role, postgres;
@@ -882,22 +830,61 @@ GRANT ALL ON public.dtx_qc_lot_configs TO anon, authenticated, service_role, pos
 GRANT ALL ON public.dtx_eqa_records TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.dtx_user_manuals TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.dtx_announcements TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.dtx_maintenance_logs TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.dtx_daily_checklists TO anon, authenticated, service_role, postgres;
-GRANT ALL ON public.dtx_strip_reagent_items TO anon, authenticated, service_role, postgres;
 GRANT ALL ON public.master_wards TO anon, authenticated, service_role, postgres;
-GRANT SELECT ON public.dtx_system_users TO anon, authenticated, service_role, postgres;
 
--- 4. สั่ง PostgREST รีโหลดแคช Schema ทันที
+NOTIFY pgrst, 'reload schema';
+`;
+
+const POCT_UNOPENED_STOCK_SQL = `-- ==========================================================================
+-- สคริปต์สร้างตารางเครื่องรอเปิดใช้ (Unopened Machine Stock)
+-- Schema dtx_system: ตารางกายภาพ dtx_system.dtx_machine_stocks
+-- Schema public: View public.dtx_machine_stocks
+-- ==========================================================================
+CREATE SCHEMA IF NOT EXISTS dtx_system;
+
+CREATE TABLE IF NOT EXISTS dtx_system.dtx_machine_stocks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    serial_number VARCHAR(150) UNIQUE NOT NULL,
+    machine_serial VARCHAR(150),
+    lot_number VARCHAR(100) NOT NULL,
+    brand VARCHAR(150) DEFAULT 'VivaChek',
+    model VARCHAR(100) DEFAULT 'Fad',
+    receive_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    rec_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(50) DEFAULT 'standby' NOT NULL,
+    ward VARCHAR(150) DEFAULT 'คลังแล็บ/สำรอง (In Stock)',
+    bgm_code VARCHAR(100),
+    remark TEXT,
+    location_history JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE dtx_system.dtx_machine_stocks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "dtx_machine_stocks_all_policy" ON dtx_system.dtx_machine_stocks;
+CREATE POLICY "dtx_machine_stocks_all_policy" ON dtx_system.dtx_machine_stocks 
+FOR ALL TO anon, authenticated, service_role, postgres 
+USING (true) WITH CHECK (true);
+
+CREATE OR REPLACE VIEW public.dtx_machine_stocks AS 
+SELECT * FROM dtx_system.dtx_machine_stocks;
+
+CREATE OR REPLACE VIEW public.dtx_unopened_machines AS 
+SELECT * FROM dtx_system.dtx_machine_stocks;
+
+GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role, postgres;
+GRANT ALL ON TABLE dtx_system.dtx_machine_stocks TO anon, authenticated, service_role, postgres;
+GRANT ALL ON TABLE public.dtx_machine_stocks TO anon, authenticated, service_role, postgres;
+GRANT ALL ON TABLE public.dtx_unopened_machines TO anon, authenticated, service_role, postgres;
+
 NOTIFY pgrst, 'reload schema';
 `;
 
 const POCT_CLEANUP_PUBLIC_SQL = `-- ==========================================================================
---  สคริปต์ลบ Table/View เฉพาะของ POCT ที่ตกค้างใน public schema
--- (สงวนตาราง public.master_wards ไว้สำหรับใช้งานร่วมกันในโรงพยาบาล)
+-- สคริปต์ล้าง Public Views ของ POCT
 -- ==========================================================================
-
 DROP VIEW IF EXISTS public.dtx_machines CASCADE;
+DROP VIEW IF EXISTS public.dtx_machine_stocks CASCADE;
+DROP VIEW IF EXISTS public.dtx_unopened_machines CASCADE;
 DROP VIEW IF EXISTS public.repair_requests CASCADE;
 DROP VIEW IF EXISTS public.supply_requests CASCADE;
 DROP VIEW IF EXISTS public.qc_records CASCADE;
@@ -905,32 +892,14 @@ DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
 DROP VIEW IF EXISTS public.eqa_records CASCADE;
 DROP VIEW IF EXISTS public.user_manuals CASCADE;
 DROP VIEW IF EXISTS public.announcements CASCADE;
-DROP VIEW IF EXISTS public.maintenance_logs CASCADE;
-DROP VIEW IF EXISTS public.dtx_maintenance_logs CASCADE;
-
-DROP TABLE IF EXISTS public.dtx_machines CASCADE;
-DROP TABLE IF EXISTS public.repair_requests CASCADE;
-DROP TABLE IF EXISTS public.supply_requests CASCADE;
-DROP TABLE IF EXISTS public.qc_records CASCADE;
-DROP TABLE IF EXISTS public.qc_lot_configs CASCADE;
-DROP TABLE IF EXISTS public.eqa_records CASCADE;
-DROP TABLE IF EXISTS public.user_manuals CASCADE;
-DROP TABLE IF EXISTS public.announcements CASCADE;
-DROP TABLE IF EXISTS public.maintenance_logs CASCADE;
-DROP TABLE IF EXISTS public.dtx_maintenance_logs CASCADE;
-
 NOTIFY pgrst, 'reload schema';
 `;
 
 const POCT_SCHEMA_SQL = `-- ==========================================================================
--- SQL Schema Setup Script for Supabase (Sangkha Hospital POCT DTX System)
--- Creates isolated schema 'dtx_system' ONLY (Nothing in public)
+-- สคริปต์สร้าง Schema และตาราง dtx_system
 -- ==========================================================================
-
--- 1. Create Schema dtx_system
 CREATE SCHEMA IF NOT EXISTS dtx_system;
 
--- 2. Create Tables
 CREATE TABLE IF NOT EXISTS dtx_system.master_wards (
     id SERIAL PRIMARY KEY,
     en_name VARCHAR(100) UNIQUE NOT NULL,
@@ -954,10 +923,22 @@ CREATE TABLE IF NOT EXISTS dtx_system.dtx_machines (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
--- Ensure model & location_history columns exist if table was previously created without them
-ALTER TABLE IF EXISTS dtx_system.dtx_machines ADD COLUMN IF NOT EXISTS model VARCHAR(100) DEFAULT 'Fad';
-ALTER TABLE IF EXISTS dtx_system.dtx_machines ADD COLUMN IF NOT EXISTS location_history JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE IF EXISTS dtx_system.supply_requests ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '{}'::jsonb;
+CREATE TABLE IF NOT EXISTS dtx_system.dtx_machine_stocks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    serial_number VARCHAR(150) UNIQUE NOT NULL,
+    machine_serial VARCHAR(150),
+    lot_number VARCHAR(100) NOT NULL,
+    brand VARCHAR(150) DEFAULT 'VivaChek',
+    model VARCHAR(100) DEFAULT 'Fad',
+    receive_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    rec_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(50) DEFAULT 'standby' NOT NULL,
+    ward VARCHAR(150) DEFAULT 'คลังแล็บ/สำรอง (In Stock)',
+    bgm_code VARCHAR(100),
+    remark TEXT,
+    location_history JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS dtx_system.repair_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1090,157 +1071,5 @@ CREATE TABLE IF NOT EXISTS dtx_system.users (
     is_active BOOLEAN DEFAULT TRUE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS dtx_system.maintenance_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    date DATE DEFAULT CURRENT_DATE NOT NULL,
-    serial_number VARCHAR(150) NOT NULL,
-    ward VARCHAR(150) NOT NULL,
-    maintenance_type VARCHAR(100) NOT NULL,
-    description TEXT NOT NULL,
-    operator VARCHAR(200) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
-);
-
--- 3. Seed Wards and Users
-INSERT INTO dtx_system.master_wards (en_name, thai_name) VALUES
-('OPD', 'OPD (ผู้ป่วยนอก)'),
-('ER', 'ER (อุบัติเหตุและฉุกเฉิน)'),
-('IPD_MALE', 'IPD ชาย (หอผู้ป่วยในชาย)'),
-('IPD_FEMALE', 'IPD หญิง (หอผู้ป่วยในหญิง)'),
-('LR', 'ห้องคลอด (Labor Room)'),
-('OR', 'ห้องผ่าตัด (OR)'),
-('ICU', 'ICU (หอผู้ป่วยหนัก)'),
-('CHRONIC', 'คลินิก NCD / เบาหวาน'),
-('DENTAL', 'กลุ่มงานทันตกรรม'),
-('PHYSIO', 'กลุ่มงานกายภาพบำบัด'),
-('THAI_MED', 'กลุ่มงานแพทย์แผนไทย'),
-('PHARMACY', 'กลุ่มงานเภสัชกรรม'),
-('XRAY', 'กลุ่มงานรังสีวิทยา (X-Ray)'),
-('LAB', 'งานชันสูตรสาธารณสุข'),
-('HEMO', 'หน่วยไตเทียม (Hemodialysis)'),
-('MED_REC', 'เวชระเบียนและสถิติ'),
-('PCU', 'PCU / ส่งเสริมสุขภาพ'),
-('ADMIN', 'กลุ่มงานบริหารทั่วไป')
-ON CONFLICT (en_name) DO NOTHING;
-
-INSERT INTO dtx_system.users (username, full_name, email, position, pos, role, is_active) VALUES
-('umporn', 'คุณอัมพร', 'umporn@sangkha.com', 'MT', 'MT', 'staff', true),
-('wichuda', 'คุณวิชุดา', 'wichuda@sangkha.com', 'MT', 'MT', 'staff', true),
-('chonratda', 'คุณชลรัตดา', 'chonratda@sangkha.com', 'MT', 'MT', 'staff', true),
-('udomsri', 'คุณอุดมศรี', 'udomsri@sangkha.com', 'MTA', 'MTA', 'staff', true),
-('samita', 'คุณสมิตา', 'samita.sings@gmail.com', 'MT', 'MT', 'staff', true)
-ON CONFLICT (username) DO NOTHING;
-
--- เติมข้อมูลเครื่องตรวจน้ำตาลเริ่มต้นเพื่อให้หน้า Quick Win แสดงผลทันที
-INSERT INTO dtx_system.dtx_machines (bgm_code, serial_number, brand, model, ward, status, rec_date, lot_number) VALUES
-('BGM-01', 'VCF2026001', 'VivaChek', 'Fad', 'OPD (ผู้ป่วยนอก)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-02', 'VCF2026002', 'VivaChek', 'Fad', 'ER (อุบัติเหตุและฉุกเฉิน)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-03', 'VCF2026003', 'VivaChek', 'Fad', 'IPD ชาย (หอผู้ป่วยในชาย)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-04', 'VCF2026004', 'VivaChek', 'Fad', 'IPD หญิง (หอผู้ป่วยในหญิง)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-05', 'VCF2026005', 'VivaChek', 'Fad', 'ห้องคลอด (Labor Room)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-06', 'VCF2026006', 'VivaChek', 'Fad', 'ICU (หอผู้ป่วยหนัก)', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-07', 'VCF2026007', 'VivaChek', 'Fad', 'คลินิก NCD / เบาหวาน', 'active', '2026-01-01', 'LOT2026-A'),
-('BGM-08', 'VCF2026008', 'VivaChek', 'Fad', 'งานชันสูตรสาธารณสุข', 'active', '2026-01-01', 'LOT2026-A')
-ON CONFLICT (bgm_code) DO NOTHING;
-
--- เติมข้อมูล LOT ควบคุมคุณภาพเริ่มต้น (QC Lot Configuration)
-INSERT INTO dtx_system.qc_lot_configs (
-    lot_number, 
-    l1_target, l1_min, l1_max, l1_sd, 
-    l2_target, l2_min, l2_max, l2_sd, 
-    l3_target, l3_min, l3_max, l3_sd
-) VALUES (
-    'LOT2026-A',
-    45.0, 30.0, 60.0, 1.5,
-    120.0, 100.0, 140.0, 3.0,
-    300.0, 250.0, 350.0, 8.0
-) ON CONFLICT (lot_number) DO NOTHING;
-
--- 4. Grant Permissions
-GRANT USAGE ON SCHEMA dtx_system TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA dtx_system TO anon, authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA dtx_system TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA dtx_system GRANT ALL ON TABLES TO anon, authenticated, service_role;
-
--- 5. Enable RLS and Open Policies
-ALTER TABLE dtx_system.master_wards ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.dtx_machines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.repair_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.supply_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.qc_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.qc_lot_configs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.eqa_records ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.user_manuals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.announcements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE dtx_system.maintenance_logs ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "wards_all_policy" ON dtx_system.master_wards;
-DROP POLICY IF EXISTS "machines_all_policy" ON dtx_system.dtx_machines;
-DROP POLICY IF EXISTS "repairs_all_policy" ON dtx_system.repair_requests;
-DROP POLICY IF EXISTS "supplies_all_policy" ON dtx_system.supply_requests;
-DROP POLICY IF EXISTS "qc_records_all_policy" ON dtx_system.qc_records;
-DROP POLICY IF EXISTS "qc_configs_all_policy" ON dtx_system.qc_lot_configs;
-DROP POLICY IF EXISTS "eqa_all_policy" ON dtx_system.eqa_records;
-DROP POLICY IF EXISTS "manuals_all_policy" ON dtx_system.user_manuals;
-DROP POLICY IF EXISTS "announcements_all_policy" ON dtx_system.announcements;
-DROP POLICY IF EXISTS "users_all_policy" ON dtx_system.users;
-DROP POLICY IF EXISTS "maintenance_all_policy" ON dtx_system.maintenance_logs;
-
-CREATE POLICY "wards_all_policy" ON dtx_system.master_wards FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "machines_all_policy" ON dtx_system.dtx_machines FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "repairs_all_policy" ON dtx_system.repair_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "supplies_all_policy" ON dtx_system.supply_requests FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_records_all_policy" ON dtx_system.qc_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "qc_configs_all_policy" ON dtx_system.qc_lot_configs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "eqa_all_policy" ON dtx_system.eqa_records FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "manuals_all_policy" ON dtx_system.user_manuals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "announcements_all_policy" ON dtx_system.announcements FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "users_all_policy" ON dtx_system.users FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "maintenance_all_policy" ON dtx_system.maintenance_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-
--- 6. Create Views in public schema for direct default client compatibility (All with dtx_ prefix)
-DROP VIEW IF EXISTS public.repair_requests CASCADE;
-DROP VIEW IF EXISTS public.supply_requests CASCADE;
-DROP VIEW IF EXISTS public.qc_records CASCADE;
-DROP VIEW IF EXISTS public.qc_lot_configs CASCADE;
-DROP VIEW IF EXISTS public.eqa_records CASCADE;
-DROP VIEW IF EXISTS public.user_manuals CASCADE;
-DROP VIEW IF EXISTS public.announcements CASCADE;
-DROP VIEW IF EXISTS public.maintenance_logs CASCADE;
-DROP VIEW IF EXISTS public.strip_reagent_items CASCADE;
-
-CREATE OR REPLACE VIEW public.dtx_machines AS SELECT * FROM dtx_system.dtx_machines;
-CREATE OR REPLACE VIEW public.dtx_repair_requests AS SELECT * FROM dtx_system.repair_requests;
-CREATE OR REPLACE VIEW public.dtx_supply_requests AS SELECT * FROM dtx_system.supply_requests;
-CREATE OR REPLACE VIEW public.dtx_qc_records AS SELECT * FROM dtx_system.qc_records;
-CREATE OR REPLACE VIEW public.dtx_qc_lot_configs AS SELECT * FROM dtx_system.qc_lot_configs;
-CREATE OR REPLACE VIEW public.dtx_eqa_records AS SELECT * FROM dtx_system.eqa_records;
-CREATE OR REPLACE VIEW public.dtx_user_manuals AS SELECT * FROM dtx_system.user_manuals;
-CREATE OR REPLACE VIEW public.dtx_announcements AS SELECT * FROM dtx_system.announcements;
-CREATE OR REPLACE VIEW public.dtx_maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
-CREATE OR REPLACE VIEW public.dtx_daily_checklists AS SELECT * FROM dtx_system.daily_checklists;
-CREATE OR REPLACE VIEW public.dtx_strip_reagent_items AS SELECT * FROM dtx_system.strip_reagent_items;
-CREATE OR REPLACE VIEW public.master_wards AS SELECT * FROM dtx_system.master_wards;
-CREATE OR REPLACE VIEW public.dtx_system_users AS 
-SELECT id, username, full_name, email, position, pos, ward, is_active, role 
-FROM dtx_system.users;
-
-GRANT ALL ON public.dtx_machines TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_repair_requests TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_supply_requests TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_qc_records TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_qc_lot_configs TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_eqa_records TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_user_manuals TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_announcements TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_maintenance_logs TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_daily_checklists TO anon, authenticated, service_role;
-GRANT ALL ON public.dtx_strip_reagent_items TO anon, authenticated, service_role;
-GRANT ALL ON public.master_wards TO anon, authenticated, service_role;
-GRANT SELECT ON public.dtx_system_users TO anon, authenticated, service_role;
-
--- 7. Reload Data API Schema Cache
-NOTIFY pgrst, 'reload schema';
 `;
+

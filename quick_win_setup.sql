@@ -200,6 +200,24 @@ CREATE TABLE IF NOT EXISTS dtx_system.maintenance_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
 
+-- 3.10 dtx_system.dtx_machine_stocks (Unopened Machine Stock)
+CREATE TABLE IF NOT EXISTS dtx_system.dtx_machine_stocks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    serial_number VARCHAR(150) UNIQUE NOT NULL,
+    machine_serial VARCHAR(150),
+    lot_number VARCHAR(100) NOT NULL,
+    brand VARCHAR(150) DEFAULT 'VivaChek',
+    model VARCHAR(100) DEFAULT 'Fad',
+    receive_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    rec_date DATE DEFAULT CURRENT_DATE,
+    status VARCHAR(50) DEFAULT 'standby' NOT NULL,
+    ward VARCHAR(150) DEFAULT 'คลังแล็บ/สำรอง (In Stock)',
+    bgm_code VARCHAR(100),
+    remark TEXT,
+    location_history JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
 
 -- ============================================================================
 -- 4. Create Public View Proxies in public schema (All prefixed with dtx_)
@@ -216,6 +234,8 @@ CREATE OR REPLACE VIEW public.dtx_user_manuals AS SELECT * FROM dtx_system.user_
 CREATE OR REPLACE VIEW public.dtx_announcements AS SELECT * FROM dtx_system.announcements;
 CREATE OR REPLACE VIEW public.dtx_maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
 CREATE OR REPLACE VIEW public.maintenance_logs AS SELECT * FROM dtx_system.maintenance_logs;
+CREATE OR REPLACE VIEW public.dtx_machine_stocks AS SELECT * FROM dtx_system.dtx_machine_stocks;
+CREATE OR REPLACE VIEW public.dtx_unopened_machines AS SELECT * FROM dtx_system.dtx_machine_stocks;
 
 
 -- ============================================================================

@@ -751,7 +751,7 @@ export default function QCComparisonChart({
             <label className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Layers size={13} className="text-sky-600" />
-                <span>1. เลือก LOT น้ำยา/แถบตรวจ *</span>
+                <span>1. เลือก LOT แถบตรวจ (Strip LOT) *</span>
               </span>
               <span className="text-[10px] text-sky-600 font-mono font-bold">
                 {availableLots.length} LOTs
@@ -846,7 +846,7 @@ export default function QCComparisonChart({
                 .filter(m => m.hasTestedInLot)
                 .map(m => (
                   <option key={m.serialNumber} value={m.serialNumber}>
-                    {m.displayLabel} — {m.ward} ({m.testsCount} วัน) {m.status === 'outlier' ? '️ หลุดเกณฑ์' : ''}
+                    {m.displayLabel} — {m.ward} ({m.testsCount} วัน) {m.status === 'outlier' ? ' หลุดเกณฑ์' : ''}
                   </option>
                 ))}
             </CustomSelect>

@@ -1031,9 +1031,11 @@ app.post("/api/strip-reagent-items", checkDbConfig, async (req, res) => {
 app.put("/api/strip-reagent-items/:id", checkDbConfig, async (req, res) => {
   try {
     const payload = cleanUuidPayload(req.body);
-    const data = await executeSupabaseWrite(client =>
-      client.from("strip_reagent_items").update(payload).eq("id", req.params.id).select().maybeSingle()
-    );
+    const id = req.params.id;
+    const query = isUuid(id)
+      ? (client: any) => client.from("strip_reagent_items").update(payload).eq("id", id).select("*").maybeSingle()
+      : (client: any) => client.from("strip_reagent_items").update(payload).eq("item_code", id).select("*").maybeSingle();
+    const data = await executeSupabaseWrite(query);
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1042,10 +1044,229 @@ app.put("/api/strip-reagent-items/:id", checkDbConfig, async (req, res) => {
 
 app.delete("/api/strip-reagent-items/:id", checkDbConfig, async (req, res) => {
   try {
-    const data = await executeSupabaseWrite(client =>
-      client.from("strip_reagent_items").delete().eq("id", req.params.id)
-    );
+    const id = req.params.id;
+    const query = isUuid(id)
+      ? (client: any) => client.from("strip_reagent_items").delete().eq("id", id)
+      : (client: any) => client.from("strip_reagent_items").delete().eq("item_code", id);
+
+    const data = await executeSupabaseWrite(query);
     res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- dtx_machine_stocks / unopened_machines (Unopened DTX Machine Stock Physical Table) ---
+app.get(["/api/dtx-machine-stocks", "/api/machine-stocks", "/api/unopened-machines"], checkDbConfig, async (req, res) => {
+  try {
+    // 1. Query dtx_machine_stocks table first
+    try {
+      const data = await executeSupabaseQuery(client =>
+        client.from("dtx_machine_stocks").select("*").range(0, 99999)
+      );
+      if (Array.isArray(data) && data.length > 0) {
+        return res.json(data);
+      }
+    } catch (e) {
+      console.warn("dtx_machine_stocks table query fallback:", e);
+    }
+
+    // 2. Query unopened_machines table
+    try {
+      const data = await executeSupabaseQuery(client =>
+        client.from("unopened_machines").select("*").range(0, 99999)
+      );
+      if (Array.isArray(data) && data.length > 0) {
+        return res.json(data);
+      }
+    } catch (e) {
+      console.warn("unopened_machines table query fallback:", e);
+    }
+
+    // 3. Fallback to dtx_machines filtering for in-stock / unassigned machines
+    const machines = await executeSupabaseQuery<any[]>(client =>
+      client.from("dtx_machines").select("*").or("ward.eq.คลังแล็บ/สำรอง (In Stock),bgm_code.eq.-,bgm_code.is.null").range(0, 99999),
+      []
+    );
+    res.json(machines || []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(["/api/dtx-machine-stocks", "/api/machine-stocks", "/api/unopened-machines"], checkDbConfig, async (req, res) => {
+  try {
+    const rawPayload = Array.isArray(req.body) ? req.body : [req.body];
+    const payloads = rawPayload.map(cleanUuidPayload);
+
+    let data;
+    try {
+      data = await executeSupabaseWrite(client =>
+        client.from("dtx_machine_stocks").insert(payloads).select()
+      );
+    } catch (err) {
+      try {
+        data = await executeSupabaseWrite(client =>
+          client.from("unopened_machines").insert(payloads).select()
+        );
+      } catch (err2) {
+        console.warn("Writing to dtx_machine_stocks/unopened_machines failed, trying dtx_machines fallback:", err2);
+        data = await executeSupabaseWrite(client =>
+          client.from("dtx_machines").insert(payloads).select()
+        );
+      }
+    }
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put(["/api/dtx-machine-stocks/:id", "/api/machine-stocks/:id", "/api/unopened-machines/:id"], checkDbConfig, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const payload = cleanUuidPayload(req.body);
+    let data;
+    try {
+      const query = isUuid(id)
+        ? (client: any) => client.from("dtx_machine_stocks").update(payload).eq("id", id).select("*").maybeSingle()
+        : (client: any) => client.from("dtx_machine_stocks").update(payload).eq("serial_number", id).select("*").maybeSingle();
+      data = await executeSupabaseWrite(query);
+    } catch {
+      try {
+        const query = isUuid(id)
+          ? (client: any) => client.from("unopened_machines").update(payload).eq("id", id).select("*").maybeSingle()
+          : (client: any) => client.from("unopened_machines").update(payload).eq("serial_number", id).select("*").maybeSingle();
+        data = await executeSupabaseWrite(query);
+      } catch {
+        const query = isUuid(id)
+          ? (client: any) => client.from("dtx_machines").update(payload).eq("id", id).select("*").maybeSingle()
+          : (client: any) => client.from("dtx_machines").update(payload).eq("serial_number", id).select("*").maybeSingle();
+        data = await executeSupabaseWrite(query);
+      }
+    }
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete(["/api/dtx-machine-stocks/:id", "/api/machine-stocks/:id", "/api/unopened-machines/:id"], checkDbConfig, async (req, res) => {
+  try {
+    const id = req.params.id;
+    try {
+      const query = isUuid(id)
+        ? (client: any) => client.from("dtx_machine_stocks").delete().eq("id", id)
+        : (client: any) => client.from("dtx_machine_stocks").delete().eq("serial_number", id);
+      await executeSupabaseWrite(query);
+    } catch {
+      try {
+        const query = isUuid(id)
+          ? (client: any) => client.from("unopened_machines").delete().eq("id", id)
+          : (client: any) => client.from("unopened_machines").delete().eq("serial_number", id);
+        await executeSupabaseWrite(query);
+      } catch {
+        const query = isUuid(id)
+          ? (client: any) => client.from("dtx_machines").delete().eq("id", id)
+          : (client: any) => client.from("dtx_machines").delete().eq("serial_number", id);
+        await executeSupabaseWrite(query);
+      }
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- battery_disbursements ---
+app.get("/api/battery-disbursements", checkDbConfig, async (req, res) => {
+  try {
+    // 1. Try battery_disbursements table directly
+    try {
+      const data = await executeSupabaseQuery(client =>
+        client.from("battery_disbursements").select("*").order("date", { ascending: false })
+      );
+      if (Array.isArray(data) && data.length > 0) {
+        return res.json(data);
+      }
+    } catch {}
+
+    // 2. Fallback to maintenance_logs with maintenance_type = 'เบิกถ่าน'
+    const logs = await executeSupabaseQuery<any[]>(client =>
+      client.from("maintenance_logs").select("*").eq("maintenance_type", "เบิกถ่าน").order("date", { ascending: false }),
+      []
+    );
+    if (Array.isArray(logs)) {
+      const mapped = logs.map(l => {
+        let parsed: any = {};
+        const rawNotes = l.notes || l.description || '';
+        try {
+          if (rawNotes.startsWith("{")) {
+            parsed = JSON.parse(rawNotes);
+          }
+        } catch {}
+        return {
+          id: l.id,
+          date: l.date,
+          ward: l.ward,
+          serialNumber: l.serial_number,
+          bgmCode: parsed.bgmCode || l.serial_number,
+          batteryType: parsed.batteryType || 'AAA',
+          quantity: parsed.quantity || 2,
+          requesterName: parsed.requesterName || l.operator,
+          dispenserName: parsed.dispenserName || 'เจ้าหน้าที่ห้องแล็บ',
+          reason: parsed.reason || 'เปลี่ยนถ่านประจำเครื่อง',
+          notes: parsed.notes || (rawNotes.startsWith("{") ? "" : rawNotes)
+        };
+      });
+      return res.json(mapped);
+    }
+    res.json([]);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/battery-disbursements", checkDbConfig, async (req, res) => {
+  try {
+    const b = req.body;
+    const batteryDetails = JSON.stringify({
+      batteryType: b.batteryType || "AAA",
+      quantity: b.quantity || 2,
+      requesterName: b.requesterName || "",
+      dispenserName: b.dispenserName || "",
+      reason: b.reason || "เปลี่ยนถ่านประจำเครื่อง",
+      notes: b.notes || "",
+      bgmCode: b.bgmCode || ""
+    });
+    const logPayload = {
+      date: b.date || new Date().toISOString().split("T")[0],
+      serial_number: b.serialNumber || b.bgmCode || "DTX-GENERAL",
+      ward: b.ward || "งานชันสูตรสาธารณสุข",
+      maintenance_type: "เบิกถ่าน",
+      notes: batteryDetails,
+      operator: b.dispenserName || "เจ้าหน้าที่ห้องแล็บ"
+    };
+
+    const inserted = await executeSupabaseWrite(client =>
+      client.from("maintenance_logs").insert([cleanUuidPayload(logPayload)]).select().maybeSingle()
+    );
+
+    res.json({
+      ...b,
+      id: (inserted as any)?.id || b.id || `BAT-${Date.now()}`
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/battery-disbursements/:id", checkDbConfig, async (req, res) => {
+  try {
+    await executeSupabaseWrite(client =>
+      client.from("maintenance_logs").delete().eq("id", req.params.id)
+    );
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -399,6 +399,17 @@ export default function App() {
     }
   };
 
+  const handleDeleteRepair = async (id: string) => {
+    setRepairs(prev => prev.filter(r => r.id !== id));
+    try {
+      await dbService.deleteRepair(id);
+      setShowToast('ลบรายการแจ้งซ่อมออกจากระบบเรียบร้อยแล้ว');
+    } catch (err: any) {
+      console.error('Failed to delete repair:', err);
+      setShowToast(`เกิดข้อผิดพลาดในการลบรายการซ่อม: ${err?.message || err}`);
+    }
+  };
+
   const handleAddMachine = async (newMachine: DtxMachine) => {
     const cleanCode = (newMachine.serialNumber || '').trim().toUpperCase();
     setMachines(prev => {
@@ -479,13 +490,23 @@ export default function App() {
     }
   };
 
-  const handleDeleteMachine = async (id: string) => {
-    setMachines(prev => prev.filter(m => m.id !== id && m.serialNumber !== id));
+  const handleDeleteMachine = async (id: string, bgmCode?: string) => {
+    setMachines(prev => prev.filter(m => m.id !== id && m.serialNumber !== id && (!bgmCode || m.serialNumber !== bgmCode)));
     try {
-      await dbService.deleteMachine(id);
+      await dbService.deleteMachine(id, bgmCode);
       setShowToast('ลบเครื่องตรวจน้ำตาลจากระบบฐานข้อมูลสำเร็จ');
     } catch (err: any) {
       console.error('Failed to sync deleted machine:', err);
+    }
+  };
+
+  const handleDeleteSupply = async (id: string) => {
+    setSupplies(prev => prev.filter(s => s.id !== id));
+    try {
+      await dbService.deleteSupply(id);
+      setShowToast('ลบประวัติคำขอเบิกออกจากฐานข้อมูลสำเร็จ');
+    } catch (err: any) {
+      console.error('Failed to sync deleted supply:', err);
     }
   };
 
@@ -1365,7 +1386,7 @@ export default function App() {
                       items: [
                         { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
                         { id: 'stock', label: 'DTX Machines Stock', icon: Layers },
-                        { id: 'strip_reagent', label: 'Strip & Reagent Stock', icon: Package },
+                        { id: 'strip_reagent', label: 'Strip, QC & Battery Stock', icon: Package },
                         { id: 'repair', label: 'Repairs', icon: Wrench, badge: repairs.filter(r => r.status !== 'completed').length },
                       ]
                     },
@@ -1496,12 +1517,18 @@ export default function App() {
                   supplies={supplies}
                   machines={machines}
                   onUpdateLotConfigs={handleUpdateLotConfigs}
+                  onAddMachine={handleAddMachine}
+                  onUpdateMachine={handleUpdateMachine}
+                  onDeleteMachine={handleDeleteMachine}
+                  onDeleteSupply={handleDeleteSupply}
+                  onBulkAddMachines={handleBulkAddMachines}
                 />
               )}
               {activeAdminTab === 'repair' && (
                 <RepairManagement
                   repairs={repairs}
                   onUpdateRepair={handleUpdateRepair}
+                  onDeleteRepair={handleDeleteRepair}
                   onAddRepair={handleAddRepair}
                   machines={machines}
                   lineNotifyToken={lineNotifyToken}
@@ -1566,17 +1593,17 @@ export default function App() {
               )}
               {activeAdminTab === 'supabase' && (
                 <div className="space-y-4">
-                  <div className="bg-sky-50/80 border border-sky-200/80 p-3.5 rounded-2xl flex items-center justify-between text-xs text-sky-900 shadow-2xs">
-                    <div className="flex items-center space-x-2 font-bold">
-                      <Database size={16} className="text-sky-600" />
-                      <span>ตั้งค่าระบบ: เชื่อมต่อฐานข้อมูลคลาวด์ Supabase (เรียกจากเมนูโปรไฟล์แอดมิน)</span>
+                  <div className="flex items-center justify-between text-xs px-1 text-slate-500">
+                    <div className="flex items-center space-x-2 font-bold text-slate-700 dark:text-slate-300">
+                      <Database size={15} className="text-sky-600" />
+                      <span>System Logs & Database</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => setActiveAdminTab('dashboard')}
-                      className="font-extrabold text-sky-700 hover:text-sky-950 hover:underline cursor-pointer flex items-center space-x-1"
+                      className="font-bold text-sky-600 hover:text-sky-800 dark:hover:text-sky-400 hover:underline cursor-pointer flex items-center space-x-1 text-xs"
                     >
-                      <span>← กลับสู่แผงควบคุมหลัก</span>
+                      <span>← กลับสู่ Dashboard</span>
                     </button>
                   </div>
                   <SupabaseConfig

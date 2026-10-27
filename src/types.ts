@@ -57,6 +57,17 @@ export interface DtxMachine {
   locationHistory?: MachineLocationLog[];
 }
 
+export interface UnopenedMachine {
+  id: string;
+  serialNumber: string; // Factory S/N ประจำเครื่องจากโรงงาน
+  brand: string;
+  model: string;
+  lotNumber: string;
+  receiveDate: string; // วันที่รับเข้าคลังแล็บ
+  remark?: string;
+  createdAt?: string;
+}
+
 export interface RepairChecklist {
   cleanliness: 'pass' | 'fail' | 'pending';
   buttons: 'pass' | 'fail' | 'pending';
@@ -82,7 +93,8 @@ export interface RepairRequest {
   status: 'pending' | 'repairing' | 'waiting_claim' | 'claimed' | 'completed';
   diagnosedProblem?: string; // ปัญหาที่พบหลังตรวจสอบ
   inspectionResult?: string; // ผลการตรวจสอบ
-  actionTaken?: 'change_battery' | 'return_original' | 'provide_new' | 'none'; // การดำเนินการ
+  actionTaken?: string; // การดำเนินการ
+  actionsTaken?: string[]; // การดำเนินการ (เลือกได้มากกว่า 1)
   actionDetails?: string; // รายละเอียดการดำเนินการ
   operatorName?: string;
   receiverName?: string;

@@ -166,6 +166,16 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   }, [onSwitchToRoleSelector]);
 
   // --- BATCH QC ENTRY STATES ---
+  const [internalStockItems, setInternalStockItems] = useState<StripReagentItem[]>(() => {
+    if (stockItems && stockItems.length > 0) return stockItems;
+    try {
+      const saved = localStorage.getItem('dtx_strip_items');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [localLotConfigs, setLocalLotConfigs] = useState<QcLotConfig[]>(lotConfigs);
 
   useEffect(() => {
@@ -174,10 +184,21 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
     }
   }, [lotConfigs]);
 
-  // Sort lotConfigs so latest lot (by expDate / lotNumber) is always at the top
+  // Filter and sort lotConfigs so only Strip LOT configs appear (excluding control solution bottle lots)
   const sortedLotConfigs = useMemo(() => {
-    const list = [...(localLotConfigs && localLotConfigs.length > 0 ? localLotConfigs : lotConfigs)];
-    return list.sort((a, b) => {
+    const rawList = [...(localLotConfigs && localLotConfigs.length > 0 ? localLotConfigs : lotConfigs)];
+    const validList = rawList.filter(cfg => {
+      if (!cfg || !cfg.lotNumber) return false;
+      const key = cfg.lotNumber.trim().toUpperCase();
+      if (cfg.barcode?.startsWith('QC-')) return false;
+      if (internalStockItems.length > 0) {
+        const isBottleOnly = internalStockItems.some(i => i.lotNumber?.trim().toUpperCase() === key && i.itemType === 'control_solution') &&
+          !internalStockItems.some(i => i.lotNumber?.trim().toUpperCase() === key && i.itemType === 'strip');
+        if (isBottleOnly) return false;
+      }
+      return true;
+    });
+    return validList.sort((a, b) => {
       if (a.expDate && b.expDate) {
         return new Date(b.expDate).getTime() - new Date(a.expDate).getTime();
       }
@@ -185,7 +206,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       if (b.expDate) return 1;
       return b.lotNumber.localeCompare(a.lotNumber, undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [localLotConfigs, lotConfigs]);
+  }, [localLotConfigs, lotConfigs, internalStockItems]);
 
   const [batchDate, setBatchDate] = useState<string>(() => getThaiTodayDateOnly());
 
@@ -582,15 +603,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
   const [isSavingSupply, setIsSavingSupply] = useState<boolean>(false);
   const [supplyToast, setSupplyToast] = useState<string>('');
 
-  const [internalStockItems, setInternalStockItems] = useState<StripReagentItem[]>(() => {
-    if (stockItems && stockItems.length > 0) return stockItems;
-    try {
-      const saved = localStorage.getItem('dtx_strip_items');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+
 
 
   const [isLoadingQuickWinData, setIsLoadingQuickWinData] = useState<boolean>(false);
@@ -1265,7 +1278,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
       }
 
       setSupplyRequests(prev => [savedSupply || newSupply, ...prev]);
-      setSupplyToast(` ทำการเบิก ${supItemType === 'strip' ? 'Test Strip (แผ่นตรวจ)' : 'Control Solution (น้ำยาควบคุม)'} จำนวน ${supQuantity} ${supItemType === 'strip' ? 'กล่อง' : 'ขวด'} สำเร็จเรียบร้อยแล้ว!\n️ LOT: ${supLotNumber || '-'}`);
+      setSupplyToast(` ทำการเบิก ${supItemType === 'strip' ? 'Test Strip (แผ่นตรวจ)' : 'Control Solution (น้ำยาควบคุม)'} จำนวน ${supQuantity} ${supItemType === 'strip' ? 'กล่อง' : 'ขวด'} สำเร็จเรียบร้อยแล้ว!\n LOT: ${supLotNumber || '-'}`);
       setTimeout(() => setSupplyToast(''), 6000);
 
       // Reset form
@@ -1473,7 +1486,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   />
                 </div>
                 <div className="flex items-center space-x-1.5">
-                  <span className="text-slate-500 font-medium text-xs">LOT:</span>
+                  <span className="text-slate-500 font-medium text-xs">LOT แถบตรวจ:</span>
                   <div className="flex items-center gap-1.5">
                     <select
                       value={batchLot}
@@ -1488,15 +1501,15 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                     >
                       {sortedLotConfigs.map((cfg, idx) => (
                         <option key={idx} value={cfg.lotNumber}>
-                          {cfg.lotNumber} {cfg.expDate ? `(EXP: ${formatThaiDateOnly(cfg.expDate)})` : ''}
+                          {cfg.lotNumber} (Strip) {cfg.expDate ? `(EXP: ${formatThaiDateOnly(cfg.expDate)})` : ''}
                         </option>
                       ))}
-                      <option value="__add_new__" className="text-emerald-600 font-black">+ เพิ่ม LOT ใหม่...</option>
+                      <option value="__add_new__" className="text-emerald-600 font-black">+ เพิ่ม LOT แถบตรวจใหม่...</option>
                     </select>
                     <button
                       type="button"
                       onClick={() => handleOpenAddLotModal(batchLot)}
-                      title="เพิ่ม LOT Control & Strip ใหม่"
+                      title="เพิ่ม LOT แถบตรวจ (Strip) ใหม่"
                       className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded-lg text-xs font-black flex items-center space-x-1 cursor-pointer transition-all shrink-0 shadow-3xs"
                     >
                       <Plus size={13} className="shrink-0 stroke-[3]" />
@@ -2512,7 +2525,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 <Sparkles size={20} />
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ล็อตน้ำยาในระบบ</p>
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">ล็อตแถบตรวจ (Strip LOT) ในระบบ</p>
                 <h4 className="text-base font-black text-purple-600 dark:text-purple-400">
                   {lotConfigs.length} <span className="text-xs font-bold text-slate-400">LOTs</span>
                 </h4>
@@ -2969,8 +2982,8 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <Layers size={20} className="text-white" />
                 </div>
                 <div>
-                  <h3 className="text-sm sm:text-base font-extrabold leading-tight">เพิ่ม LOT ควบคุมคุณภาพ & Strip ใหม่</h3>
-                  <p className="text-[11px] sm:text-xs text-emerald-100 font-medium">กำหนดเลข LOT, วันหมดอายุ (EXP), และช่วงค่าควบคุม (Range Control L1, L2, L3)</p>
+                  <h3 className="text-sm sm:text-base font-extrabold leading-tight">เพิ่ม LOT แถบตรวจ (Strip) & กำหนดค่าเป้าหมายใหม่</h3>
+                  <p className="text-[11px] sm:text-xs text-emerald-100 font-medium">กำหนดเลข LOT แถบตรวจ, วันหมดอายุ (EXP), และช่วงค่าควบคุม (Range Control L1, L2, L3) ตามฉลากข้างกล่องแถบตรวจ</p>
                 </div>
               </div>
               <button
@@ -2993,7 +3006,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                 <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
                   <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span>1. ข้อมูลทั่วไปของ LOT (Basic Details)</span>
+                    <span>1. ข้อมูลทั่วไปของ LOT แถบตรวจ (Strip LOT Details)</span>
                   </h4>
                   
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
@@ -3044,7 +3057,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                   <div className="flex items-center justify-between">
                     <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5 text-xs">
                       <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      <span>2. ช่วงค่าควบคุมมาตรฐาน (Standard Range Control)</span>
+                      <span>2. ช่วงค่าควบคุมมาตรฐานตามฉลากแถบตรวจ (Standard Range Control)</span>
                     </h4>
                     <span className="text-[10px] text-slate-400 font-medium">หน่วย: mg/dL</span>
                   </div>
@@ -3419,7 +3432,7 @@ export const StaffQuickPortal: React.FC<StaffQuickPortalProps> = ({
                       onClick={() => setCaViewMode("edit")}
                       className="px-4 py-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-extrabold text-xs cursor-pointer transition-all flex items-center space-x-1.5"
                     >
-                      <span>️ ปรับปรุงแก้ไขบันทึก (Edit)</span>
+                      <span> ปรับปรุงแก้ไขบันทึก (Edit)</span>
                     </button>
                     <button
                       type="button"

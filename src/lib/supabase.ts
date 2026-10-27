@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { DtxMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog, SystemUser } from '../types';
+import { DtxMachine, UnopenedMachine, MachineLocationLog, RepairRequest, SupplyRequest, QcRecord, QcLotConfig, EqaRecord, UserManual, Announcement, DailyChecklist, MaintenanceLog, SystemUser } from '../types';
 import { getThaiTodayDateOnly } from './dateUtils';
 
 // Helper to validate standard UUID format
@@ -370,6 +370,8 @@ export async function runTableDiagnostics(): Promise<TableDiagnosticResult[]> {
 
   const tables = [
     { name: 'dtx_machines', label: 'เครื่องตรวจน้ำตาล (dtx_machines)' },
+    { name: 'dtx_machine_stocks', label: 'สต็อกเครื่อง DTX สำรอง (dtx_machine_stocks)' },
+    { name: 'strip_reagent_items', label: 'สต็อกพัสดุแผ่นตรวจ/น้ำยา (dtx_strip_reagent_items)' },
     { name: 'repair_requests', label: 'รายการแจ้งซ่อม (dtx_repair_requests)' },
     { name: 'supply_requests', label: 'รายการเบิกอุปกรณ์ (dtx_supply_requests)' },
     { name: 'qc_records', label: 'บันทึกผล QC (dtx_qc_records)' },
@@ -1174,21 +1176,39 @@ export const dbService = {
     return data ? mapDbToMachine(data) : (machine as DtxMachine);
   },
 
-  async deleteMachine(id: string): Promise<void> {
-    if (getSupabaseClient()) {
-      const { error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => isUuid(id)
-          ? c.from(tbl).delete().eq('id', id)
-          : c.from(tbl).delete().eq('bgm_code', id),
-        'dtx_machines',
-        ['machines']
-      );
-      if (!error) return;
-      if (error && !isMissingTable) {
-        console.warn('Supabase deleteMachine notice:', error.message || error);
+  async deleteMachine(id: string, bgmCode?: string): Promise<void> {
+    const client = getSupabaseClient();
+    const targets = Array.from(new Set([id, bgmCode].filter(Boolean))) as string[];
+    if (client) {
+      for (const target of targets) {
+        if (isUuid(target)) {
+          try {
+            await client.from('dtx_machines').delete().eq('id', target);
+          } catch {}
+          try {
+            await querySupabaseClient(
+              (c, tbl) => c.from(tbl).delete().eq('id', target),
+              'dtx_machines',
+              ['machines']
+            );
+          } catch {}
+        } else {
+          try {
+            await client.from('dtx_machines').delete().eq('bgm_code', target);
+          } catch {}
+          try {
+            await querySupabaseClient(
+              (c, tbl) => c.from(tbl).delete().eq('bgm_code', target),
+              'dtx_machines',
+              ['machines']
+            );
+          } catch {}
+        }
       }
     }
-    await safeApiFetch(`/api/machines/${id}`, { method: 'DELETE' });
+    for (const target of targets) {
+      await safeApiFetch(`/api/machines/${encodeURIComponent(target)}`, { method: 'DELETE' }).catch(() => {});
+    }
   },
 
   // --- repair_requests ---
@@ -2131,17 +2151,209 @@ export const dbService = {
     return data ? data : updates;
   },
 
-  async deleteStripReagentItem(id: string): Promise<void> {
-    if (getSupabaseClient()) {
-      const { error, isMissingTable } = await querySupabaseClient(
-        (c, tbl) => c.from(tbl).delete().eq('id', id),
-        'strip_reagent_items'
-      );
-      if (error && !isMissingTable) {
-        console.warn('Supabase deleteStripReagentItem notice:', error.message || error);
+  async deleteStripReagentItem(id: string, itemCode?: string): Promise<void> {
+    const client = getSupabaseClient();
+    const targets = Array.from(new Set([id, itemCode].filter(Boolean))) as string[];
+
+    if (client) {
+      for (const target of targets) {
+        if (isUuid(target)) {
+          try {
+            await client.from('dtx_strip_reagent_items').delete().eq('id', target);
+          } catch {}
+          try {
+            await querySupabaseClient(
+              (c, tbl) => c.from(tbl).delete().eq('id', target),
+              'strip_reagent_items'
+            );
+          } catch {}
+        } else {
+          try {
+            await client.from('dtx_strip_reagent_items').delete().eq('item_code', target);
+          } catch {}
+          try {
+            await querySupabaseClient(
+              (c, tbl) => c.from(tbl).delete().eq('item_code', target),
+              'strip_reagent_items'
+            );
+          } catch {}
+        }
       }
     }
-    await safeApiFetch(`/api/strip-reagent-items/${id}`, { method: 'DELETE' }).catch(() => {});
+    for (const target of targets) {
+      await safeApiFetch(`/api/strip-reagent-items/${encodeURIComponent(target)}`, { method: 'DELETE' }).catch(() => {});
+    }
+  },
+
+  // --- Unopened Machine Stock (เครื่องตรวจ DTX รอเปิดใช้งาน) ---
+  async getUnopenedMachines(): Promise<UnopenedMachine[]> {
+    if (getSupabaseClient()) {
+      const { data, error, isMissingTable } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).select('*').order('created_at', { ascending: false }),
+        'unopened_machines',
+        ['dtx_unopened_machines', 'dtx_machine_stocks']
+      );
+      if (!error && Array.isArray(data)) {
+        return (data as any[]).map((row): UnopenedMachine => ({
+          id: row.id,
+          serialNumber: row.serial_number || row.machine_serial || row.serial || '',
+          brand: (row.brand || 'VivaChek').trim(),
+          model: (row.model || 'Fad').trim(),
+          lotNumber: (row.lot_number || '').trim(),
+          receiveDate: row.receive_date || row.rec_date || (row.created_at ? row.created_at.split('T')[0] : getThaiTodayDateOnly()),
+          remark: row.remark || '',
+          createdAt: row.created_at
+        }));
+      }
+      if (error && !isMissingTable) {
+        console.warn('Supabase getUnopenedMachines notice:', error.message || error);
+      }
+    }
+    const apiData = await safeApiFetch('/api/unopened-machines');
+    if (Array.isArray(apiData)) {
+      return (apiData as any[]).map((row): UnopenedMachine => ({
+        id: row.id,
+        serialNumber: row.serial_number || row.serialNumber || '',
+        brand: row.brand || 'VivaChek',
+        model: row.model || 'Fad',
+        lotNumber: row.lotNumber || row.lot_number || '',
+        receiveDate: row.receiveDate || row.receive_date || getThaiTodayDateOnly(),
+        remark: row.remark || '',
+        createdAt: row.createdAt || row.created_at
+      }));
+    }
+    return [];
+  },
+
+  async insertUnopenedMachine(machine: UnopenedMachine): Promise<UnopenedMachine> {
+    const dbPayload = {
+      id: machine.id && isUuid(machine.id) ? machine.id : generateUUID(),
+      serial_number: machine.serialNumber.trim().toUpperCase(),
+      machine_serial: machine.serialNumber.trim().toUpperCase(),
+      brand: (machine.brand || 'VivaChek').trim(),
+      model: (machine.model || 'Fad').trim(),
+      lot_number: (machine.lotNumber || '').trim(),
+      receive_date: machine.receiveDate || getThaiTodayDateOnly(),
+      rec_date: machine.receiveDate || getThaiTodayDateOnly(),
+      remark: machine.remark || '',
+      status: 'standby'
+    };
+
+    if (getSupabaseClient()) {
+      const { data, error } = await querySupabaseClient(
+        (c, tbl) => c.from(tbl).insert([dbPayload]).select().maybeSingle(),
+        'unopened_machines',
+        ['dtx_unopened_machines', 'dtx_machine_stocks']
+      );
+      if (!error && data) {
+        const row = data as any;
+        return {
+          id: row.id,
+          serialNumber: row.serial_number || machine.serialNumber,
+          brand: row.brand || machine.brand,
+          model: row.model || machine.model,
+          lotNumber: row.lot_number || machine.lotNumber,
+          receiveDate: row.receive_date || machine.receiveDate,
+          remark: row.remark || machine.remark,
+          createdAt: row.created_at
+        };
+      }
+    }
+
+    const apiRes = await safeApiFetch('/api/unopened-machines', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dbPayload)
+    });
+    return apiRes ? apiRes : machine;
+  },
+
+  async insertBulkUnopenedMachines(machines: UnopenedMachine[]): Promise<{ success: number; failed: number }> {
+    let success = 0;
+    let failed = 0;
+    for (const m of machines) {
+      try {
+        await this.insertUnopenedMachine(m);
+        success++;
+      } catch (e) {
+        console.warn('Failed to insert unopened machine:', m.serialNumber, e);
+        failed++;
+      }
+    }
+    return { success, failed };
+  },
+
+  async updateUnopenedMachine(id: string, updates: Partial<UnopenedMachine>): Promise<void> {
+    const dbPayload: any = {};
+    if (updates.serialNumber !== undefined) {
+      dbPayload.serial_number = updates.serialNumber.trim().toUpperCase();
+      dbPayload.machine_serial = updates.serialNumber.trim().toUpperCase();
+    }
+    if (updates.brand !== undefined) dbPayload.brand = updates.brand.trim();
+    if (updates.model !== undefined) dbPayload.model = updates.model.trim();
+    if (updates.lotNumber !== undefined) dbPayload.lot_number = updates.lotNumber.trim();
+    if (updates.receiveDate !== undefined) {
+      dbPayload.receive_date = updates.receiveDate;
+      dbPayload.rec_date = updates.receiveDate;
+    }
+    if (updates.remark !== undefined) dbPayload.remark = updates.remark;
+
+    if (getSupabaseClient()) {
+      await querySupabaseClient(
+        (c, tbl) => c.from(tbl).update(dbPayload).eq('id', id),
+        'unopened_machines',
+        ['dtx_unopened_machines', 'dtx_machine_stocks']
+      ).catch(() => {});
+    }
+    await safeApiFetch(`/api/unopened-machines/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dbPayload)
+    }).catch(() => {});
+  },
+
+  async deleteUnopenedMachine(id: string): Promise<void> {
+    if (getSupabaseClient()) {
+      await querySupabaseClient(
+        (c, tbl) => c.from(tbl).delete().eq('id', id),
+        'unopened_machines',
+        ['dtx_unopened_machines', 'dtx_machine_stocks']
+      ).catch(() => {});
+    }
+    await safeApiFetch(`/api/unopened-machines/${id}`, { method: 'DELETE' }).catch(() => {});
+  },
+
+  // Commission Unopened Machine -> Assign CODE BGM, send to ward, delete from unopened
+  async commissionUnopenedMachine(
+    unopenedId: string,
+    newMachine: DtxMachine
+  ): Promise<DtxMachine> {
+    // 1. Insert into dtx_machines
+    const createdMachine = await this.insertMachine(newMachine);
+    // 2. Delete from unopened_machines
+    await this.deleteUnopenedMachine(unopenedId).catch(() => {});
+    return createdMachine;
+  },
+
+  // Backward compatibility aliases
+  async getDtxMachineStocks(): Promise<DtxMachine[]> {
+    const un = await this.getUnopenedMachines();
+    return un.map(u => ({
+      id: u.id,
+      serialNumber: '-',
+      machineSerial: u.serialNumber,
+      brand: u.brand,
+      model: u.model,
+      ward: 'คลังแล็บ/สำรอง (In Stock)',
+      status: 'standby',
+      receiveDate: u.receiveDate,
+      lotNumber: u.lotNumber,
+      remark: u.remark
+    }));
+  },
+
+  async deleteDtxMachineStock(id: string): Promise<void> {
+    return this.deleteUnopenedMachine(id);
   },
 
   // --- daily_checklists (Quick Win & Staff Maintenance) ---
