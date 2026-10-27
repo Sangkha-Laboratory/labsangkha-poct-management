@@ -16,7 +16,7 @@ import {
   Lightbulb, Eye, Check, Calendar, User, Zap, BarChart3, 
   FileSpreadsheet, ShieldAlert, Sparkles, Filter, RefreshCw,
   Clock, Hourglass, Bell, Send, Share2, Copy, AlertOctagon, Info,
-  TableProperties, CheckSquare, Layers, Trash2, Calculator, Package,
+  TableProperties, CheckSquare, Layers, Edit2, Trash2, Calculator, Package,
   PackageCheck, X
 } from 'lucide-react';
 
@@ -179,6 +179,35 @@ export default function QCManagement({
     if (initialTab === 'history') return 'chart';
     if (initialTab === 'config') return 'config';
     return 'batch';
+  });
+
+  // Universal In-App Confirmation Modal State
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmText?: string;
+    confirmButtonClass?: string;
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    confirmText: 'ยืนยัน',
+    onConfirm: () => {}
+  });
+
+  // Admin Edit QC Record State
+  const [editingQcRecord, setEditingQcRecord] = useState<QcRecord | null>(null);
+  const [editQcForm, setEditQcForm] = useState({
+    date: '',
+    ward: '',
+    serialNumber: '',
+    lotNumber: '',
+    level1: '',
+    level2: '',
+    level3: '',
+    operator: ''
   });
 
   // --- QC CORRECTIVE ACTION (CA) STATES & HANDLERS ---
@@ -1540,26 +1569,119 @@ export default function QCManagement({
   const handleDeleteLotConfig = async (lotNumber: string) => {
     if (!lotNumber || !lotNumber.trim()) return;
     const cleanLot = lotNumber.trim();
-    const confirmed = window.confirm(`คุณต้องการลบการตั้งค่าช่วงค่ามาตรฐานสำหรับ LOT "${cleanLot}" ใช่หรือไม่?\n(ข้อมูลประวัติ QC เดิมจะยังคงอยู่)`);
-    if (!confirmed) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันลบการตั้งค่าช่วงค่ามาตรฐาน',
+      description: `คุณต้องการลบการตั้งค่าช่วงค่ามาตรฐานสำหรับ LOT "${cleanLot}" ใช่หรือไม่? (ข้อมูลประวัติ QC เดิมจะยังคงอยู่)`,
+      confirmText: 'ยืนยันลบการตั้งค่า',
+      confirmButtonClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+      onConfirm: async () => {
+        try {
+          if (onDeleteLotConfig) {
+            await onDeleteLotConfig(cleanLot);
+          } else {
+            await dbService.deleteLotConfig(cleanLot);
+            const updatedConfigs = lotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase());
+            onUpdateLotConfigs(updatedConfigs);
+          }
+          if (editingLotIdx !== null) {
+            setEditingLotIdx(null);
+            setEditedLot(null);
+          }
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          setBatchToast(` ลบการตั้งค่าช่วงมาตรฐาน LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
+          setTimeout(() => setBatchToast(''), 3000);
+        } catch (err: any) {
+          console.error('Failed to delete lot config:', err);
+          alert(`เกิดข้อผิดพลาดในการลบการตั้งค่า LOT: ${err?.message || err}`);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
+  // Handlers for Admin Editing QC Record
+  const handleStartEditQcRecord = (rec: QcRecord) => {
+    setEditingQcRecord(rec);
+    setEditQcForm({
+      date: rec.date,
+      ward: rec.ward,
+      serialNumber: rec.serialNumber,
+      lotNumber: rec.lotNumber,
+      level1: String(rec.level1),
+      level2: String(rec.level2),
+      level3: String(rec.level3),
+      operator: rec.operator
+    });
+  };
+
+  const handleSaveEditedQcRecord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingQcRecord) return;
+
+    const targetLot = lotConfigs.find(l => l.lotNumber === editQcForm.lotNumber) || activeLotConfig;
+    const l1 = Number(editQcForm.level1);
+    const l2 = Number(editQcForm.level2);
+    const l3 = Number(editQcForm.level3);
+
+    const l1Status = (targetLot && targetLot.level1Min && targetLot.level1Max)
+      ? (l1 < targetLot.level1Min || l1 > targetLot.level1Max ? 'out_of_control' : 'normal')
+      : 'normal';
+    const l2Status = (targetLot && targetLot.level2Min && targetLot.level2Max)
+      ? (l2 < targetLot.level2Min || l2 > targetLot.level2Max ? 'out_of_control' : 'normal')
+      : 'normal';
+    const l3Status = (targetLot && targetLot.level3Min && targetLot.level3Max)
+      ? (l3 < targetLot.level3Min || l3 > targetLot.level3Max ? 'out_of_control' : 'normal')
+      : 'normal';
+
+    const updatedFields: Partial<QcRecord> = {
+      date: editQcForm.date,
+      ward: editQcForm.ward,
+      serialNumber: editQcForm.serialNumber,
+      lotNumber: editQcForm.lotNumber,
+      level1: l1,
+      level1Status: l1Status as any,
+      level2: l2,
+      level2Status: l2Status as any,
+      level3: l3,
+      level3Status: l3Status as any,
+      operator: editQcForm.operator
+    };
 
     try {
-      if (onDeleteLotConfig) {
-        await onDeleteLotConfig(cleanLot);
+      if (onUpdateQcRecord) {
+        await onUpdateQcRecord(editingQcRecord.id, updatedFields);
       } else {
-        await dbService.deleteLotConfig(cleanLot);
-        const updatedConfigs = lotConfigs.filter(c => c.lotNumber.trim().toUpperCase() !== cleanLot.toUpperCase());
-        onUpdateLotConfigs(updatedConfigs);
+        await dbService.updateQcRecord(editingQcRecord.id, updatedFields);
       }
-      if (editingLotIdx !== null) {
-        setEditingLotIdx(null);
-        setEditedLot(null);
-      }
-      alert(` ลบการตั้งค่าช่วงมาตรฐาน LOT ${cleanLot} สำเร็จเรียบร้อยแล้ว`);
+      setEditingQcRecord(null);
+      setBatchToast(' แก้ไขบันทึกประวัติ QC สำเร็จเรียบร้อยแล้ว!');
+      setTimeout(() => setBatchToast(''), 4000);
     } catch (err: any) {
-      console.error('Failed to delete lot config:', err);
-      alert(`เกิดข้อผิดพลาดในการลบการตั้งค่า LOT: ${err?.message || err}`);
+      alert(` เกิดข้อผิดพลาดในการบันทึกการแก้ไข: ${err?.message || err}`);
     }
+  };
+
+  const handleDeleteQcRecord = async (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันลบประวัติผล QC',
+      description: `คุณต้องการลบประวัติผลการรัน QC นี้ออกจากฐานข้อมูลใช่หรือไม่?`,
+      confirmText: 'ยืนยันลบ',
+      confirmButtonClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+      onConfirm: async () => {
+        try {
+          await dbService.deleteQcRecord(id);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          setBatchToast(' ลบประวัติผล QC เรียบร้อยแล้ว');
+          setTimeout(() => setBatchToast(''), 3000);
+        } catch (err: any) {
+          alert(`เกิดข้อผิดพลาดในการลบ: ${err?.message || err}`);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
   // Dynamic automatic calculation of QC Target Range (Target/Mean, SD, Min, Max)
@@ -4012,23 +4134,48 @@ export default function QCManagement({
                                 )}
                               </td>
 
-                              {/* Action / CA */}
+                              {/* Action / CA & Admin Edit/Delete */}
                               <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
-                                {isOut ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenCaModal(rec)}
-                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
-                                      hasCa
-                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
-                                        : "bg-rose-600 hover:bg-rose-700 text-white"
-                                    }`}
-                                  >
-                                    {hasCa ? " ดูรายงาน CA" : "! บันทึกทวนสอบ (CA)"}
-                                  </button>
-                                ) : (
-                                  <span className="text-slate-300 text-[11px]">-</span>
-                                )}
+                                <div className="flex items-center justify-center space-x-1.5">
+                                  {isOut && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenCaModal(rec)}
+                                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
+                                        hasCa
+                                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                                          : "bg-rose-600 hover:bg-rose-700 text-white"
+                                      }`}
+                                    >
+                                      {hasCa ? " ดูรายงาน CA" : "! บันทึก CA"}
+                                    </button>
+                                  )}
+
+                                  {role === 'admin' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleStartEditQcRecord(rec)}
+                                        className="p-1.5 text-slate-600 dark:text-slate-300 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors cursor-pointer"
+                                        title="แก้ไขผล QC รายการนี้"
+                                      >
+                                        <Edit2 size={13} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteQcRecord(rec.id)}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                        title="ลบผล QC รายการนี้"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {!isOut && role !== 'admin' && (
+                                    <span className="text-slate-300 text-[11px]">-</span>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -4840,6 +4987,181 @@ export default function QCManagement({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Admin Edit QC Record Modal */}
+      {editingQcRecord && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4 border border-slate-200 animate-scale-in">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Edit2 size={20} className="text-sky-600" />
+                <h3 className="font-extrabold text-base text-slate-900">แก้ไขข้อมูลผลการตรวจ QC (สำหรับ Admin)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingQcRecord(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedQcRecord} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700">วันที่ลงผล *</label>
+                  <input
+                    type="date"
+                    value={editQcForm.date}
+                    onChange={(e) => setEditQcForm(prev => ({ ...prev, date: e.target.value }))}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-medium"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700">หน่วยงาน / วอร์ด *</label>
+                  <CustomSelect
+                    value={editQcForm.ward}
+                    onChange={(e) => setEditQcForm(prev => ({ ...prev, ward: e.target.value }))}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-medium"
+                  >
+                    {wards.map((w, idx) => (
+                      <option key={idx} value={w.thai_name}>{w.thai_name}</option>
+                    ))}
+                  </CustomSelect>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700">รหัสเครื่อง DTX *</label>
+                  <CustomSelect
+                    value={editQcForm.serialNumber}
+                    onChange={(e) => setEditQcForm(prev => ({ ...prev, serialNumber: e.target.value }))}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono font-medium"
+                  >
+                    {machines.map((m, idx) => (
+                      <option key={idx} value={m.serialNumber}>
+                        {m.serialNumber} ({m.ward})
+                      </option>
+                    ))}
+                  </CustomSelect>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-700">LOT แถบตรวจ (Test Strip LOT) *</label>
+                  <CustomSelect
+                    value={editQcForm.lotNumber}
+                    onChange={(e) => setEditQcForm(prev => ({ ...prev, lotNumber: e.target.value }))}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono font-bold"
+                  >
+                    {sortedLotConfigs.map((cfg, idx) => (
+                      <option key={idx} value={cfg.lotNumber}>
+                        LOT {cfg.lotNumber} (Strip)
+                      </option>
+                    ))}
+                  </CustomSelect>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-1 border-t border-slate-100">
+                <label className="font-extrabold text-slate-800 block">ค่าที่วัดได้ 3 ระดับ (mg/dL)</label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-1">
+                    <span className="text-[10px] font-extrabold text-emerald-800 block">Level 1 (Low)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editQcForm.level1}
+                      onChange={(e) => setEditQcForm(prev => ({ ...prev, level1: e.target.value }))}
+                      className="w-full text-xs font-black p-2 rounded-lg border border-emerald-300 bg-white font-mono"
+                      required
+                    />
+                  </div>
+                  <div className="p-2.5 bg-sky-50/50 rounded-xl border border-sky-200 space-y-1">
+                    <span className="text-[10px] font-extrabold text-sky-800 block">Level 2 (Normal)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editQcForm.level2}
+                      onChange={(e) => setEditQcForm(prev => ({ ...prev, level2: e.target.value }))}
+                      className="w-full text-xs font-black p-2 rounded-lg border border-sky-300 bg-white font-mono"
+                      required
+                    />
+                  </div>
+                  <div className="p-2.5 bg-purple-50/50 rounded-xl border border-purple-200 space-y-1">
+                    <span className="text-[10px] font-extrabold text-purple-800 block">Level 3 (High)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editQcForm.level3}
+                      onChange={(e) => setEditQcForm(prev => ({ ...prev, level3: e.target.value }))}
+                      className="w-full text-xs font-black p-2 rounded-lg border border-purple-300 bg-white font-mono"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700">ผู้ลงบันทึก *</label>
+                <input
+                  type="text"
+                  value={editQcForm.operator}
+                  onChange={(e) => setEditQcForm(prev => ({ ...prev, operator: e.target.value }))}
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-medium"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingQcRecord(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-extrabold bg-sky-600 hover:bg-sky-500 text-white shadow-md shadow-sky-500/20 transition-all cursor-pointer flex items-center space-x-1"
+                >
+                  <Check size={14} />
+                  <span>บันทึกการแก้ไข</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Universal Confirmation Modal */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 border border-slate-200 animate-scale-in">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <ShieldAlert size={26} />
+              <h3 className="font-extrabold text-base text-slate-900">{confirmDialog.title}</h3>
+            </div>
+            <p className="text-xs font-medium text-slate-600 leading-relaxed">{confirmDialog.description}</p>
+            <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDialog.onConfirm()}
+                className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-sm cursor-pointer transition-colors ${confirmDialog.confirmButtonClass || 'bg-rose-600 hover:bg-rose-700 text-white'}`}
+              >
+                {confirmDialog.confirmText || 'ยืนยัน'}
+              </button>
+            </div>
           </div>
         </div>
       )}

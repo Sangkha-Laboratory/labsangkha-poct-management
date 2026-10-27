@@ -67,33 +67,65 @@ export default function RepairManagement({
   // Multi-select state for bulk actions
   const [selectedRepairIds, setSelectedRepairIds] = useState<string[]>([]);
 
+  // Universal In-App Confirmation Modal State (Fixes iframe sandbox blocking window.confirm)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmText?: string;
+    confirmButtonClass?: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    confirmText: 'ยืนยัน',
+    onConfirm: () => {}
+  });
+
   // Deletion & Batch Print handlers
   const handleDeleteSingleRepair = (id: string) => {
-    if (window.confirm(`คุณต้องการลบประวัติแจ้งซ่อมรหัส "${id}" ใช่หรือไม่?`)) {
-      if (onDeleteRepair) {
-        onDeleteRepair(id);
-      } else {
-        dbService.deleteRepair(id).catch(console.error);
-      }
-      setSelectedRepairIds(prev => prev.filter(item => item !== id));
-      if (editingRepair && editingRepair.id === id) {
-        setEditingRepair(null);
-      }
-    }
-  };
-
-  const handleBulkDeleteRepairs = () => {
-    if (selectedRepairIds.length === 0) return;
-    if (window.confirm(`คุณต้องการลบรายการแจ้งซ่อมที่เลือกทั้ง ${selectedRepairIds.length} รายการใช่หรือไม่?`)) {
-      selectedRepairIds.forEach(id => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันลบประวัติแจ้งซ่อม',
+      description: `คุณต้องการลบประวัติแจ้งซ่อมรหัส "${id}" ออกจากระบบใช่หรือไม่?`,
+      confirmText: 'ยืนยันลบรายการ',
+      confirmButtonClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+      onConfirm: () => {
         if (onDeleteRepair) {
           onDeleteRepair(id);
         } else {
           dbService.deleteRepair(id).catch(console.error);
         }
-      });
-      setSelectedRepairIds([]);
-    }
+        setSelectedRepairIds(prev => prev.filter(item => item !== id));
+        if (editingRepair && editingRepair.id === id) {
+          setEditingRepair(null);
+        }
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
+  const handleBulkDeleteRepairs = () => {
+    if (selectedRepairIds.length === 0) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'ยืนยันลบรายการแจ้งซ่อมที่เลือก',
+      description: `คุณต้องการลบรายการแจ้งซ่อมที่เลือกทั้ง ${selectedRepairIds.length} รายการใช่หรือไม่?`,
+      confirmText: `ยืนยันลบ ${selectedRepairIds.length} รายการ`,
+      confirmButtonClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+      onConfirm: () => {
+        selectedRepairIds.forEach(id => {
+          if (onDeleteRepair) {
+            onDeleteRepair(id);
+          } else {
+            dbService.deleteRepair(id).catch(console.error);
+          }
+        });
+        setSelectedRepairIds([]);
+        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+      }
+    });
   };
 
   const handleBatchPrintSelected = () => {
@@ -1623,6 +1655,35 @@ export default function RepairManagement({
             setBatchPrintRepairs(null);
           }}
         />
+      )}
+
+      {/* Universal Confirmation Modal */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 border border-slate-200 animate-scale-in">
+            <div className="flex items-center space-x-3 text-rose-600">
+              <ShieldAlert size={26} />
+              <h3 className="font-extrabold text-base text-slate-900">{confirmDialog.title}</h3>
+            </div>
+            <p className="text-xs font-medium text-slate-600 leading-relaxed">{confirmDialog.description}</p>
+            <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDialog.onConfirm()}
+                className={`px-4 py-2 rounded-xl text-xs font-extrabold shadow-sm cursor-pointer transition-colors ${confirmDialog.confirmButtonClass || 'bg-rose-600 hover:bg-rose-700 text-white'}`}
+              >
+                {confirmDialog.confirmText || 'ยืนยัน'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
