@@ -18,6 +18,7 @@ interface RepairManagementProps {
   onDeleteRepair?: (id: string) => void;
   machines?: DtxMachine[];
   lineNotifyToken: string;
+  currentOperator?: string;
 }
 
 export const AVAILABLE_REPAIR_ACTIONS = [
@@ -36,7 +37,8 @@ export default function RepairManagement({
   onAddRepair,
   onDeleteRepair,
   machines = [],
-  lineNotifyToken
+  lineNotifyToken,
+  currentOperator
 }: RepairManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -191,9 +193,17 @@ export default function RepairManagement({
   const [newActionTaken, setNewActionTaken] = useState<RepairRequest['actionTaken']>('none');
   const [newActionsTaken, setNewActionsTaken] = useState<string[]>([]);
   const [newActionDetails, setNewActionDetails] = useState<string>('');
-  const [newOperatorName, setNewOperatorName] = useState<string>('ทนพ. สมชาย ดีเลิศ');
+  const [newOperatorName, setNewOperatorName] = useState<string>(() => {
+    return currentOperator || localStorage.getItem('dtx_admin_name') || 'Admin';
+  });
   const [newReceiverName, setNewReceiverName] = useState<string>('');
   const [newCompletionDate, setNewCompletionDate] = useState<string>(getThaiTodayDateOnly());
+
+  useEffect(() => {
+    if (currentOperator) {
+      setNewOperatorName(currentOperator);
+    }
+  }, [currentOperator]);
   const [isSubmittingNewRepair, setIsSubmittingNewRepair] = useState<boolean>(false);
   const [simLineMsg, setSimLineMsg] = useState<string | null>(null);
   const [machineSearchTerm, setMachineSearchTerm] = useState('');

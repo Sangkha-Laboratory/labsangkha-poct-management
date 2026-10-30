@@ -158,6 +158,20 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('dtx_role', role);
   }, [role]);
+
+  const [adminName, setAdminName] = useState<string>(() => {
+    return localStorage.getItem('dtx_admin_name') || 'Admin';
+  });
+
+  useEffect(() => {
+    if (role === 'admin' && isAdminLoggedIn) {
+      const activeAdmin = localStorage.getItem('dtx_admin_name') || adminName || 'Admin';
+      localStorage.setItem('dtx_qc_operator', activeAdmin);
+      localStorage.removeItem('dtx_current_staff');
+      localStorage.removeItem('dtx_quick_win_last_active');
+    }
+  }, [role, isAdminLoggedIn, adminName]);
+
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -274,6 +288,9 @@ export default function App() {
         setShowTimeoutNotice(true);
         localStorage.removeItem('dtx_admin_session');
         localStorage.removeItem('dtx_admin_last_active');
+        localStorage.removeItem('dtx_admin_name');
+        localStorage.removeItem('dtx_current_admin');
+        localStorage.removeItem('dtx_qc_operator');
       }, TIMEOUT_MS);
     };
 
@@ -939,9 +956,9 @@ export default function App() {
               onClick={() => setIsAdminProfileOpen(!isAdminProfileOpen)}
               className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 pl-3.5 pr-1 py-1 rounded-full text-xs font-bold text-slate-700 dark:text-slate-200 shadow-xs flex items-center space-x-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
             >
-              <span className="font-bold text-slate-800 dark:text-slate-100">admin</span>
+              <span className="font-bold text-slate-800 dark:text-slate-100">{adminName || 'Admin'}</span>
               <span className="bg-sky-500 text-white font-black px-2 py-0.5 rounded-full text-[10px] shadow-2xs">
-                AD
+                {(adminName || 'AD').substring(0, 2).toUpperCase()}
               </span>
             </button>
 
@@ -953,7 +970,7 @@ export default function App() {
                   {/* Admin User Header Info */}
                   <div className="p-3.5 bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-xl space-y-1.5 shadow-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black tracking-wide text-sky-300">ผู้ดูแลระบบสูงสุด (Administrator)</span>
+                      <span className="text-xs font-black tracking-wide text-sky-300">ผู้ดูแลระบบ: {adminName || 'Admin'}</span>
                       <span className="bg-sky-500/30 border border-sky-400/40 text-sky-300 font-mono text-[9px] px-2 py-0.5 rounded-md font-bold">
                         ACTIVE
                       </span>
@@ -1050,6 +1067,10 @@ export default function App() {
                         setAdminPassword('');
                         localStorage.removeItem('dtx_admin_session');
                         localStorage.removeItem('dtx_admin_last_active');
+                        localStorage.removeItem('dtx_admin_name');
+                        localStorage.removeItem('dtx_current_admin');
+                        localStorage.removeItem('dtx_qc_operator');
+                        localStorage.removeItem('dtx_current_staff');
                         setIsSelectingRole(true);
                         setIsAdminProfileOpen(false);
                         setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
@@ -1094,6 +1115,11 @@ export default function App() {
                   if (role === 'admin') {
                     setIsAdminLoggedIn(false);
                     localStorage.removeItem('dtx_admin_session');
+                    localStorage.removeItem('dtx_admin_last_active');
+                    localStorage.removeItem('dtx_admin_name');
+                    localStorage.removeItem('dtx_current_admin');
+                    localStorage.removeItem('dtx_qc_operator');
+                    localStorage.removeItem('dtx_current_staff');
                   }
                 }}
                 className="inline-flex items-center space-x-2 px-3.5 py-2 bg-white hover:bg-sky-50 dark:bg-slate-900 dark:hover:bg-sky-950/40 border border-slate-200 dark:border-slate-800 hover:border-sky-300 text-slate-700 dark:text-slate-200 text-xs font-black rounded-xl transition-all cursor-pointer shadow-3xs"
@@ -1125,6 +1151,9 @@ export default function App() {
                 }
                 setShowToast(`ยินดีต้อนรับเจ้าหน้าที่ ${staffInfo?.full_name || 'งานชันสูตร'}`);
               } else if (selectedRole === 'admin') {
+                const currentAdmin = localStorage.getItem('dtx_admin_name') || adminName || 'Admin';
+                localStorage.setItem('dtx_qc_operator', currentAdmin);
+                localStorage.removeItem('dtx_current_staff');
                 const savedTab = localStorage.getItem('dtx_active_admin_tab');
                 const validTabs = ['dashboard', 'stock', 'strip_reagent', 'iqc', 'eqa', 'quality', 'repair', 'line', 'supabase', 'documents'];
                 if (savedTab && validTabs.includes(savedTab)) {
@@ -1283,13 +1312,21 @@ export default function App() {
                   const userRole = (res.user.role || '').toLowerCase();
                   const assignedRole = (userRole === 'admin' || adminUsername.toLowerCase() === 'admin' || (res.user.email && res.user.email.toLowerCase().startsWith('admin@'))) ? 'admin' : 'staff';
                   
+                  const resolvedAdminName = res.user.name || res.user.username || (adminUsername.includes('@') ? adminUsername.split('@')[0] : adminUsername) || 'Admin';
+                  setAdminName(resolvedAdminName);
+                  localStorage.setItem('dtx_admin_name', resolvedAdminName);
+                  localStorage.setItem('dtx_current_admin', resolvedAdminName);
+                  localStorage.setItem('dtx_qc_operator', resolvedAdminName);
+                  localStorage.removeItem('dtx_current_staff');
+                  localStorage.removeItem('dtx_quick_win_last_active');
+
                   setIsAdminLoggedIn(true);
                   localStorage.setItem('dtx_admin_session', 'true');
                   localStorage.setItem('dtx_admin_last_active', String(Date.now()));
                   localStorage.setItem('dtx_role', assignedRole);
                   setRole(assignedRole);
                   setShowTimeoutNotice(false);
-                  setShowToast(`เข้าสู่ระบบสำเร็จในฐานะ ${assignedRole === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่ (Staff)'} (${res.user.name || res.user.email})`);
+                  setShowToast(`เข้าสู่ระบบสำเร็จในฐานะ ${assignedRole === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'เจ้าหน้าที่ (Staff)'} (${resolvedAdminName})`);
                 } else {
                   setLoginError(res.error || 'ชื่อผู้ใช้งาน/อีเมล หรือรหัสผ่านไม่ถูกต้อง');
                 }
@@ -1459,6 +1496,11 @@ export default function App() {
                     setIsAdminLoggedIn(false);
                     setIsSelectingRole(true);
                     localStorage.removeItem('dtx_admin_session');
+                    localStorage.removeItem('dtx_admin_last_active');
+                    localStorage.removeItem('dtx_admin_name');
+                    localStorage.removeItem('dtx_current_admin');
+                    localStorage.removeItem('dtx_qc_operator');
+                    localStorage.removeItem('dtx_current_staff');
                     setShowToast('ออกจากระบบผู้ดูแลเรียบร้อยแล้ว');
                   }}
                   className={`w-full flex items-center transition-all cursor-pointer text-xs font-bold text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 ${
@@ -1522,6 +1564,7 @@ export default function App() {
                   onDeleteMachine={handleDeleteMachine}
                   onDeleteSupply={handleDeleteSupply}
                   onBulkAddMachines={handleBulkAddMachines}
+                  currentOperator={adminName}
                 />
               )}
               {activeAdminTab === 'repair' && (
@@ -1532,6 +1575,7 @@ export default function App() {
                   onAddRepair={handleAddRepair}
                   machines={machines}
                   lineNotifyToken={lineNotifyToken}
+                  currentOperator={adminName}
                 />
               )}
               {activeAdminTab === 'iqc' && (
@@ -1544,6 +1588,7 @@ export default function App() {
                   onUpdateLotConfigs={handleUpdateLotConfigs}
                   onDeleteLotConfig={handleDeleteLotConfig}
                   role={role}
+                  currentOperator={adminName}
                 />
               )}
               {activeAdminTab === 'eqa' && (
@@ -1566,6 +1611,7 @@ export default function App() {
                   eqaRecords={eqaRecords}
                   onAddEqaRecord={handleAddEqaRecord}
                   role={role}
+                  currentOperator={adminName}
                 />
               )}
               {activeAdminTab === 'line' && (

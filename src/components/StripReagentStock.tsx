@@ -34,6 +34,7 @@ interface StripReagentStockProps {
   onDeleteMachine?: (id: string) => void;
   onDeleteSupply?: (id: string) => void;
   onBulkAddMachines?: (machines: DtxMachine[], overwrite?: boolean) => Promise<{ success: number; failed: number }>;
+  currentOperator?: string;
 }
 
 // Unified History Item Interface for combined history table
@@ -112,7 +113,8 @@ export default function StripReagentStock({
   supplies = [],
   machines = [],
   onUpdateLotConfigs,
-  onDeleteSupply
+  onDeleteSupply,
+  currentOperator
 }: StripReagentStockProps) {
   // Sub-Navigation Tabs: 'stock' (คลัง) | 'history' (ประวัติเบิก)
   const [activeTab, setActiveTab] = useState<'stock' | 'history'>('stock');
@@ -291,6 +293,8 @@ export default function StripReagentStock({
   const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState<'all' | 'battery' | 'strip' | 'machine' | 'lancet' | 'control_solution'>('all');
 
+  const defaultDispenser = currentOperator || localStorage.getItem('dtx_admin_name') || 'เจ้าหน้าที่ห้องแล็บ';
+
   const initialDisburseForm = {
     ward: 'งานชันสูตรสาธารณสุข',
     bgmCode: '',
@@ -298,11 +302,20 @@ export default function StripReagentStock({
     batteryType: 'AAA' as 'AAA' | 'AA' | 'CR2032' | 'other',
     quantity: 2,
     requesterName: '',
-    dispenserName: 'เจ้าหน้าที่ห้องแล็บ',
+    dispenserName: defaultDispenser,
     reason: 'ถ่านหมด/เปลี่ยนถ่านประจำเครื่อง',
     notes: ''
   };
   const [disburseForm, setDisburseForm] = useState(initialDisburseForm);
+
+  useEffect(() => {
+    if (currentOperator) {
+      setDisburseForm(prev => ({
+        ...prev,
+        dispenserName: prev.dispenserName === 'เจ้าหน้าที่ห้องแล็บ' || !prev.dispenserName ? currentOperator : prev.dispenserName
+      }));
+    }
+  }, [currentOperator]);
 
   // Wards List from Supabase
   const [wards, setWards] = useState<{ en_name: string; thai_name: string }[]>([]);

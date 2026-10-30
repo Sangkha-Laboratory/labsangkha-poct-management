@@ -159,6 +159,7 @@ interface QCManagementProps {
   onDeleteLotConfig?: (lotNumber: string) => void;
   role?: string;
   initialTab?: 'batch' | 'history' | 'config';
+  currentOperator?: string;
 }
 
 export type QcTab = 'batch' | 'chart' | 'comparison' | 'table' | 'config';
@@ -172,7 +173,8 @@ export default function QCManagement({
   onUpdateLotConfigs,
   onDeleteLotConfig,
   role = 'admin',
-  initialTab = 'batch'
+  initialTab = 'batch',
+  currentOperator
 }: QCManagementProps) {
   // Main view tab: 'batch', 'chart' (LJ), 'comparison', 'table', 'config'
   const [activeTab, setActiveTab] = useState<QcTab>(() => {
@@ -307,7 +309,7 @@ export default function QCManagement({
       repeatOverallStatus: isRepeatAllIn ? "in_control" : (isRepeatAnyOut ? "out_of_control" : "pending"),
       probableCause: caForm.probableCause,
       correctiveActionNote: caForm.correctiveActionNote,
-      operator: operator.trim(),
+      operator: (operator || (role === 'admin' ? (currentOperator || localStorage.getItem('dtx_admin_name') || 'Admin') : '')).trim() || 'Admin',
       date: getThaiTodayDateOnly(),
       resolvedAt: new Date().toISOString()
     };
@@ -391,7 +393,29 @@ export default function QCManagement({
   }, [validStripLotConfigs]);
 
   // Quick QC Entry Form States
-  const [operator, setOperator] = useState<string>(() => localStorage.getItem('dtx_qc_operator') || '');
+  const [operator, setOperator] = useState<string>(() => {
+    if (role === 'admin') {
+      return currentOperator || localStorage.getItem('dtx_admin_name') || 'Admin';
+    }
+    return localStorage.getItem('dtx_qc_operator') || '';
+  });
+
+  const handleOperatorChange = (val: string) => {
+    setOperator(val);
+    localStorage.setItem('dtx_qc_operator', val);
+    if (role === 'admin') {
+      localStorage.setItem('dtx_admin_name', val);
+    }
+  };
+
+  useEffect(() => {
+    if (role === 'admin') {
+      const activeAdminName = currentOperator || localStorage.getItem('dtx_admin_name') || 'Admin';
+      setOperator(activeAdminName);
+      localStorage.setItem('dtx_qc_operator', activeAdminName);
+    }
+  }, [role, currentOperator]);
+
   const [qcDate, setQcDate] = useState<string>(() => getThaiTodayDateOnly());
 
   // Toggle state for Machine Column Display: 'code' | 'sn' | 'both'
@@ -676,12 +700,6 @@ export default function QCManagement({
     return calculateLotExpInfo(activeLotConfig);
   }, [activeLotConfig]);
 
-  // Save operator name for persistence
-  const handleOperatorChange = (name: string) => {
-    setOperator(name);
-    localStorage.setItem('dtx_qc_operator', name);
-  };
-
   // QC Scope quick switch ('all' | 'lab' | 'ward')
   const [qcScopeFilter, setQcScopeFilter] = useState<'all' | 'lab' | 'ward'>('all');
 
@@ -867,7 +885,8 @@ export default function QCManagement({
 
   // Batch Save Handler
   const handleBatchSubmit = async () => {
-    if (!operator.trim()) {
+    const effectiveOperator = (operator || (role === 'admin' ? (currentOperator || localStorage.getItem('dtx_admin_name') || 'Admin') : '')).trim();
+    if (!effectiveOperator) {
       alert('กรุณาระบุชื่อผู้ลงบันทึก (Operator) ก่อนบันทึกข้อมูล');
       return;
     }
@@ -909,7 +928,7 @@ export default function QCManagement({
           returnDate: batchDate,
           ward: row.ward,
           serialNumber: row.serialNumber,
-          operator: operator.trim(),
+          operator: effectiveOperator,
           lotNumber: batchLot,
           level1: l1,
           level2: l2,
@@ -1004,7 +1023,8 @@ export default function QCManagement({
   // Submit quick entry
   const handleAddQcSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!operator.trim()) {
+    const effectiveOperator = (operator || (role === 'admin' ? (currentOperator || localStorage.getItem('dtx_admin_name') || 'Admin') : '')).trim();
+    if (!effectiveOperator) {
       alert('กรุณาระบุชื่อผู้ลงบันทึก QC');
       return;
     }
@@ -1047,7 +1067,7 @@ export default function QCManagement({
       returnDate: qcDate,
       ward: selectedWard,
       serialNumber: selectedSerial,
-      operator: operator.trim(),
+      operator: effectiveOperator,
       lotNumber: selectedLot,
       level1: l1,
       level2: l2,
